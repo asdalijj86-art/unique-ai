@@ -1,0 +1,7 @@
+modules = ["nodejs-24"]
+
+[workflows]
+runButton = "Project"
+
+[deployment]
+deploymentTarget = "autoscale"
