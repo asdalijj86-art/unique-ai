@@ -357,7 +357,7 @@ export default function ChatPage() {
     setIsSpeaking(false);
     const utterance = new SpeechSynthesisUtterance(text.slice(0, 4000));
     utterance.lang = 'ur-PK';
-    utterance.rate = 0.95;
+    utterance.rate = 1.25;
     const maleVoice = pickUrduMaleVoice();
     if (maleVoice) {
       utterance.voice = maleVoice;
@@ -435,6 +435,7 @@ export default function ChatPage() {
       const blob = new Blob([bytes], { type: out.mimeType || 'audio/wav' });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audio.playbackRate = 1.3; // Faster speech — user asked for quicker voice
       serverAudioRef.current = audio;
       audio.onplaying = () => {
         setIsPreparingVoice(false);
