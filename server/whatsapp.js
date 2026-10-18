@@ -118,5 +118,5 @@ export async function sendMessage(to, text) {
   return { to: digits, sent: true };
 }
 
-// Auto-connect on server start (will wait for QR scan)
-connect().catch((e) => console.error('[whatsapp] initial connect failed:', e.message));
+// Note: connection starts lazily on first ensureConnection() call,
+// not at module load — so server startup is never blocked.

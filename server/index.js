@@ -978,26 +978,37 @@ app.post("/api/transcribe", async (req, res) => {
 // WhatsApp sender (Baileys — unofficial; user accepted ban risk).
 // GET  /api/whatsapp/status → { connected, state, qr }
 // POST /api/whatsapp/send { to, text } → sends WhatsApp message
+// Lazy-loaded on first request so server startup is never blocked.
 // ---------------------------------------------------------------------------
-import('./whatsapp.js').then((wa) => {
-  app.get('/api/whatsapp/status', (req, res) => {
-    res.json(wa.getStatus());
-  });
+let _wa = null;
+async function getWa() {
+  if (!_wa) _wa = await import('./whatsapp.js');
+  return _wa;
+}
 
-  app.post('/api/whatsapp/send', async (req, res) => {
-    const { to, text } = req.body ?? {};
-    if (!to || !text) {
-      res.status(400).json({ error: 'نمبر اور ٹیکسٹ دونوں ضروری ہیں۔' });
-      return;
-    }
-    try {
-      const result = await wa.sendMessage(String(to), String(text));
-      res.json({ ok: true, ...result });
-    } catch (err) {
-      res.status(500).json({ error: err.message || 'بھیجنے میں مسئلہ ہوا۔' });
-    }
-  });
-}).catch((e) => console.error('[whatsapp] module load failed:', e.message));
+app.get('/api/whatsapp/status', async (req, res) => {
+  try {
+    const wa = await getWa();
+    res.json(wa.getStatus());
+  } catch (e) {
+    res.status(500).json({ error: 'WhatsApp module load نہیں ہو سکا۔' });
+  }
+});
+
+app.post('/api/whatsapp/send', async (req, res) => {
+  const { to, text } = req.body ?? {};
+  if (!to || !text) {
+    res.status(400).json({ error: 'نمبر اور ٹیکسٹ دونوں ضروری ہیں۔' });
+    return;
+  }
+  try {
+    const wa = await getWa();
+    const result = await wa.sendMessage(String(to), String(text));
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'بھیجنے میں مسئلہ ہوا۔' });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/phone-lookup — Abstract API phone intelligence:
