@@ -920,7 +920,7 @@ function mobileNetwork(prefix4: string): string | null {
 
 function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
   const [number, setNumber] = useState(initialNumber || '');
-  const [result, setResult] = useState<{ type: string; info: string; note: string } | null>(null);
+  const [result, setResult] = useState<{ type: string; info: string; note: string; intlNumber?: string } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const autoRanRef = useRef(false);
@@ -935,7 +935,7 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
     }
   }, [initialNumber]);
 
-  async function liveLookup(intlPhone: string): Promise<{ type: string; info: string; note: string } | null> {
+  async function liveLookup(intlPhone: string): Promise<{ type: string; info: string; note: string; intlNumber?: string } | null> {
     try {
       const res = await fetch('/api/phone-lookup', {
         method: 'POST',
@@ -945,16 +945,18 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
       const data = await res.json();
       if (!res.ok) return null;
       const parts: string[] = [];
+      parts.push(`بین الاقوامی فارمیٹ: ${intlPhone}`);
       if (data.country) parts.push(`ملک: ${data.country}`);
       if (data.region) parts.push(`علاقہ: ${data.region}`);
-      if (data.city) parts.push(`شہر: ${data.city}`);
+      if (data.city && data.city !== data.country) parts.push(`شہر: ${data.city}`);
       if (data.carrier) parts.push(`نیٹ ورک: ${data.carrier}`);
       if (data.lineType) parts.push(`قسم: ${data.lineType === 'mobile' ? 'موبائل' : data.lineType === 'landline' ? 'لینڈ لائن' : data.lineType}`);
-      if (parts.length === 0) return null;
+      if (parts.length <= 1) return null;
       return {
         type: '🌍 Live تلاش',
         info: parts.join('\n'),
         note: 'یہ معلومات live API سے آئی ہیں۔',
+        intlNumber: intlPhone,
       };
     } catch {
       return null;
@@ -1039,7 +1041,7 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
     return '';
   }
 
-  function getPakistaniResult(n: string): { type: string; info: string; note: string } | null {
+  function getPakistaniResult(n: string): { type: string; info: string; note: string; intlNumber?: string } | null {
     // Normalize to 0XXXXXXXXXX format
     let norm = n;
     if (norm.startsWith('+92')) norm = '0' + norm.slice(3);
@@ -1047,12 +1049,15 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
     else if (norm.startsWith('92') && norm.length >= 11) norm = '0' + norm.slice(2);
     if (!/^0\d{9,10}$/.test(norm)) return null;
 
+    const intl = '+92' + norm.slice(1);
+
     if (/^03\d{9}$/.test(norm)) {
       const net = mobileNetwork(norm.slice(0, 4));
       return {
         type: '📱 موبائل نمبر',
-        info: `ملک: پاکستان 🇵🇰\nنیٹ ورک: ${net || 'معلوم نہیں'}`,
+        info: `بین الاقوامی فارمیٹ: ${intl}\nملک: پاکستان 🇵🇰\nنیٹ ورک: ${net || 'معلوم نہیں'}\nقسم: موبائل`,
         note: 'موبائل نمبر سے شہر معلوم نہیں ہو سکتا — نمبر پورٹیبلٹی کی وجہ سے۔',
+        intlNumber: intl,
       };
     }
     for (let len = 3; len >= 2; len--) {
@@ -1061,15 +1066,17 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
       if (city) {
         return {
           type: '☎️ لینڈ لائن نمبر',
-          info: `ملک: پاکستان 🇵🇰\nشہر: ${city} (کوڈ ${code})`,
+          info: `بین الاقوامی فارمیٹ: ${intl}\nملک: پاکستان 🇵🇰\nشہر: ${city} (کوڈ ${code})\nقسم: لینڈ لائن`,
           note: 'یہ ایریا کوڈ کی بنیاد پر ہے۔',
+          intlNumber: intl,
         };
       }
     }
     return {
       type: '☎️ لینڈ لائن نمبر',
-      info: 'ملک: پاکستان 🇵🇰\nایریا کوڈ معلوم نہیں',
+      info: `بین الاقوامی فارمیٹ: ${intl}\nملک: پاکستان 🇵🇰\nایریا کوڈ معلوم نہیں`,
       note: 'یہ کوڈ ہماری لسٹ میں نہیں۔',
+      intlNumber: intl,
     };
   }
 
@@ -1096,6 +1103,19 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
           <div><b>{result.type}</b></div>
           <div style={{ marginTop: 6 }}>{result.info}</div>
           <div className="tool-small-note" style={{ marginTop: 8 }}>{result.note}</div>
+          {result.intlNumber && (
+            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+              <a
+                href={`https://wa.me/${result.intlNumber.replace('+', '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="tool-action-button"
+                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                💬 WhatsApp پر دیکھیں
+              </a>
+            </div>
+          )}
         </div>
       )}
     </div>
