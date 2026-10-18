@@ -455,6 +455,9 @@ export function classifyIntent(text) {
   if (/(image resize|تصویر.*سائز|photo choti|چھوٹی.*تصویر|resize karo)/i.test(message)) {
     return { intent: 'media_tool', tool: 'resize' };
   }
+  if (/(video upload|ویڈیو اپلوڈ|gallery se video|گیلری سے ویڈیو|video lagao|ویڈیو لگاؤ|video taiyar|ویڈیو تیار)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'video_upload' };
+  }
 
   // --- video creator suite ---------------------------------------------------
   if (/(video banao|ویڈیو بناؤ|script likho|اسکرپٹ لکھو|title batao|ٹائٹل بتاؤ|hashtag|ہیش ٹیگ|video ka plan|ویڈیو کا پلان|youtube video|یوٹیوب ویڈیو)/i.test(message)) {
@@ -616,6 +619,7 @@ const MEDIA_TOOL_NAMES = {
   audio_to_text: { ur: 'آڈیو سے متن', roman: 'Audio to text', en: 'Audio to text' },
   email: { ur: 'ای میل مددگار', roman: 'Email helper', en: 'Email helper' },
   resize: { ur: 'تصویر ری سائز', roman: 'Image resize', en: 'Image resize' },
+  video_upload: { ur: 'ویڈیو اپلوڈ', roman: 'Video upload', en: 'Video upload' },
 };
 
 export function mediaToolConfirmation(tool, lang) {

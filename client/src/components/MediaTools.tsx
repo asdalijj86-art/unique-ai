@@ -9,10 +9,11 @@
 
 import { useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import VideoUpload from './VideoUpload';
 
 export type MediaToolName =
   | 'background_remover' | 'ocr' | 'upscaler' | 'pdf'
-  | 'audio_to_text' | 'email' | 'resize' | 'video_creator';
+  | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload';
 
 const TOOL_TITLES: Record<MediaToolName, string> = {
   background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
@@ -22,6 +23,7 @@ const TOOL_TITLES: Record<MediaToolName, string> = {
   audio_to_text: '🎤 آڈیو سے متن',
   email: '✉️ ای میل لکھوائیں',
   resize: '📐 تصویر ری سائز کریں',
+  video_upload: '🎬 ویڈیو اپلوڈ اور وائرل تیاری',
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -547,6 +549,7 @@ export default function MediaTools({ tool, onClose }: { tool: MediaToolName; onC
         {tool === 'pdf' && <PdfTools />}
         {tool === 'audio_to_text' && <AudioToText />}
         {tool === 'email' && <EmailHelper />}
+        {tool === 'video_upload' && <VideoUpload />}
       </div>
     </div>
   );
