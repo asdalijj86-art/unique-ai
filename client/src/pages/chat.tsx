@@ -371,9 +371,29 @@ export default function ChatPage() {
   function handleVoiceWebsiteCommand(recognizedText: string): boolean {
     const command = parseWebsiteCommand(recognizedText);
     if (!command) return false;
-    const confirmation = command.isSearchFallback
-      ? `جی، ${command.displayName} گوگل پر تلاش کر کے کھول رہا ہوں۔`
-      : `جی، ${command.displayName} کھول رہا ہوں۔`;
+
+    let confirmation: string;
+    if (command.prefillText) {
+      // Check if the URL has the text pre-filled (wa.me, youtube search, etc.)
+      const urlHasPrefill = command.url.includes(encodeURIComponent(command.prefillText).slice(0, 20))
+        || command.url.includes('text=') || command.url.includes('search_query=') || command.url.includes('?q=');
+      if (urlHasPrefill) {
+        confirmation = `جی، ${command.displayName} کھول رہا ہوں — آپ کا ٹیکسٹ پہلے سے لکھا ہوگا۔`;
+      } else {
+        // Site doesn't support URL pre-fill — copy to clipboard, user pastes.
+        try {
+          navigator.clipboard.writeText(command.prefillText);
+          confirmation = `جی، ${command.displayName} کھول رہا ہوں — آپ کا ٹیکسٹ کاپی کر لیا ہے، وہاں paste کر دیں۔`;
+        } catch {
+          confirmation = `جی، ${command.displayName} کھول رہا ہوں — ٹیکسٹ یہ ہے: ${command.prefillText}`;
+        }
+      }
+    } else {
+      confirmation = command.isSearchFallback
+        ? `جی، ${command.displayName} گوگل پر تلاش کر کے کھول رہا ہوں۔`
+        : `جی، ${command.displayName} کھول رہا ہوں۔`;
+    }
+
     let opened = false;
     try {
       opened = window.open(command.url, '_blank', 'noopener,noreferrer') !== null;

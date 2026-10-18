@@ -12,6 +12,8 @@ export type WebsiteCommand = {
   displayName: string;
   /** True when we fell back to a web search for an unknown site. */
   isSearchFallback: boolean;
+  /** Text to pre-fill (via URL) when the command included "and write ...". */
+  prefillText?: string;
 };
 
 type SiteEntry = {
@@ -94,12 +96,104 @@ function stripFillerWords(normalized: string): string {
   return name.trim();
 }
 
+// "Write" verbs for "open X and write Y" pattern (Urdu / Roman Urdu / English).
+const WRITE_VERBS = [
+  'اور لکھو', 'اور لکھ دو', 'اور لکھیں', 'اور ٹائپ کرو', 'اور ٹائپ کریں',
+  'پر لکھو', 'پر لکھ دو', 'پر لکھیں', 'میں لکھو', 'میں لکھ دو',
+  'aur likho', 'aur likh do', 'per likho', 'per likh do', 'me likho', 'me likh do',
+  'and write', 'and type', '& write',
+];
+
+// Sites that support text pre-fill via URL parameters.
+function buildPrefillUrl(siteKey: string, text: string): string | null {
+  const encoded = encodeURIComponent(text);
+  // WhatsApp: opens share picker with text pre-filled
+  if (['whatsapp', 'واٹس ایپ', 'واٹساپ', 'whatsapp web'].includes(siteKey)) {
+    return `https://wa.me/?text=${encoded}`;
+  }
+  // YouTube: pre-fills the search box
+  if (['youtube', 'یوٹیوب', 'یو ٹیوب'].includes(siteKey)) {
+    return `https://www.youtube.com/results?search_query=${encoded}`;
+  }
+  // Twitter/X: opens tweet composer with text
+  if (['twitter', 'ٹویٹر'].includes(siteKey)) {
+    return `https://x.com/intent/tweet?text=${encoded}`;
+  }
+  // Telegram: opens share with text
+  if (['telegram', 'ٹیلی گرام'].includes(siteKey)) {
+    return `https://t.me/share/url?url=&text=${encoded}`;
+  }
+  // Google: searches the text
+  if (['google', 'گوگل'].includes(siteKey)) {
+    return `https://www.google.com/search?q=${encoded}`;
+  }
+  return null;
+}
+
+/**
+ * Parses "open X and write Y" style commands (Urdu / Roman Urdu / English).
+ * Returns a WebsiteCommand with prefillText, or null if no match.
+ * Examples: "واٹس ایپ کھولو اور لکھو السلام علیکم",
+ *           "youtube kholo aur likho hello",
+ *           "open whatsapp and write hello"
+ */
+export function parseWebsiteCommandWithText(text: string): WebsiteCommand | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  // Try each write verb as a separator: "<open-part> <write-verb> <text-part>"
+  for (const writeVerb of WRITE_VERBS) {
+    const idx = trimmed.toLowerCase().indexOf(writeVerb.toLowerCase());
+    if (idx === -1) continue;
+
+    const openPart = trimmed.slice(0, idx).trim();
+    const textPart = trimmed.slice(idx + writeVerb.length).trim();
+    if (!openPart || !textPart) continue;
+
+    // Parse the site from the open part (reuse the open-verb patterns)
+    const leadingSite = openPart.match(LEADING_VERB_PATTERN)?.[1];
+    const trailingSite = leadingSite ? undefined : openPart.match(TRAILING_VERB_PATTERN)?.[1];
+    const rawSite = leadingSite ?? trailingSite ?? openPart;
+    if (!rawSite) continue;
+
+    const siteName = lightNormalize(rawSite);
+    const known = SITES.find((site) => site.keys.includes(siteName))
+      ?? SITES.find((site) => site.keys.includes(stripFillerWords(siteName)));
+    if (!known) continue;
+
+    const prefillUrl = buildPrefillUrl(siteName, textPart)
+      ?? buildPrefillUrl(stripFillerWords(siteName), textPart);
+
+    if (prefillUrl) {
+      return {
+        url: prefillUrl,
+        displayName: known.displayName,
+        isSearchFallback: false,
+        prefillText: textPart,
+      };
+    }
+    // Site doesn't support pre-fill — open normally and copy text to clipboard
+    // (the caller handles clipboard + user instruction).
+    return {
+      url: known.url,
+      displayName: known.displayName,
+      isSearchFallback: false,
+      prefillText: textPart,
+    };
+  }
+  return null;
+}
+
 /**
  * Returns a WebsiteCommand when `text` is an "open website" style command,
  * otherwise null. Matching is case-insensitive and tolerant of Urdu,
  * Roman Urdu and English phrasing.
  */
 export function parseWebsiteCommand(text: string): WebsiteCommand | null {
+  // First try "open X and write Y" pattern (with pre-fill text)
+  const withText = parseWebsiteCommandWithText(text);
+  if (withText) return withText;
+
   const trimmed = text.trim();
   if (!trimmed) return null;
 
