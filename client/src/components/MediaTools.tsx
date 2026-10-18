@@ -954,15 +954,40 @@ function PhoneLookup() {
     setResult(null);
     // Normalize: remove spaces, dashes, parentheses
     let n = number.replace(/[\s\-()]/g, '');
+    if (!n) {
+      setError('پہلے فون نمبر لکھیں۔');
+      return;
+    }
 
-    // Build international format for the live API
-    let intl = '';
-    if (n.startsWith('+')) intl = n;
-    else if (n.startsWith('00')) intl = '+' + n.slice(2);
-    else if (n.startsWith('0')) intl = '+92' + n.slice(1);
-    else intl = '+' + n;
+    // Detect if Pakistani number (for instant local result)
+    const isPakistani = n.startsWith('0') || n.startsWith('+92') || n.startsWith('0092') || n.startsWith('92');
 
-    // Try live API first (city-level data)
+    // For Pakistani numbers: show LOCAL result instantly, then enhance with live data
+    if (isPakistani) {
+      const localResult = getPakistaniResult(n);
+      if (localResult) {
+        setResult(localResult);
+        // Try live API in background to add more info (don't block)
+        const intl = toIntl(n);
+        if (intl) {
+          setBusy(true);
+          const live = await liveLookup(intl);
+          setBusy(false);
+          if (live && live.info.includes('شہر:') && !live.info.includes('شہر: Pakistan')) {
+            // Live found a real city — upgrade the result
+            setResult(live);
+          }
+          // Otherwise keep the local result (it's already showing)
+        }
+        return;
+      }
+      // Pakistani but invalid format
+      setError('صحیح پاکستانی نمبر لکھیں (مثلاً 03001234567 یا 04235712345)');
+      return;
+    }
+
+    // Non-Pakistani: try live API first
+    const intl = toIntl(n);
     setBusy(true);
     const live = await liveLookup(intl);
     setBusy(false);
@@ -971,70 +996,69 @@ function PhoneLookup() {
       return;
     }
 
-    // Fallback: local offline lookup below
-    let countryCode = '';
-    if (n.startsWith('+')) {
-      const digits = n.slice(1);
-      for (let len = 3; len >= 1; len--) {
-        const cc = digits.slice(0, len);
-        if (COUNTRY_CODES[cc]) { countryCode = cc; break; }
-      }
-      if (!countryCode) { setError('یہ ملک کا کوڈ معلوم نہیں۔ نمبر چیک کریں۔'); return; }
-    } else if (n.startsWith('00')) {
-      const digits = n.slice(2);
-      for (let len = 3; len >= 1; len--) {
-        const cc = digits.slice(0, len);
-        if (COUNTRY_CODES[cc]) { countryCode = cc; break; }
-      }
-      if (!countryCode) { setError('یہ ملک کا کوڈ معلوم نہیں۔ نمبر چیک کریں۔'); return; }
-    } else {
-      if (n.startsWith('92') && n.length >= 12) n = '0' + n.slice(2);
-      countryCode = '92';
-      n = '0' + (n.startsWith('0') ? n.slice(1) : n);
-    }
-
-    const country = COUNTRY_CODES[countryCode] || 'نامعلوم ملک';
-
-    // Pakistan: detailed lookup (city for landline, network for mobile)
-    if (countryCode === '92') {
-      if (!/^0\d{9,10}$/.test(n)) {
-        setError('صحیح پاکستانی نمبر لکھیں (مثلاً 03001234567 یا 04235712345)');
-        return;
-      }
-      if (/^03\d{9}$/.test(n)) {
-        const net = mobileNetwork(n.slice(0, 4));
-        setResult({
-          type: '📱 موبائل نمبر',
-          info: `ملک: پاکستان 🇵🇰\nنیٹ ورک: ${net || 'معلوم نہیں'}`,
-          note: 'موبائل نمبر سے شہر معلوم نہیں ہو سکتا — نمبر پورٹیبلٹی کی وجہ سے۔',
-        });
-        return;
-      }
-      for (let len = 3; len >= 2; len--) {
-        const code = n.slice(0, len + 1);
-        const city = PAK_AREA_CODES[code];
-        if (city) {
-          setResult({
-            type: '☎️ لینڈ لائن نمبر',
-            info: `ملک: پاکستان 🇵🇰\nشہر: ${city} (کوڈ ${code})`,
-            note: 'یہ ایریا کوڈ کی بنیاد پر ہے۔',
-          });
-          return;
-        }
-      }
+    // Fallback: country from code
+    const cc = detectCountryCode(n);
+    if (cc) {
       setResult({
-        type: '☎️ لینڈ لائن نمبر',
-        info: 'ملک: پاکستان 🇵🇰\nایریا کوڈ معلوم نہیں',
-        note: 'یہ کوڈ ہماری لسٹ میں نہیں۔',
+        type: '🌍 بین الاقوامی نمبر',
+        info: `ملک: ${COUNTRY_CODES[cc] || 'نامعلوم ملک'}\nکوڈ: +${cc}`,
+        note: 'Live تلاش دستیاب نہیں — صرف ملک بتایا جا سکتا ہے۔',
       });
-      return;
+    } else {
+      setError('یہ نمبر سمجھ نہیں آیا۔ صحیح فارمیٹ میں لکھیں (مثلاً +971501234567)');
     }
+  }
 
-    setResult({
-      type: '🌍 بین الاقوامی نمبر',
-      info: `ملک: ${country}\nکوڈ: +${countryCode}`,
-      note: 'Live تلاش دستیاب نہیں — صرف ملک بتایا جا سکتا ہے۔',
-    });
+  function toIntl(n: string): string {
+    if (n.startsWith('+')) return n;
+    if (n.startsWith('00')) return '+' + n.slice(2);
+    if (n.startsWith('0')) return '+92' + n.slice(1);
+    return '+' + n;
+  }
+
+  function detectCountryCode(n: string): string {
+    let digits = n;
+    if (digits.startsWith('+')) digits = digits.slice(1);
+    else if (digits.startsWith('00')) digits = digits.slice(2);
+    for (let len = 3; len >= 1; len--) {
+      const cc = digits.slice(0, len);
+      if (COUNTRY_CODES[cc]) return cc;
+    }
+    return '';
+  }
+
+  function getPakistaniResult(n: string): { type: string; info: string; note: string } | null {
+    // Normalize to 0XXXXXXXXXX format
+    let norm = n;
+    if (norm.startsWith('+92')) norm = '0' + norm.slice(3);
+    else if (norm.startsWith('0092')) norm = '0' + norm.slice(4);
+    else if (norm.startsWith('92') && norm.length >= 11) norm = '0' + norm.slice(2);
+    if (!/^0\d{9,10}$/.test(norm)) return null;
+
+    if (/^03\d{9}$/.test(norm)) {
+      const net = mobileNetwork(norm.slice(0, 4));
+      return {
+        type: '📱 موبائل نمبر',
+        info: `ملک: پاکستان 🇵🇰\nنیٹ ورک: ${net || 'معلوم نہیں'}`,
+        note: 'موبائل نمبر سے شہر معلوم نہیں ہو سکتا — نمبر پورٹیبلٹی کی وجہ سے۔',
+      };
+    }
+    for (let len = 3; len >= 2; len--) {
+      const code = norm.slice(0, len + 1);
+      const city = PAK_AREA_CODES[code];
+      if (city) {
+        return {
+          type: '☎️ لینڈ لائن نمبر',
+          info: `ملک: پاکستان 🇵🇰\nشہر: ${city} (کوڈ ${code})`,
+          note: 'یہ ایریا کوڈ کی بنیاد پر ہے۔',
+        };
+      }
+    }
+    return {
+      type: '☎️ لینڈ لائن نمبر',
+      info: 'ملک: پاکستان 🇵🇰\nایریا کوڈ معلوم نہیں',
+      note: 'یہ کوڈ ہماری لسٹ میں نہیں۔',
+    };
   }
 
   return (

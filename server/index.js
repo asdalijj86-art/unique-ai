@@ -96,16 +96,16 @@ function validMessages(messages) {
         (m.role === "user" || m.role === "assistant") &&
         typeof m.content === "string" &&
         m.content.length > 0 &&
-        (m.image === undefined || (typeof m.image === "string" && m.image.startsWith("data:image/")))
+        (m.image === undefined || (typeof m.image === "string" && /^data:(image|video)\//.test(m.image)))
     )
   );
 }
 
-// Convert a data-URL image to a Gemini inlineData part.
+// Convert a data-URL image/video to a Gemini inlineData part.
 function imageToGeminiPart(dataUrl) {
-  const match = /^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/.exec(dataUrl || "");
+  const match = /^data:((image|video)\/[a-zA-Z0-9+.-]+);base64,(.+)$/.exec(dataUrl || "");
   if (!match) return null;
-  return { inlineData: { mimeType: match[1], data: match[2] } };
+  return { inlineData: { mimeType: match[1], data: match[3] } };
 }
 
 // ---------------------------------------------------------------------------

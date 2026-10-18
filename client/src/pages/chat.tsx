@@ -476,17 +476,20 @@ export default function ChatPage() {
     }
   }
 
-  // Image attach for vision: read as base64 data URL (max ~4MB).
+  // Image attach for vision: read as base64 data URL.
   function handleImagePick(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('صرف تصویر والی فائل بھیجیں۔');
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    if (!isImage && !isVideo) {
+      setError('صرف تصویر یا ویڈیو والی فائل بھیجیں۔');
       return;
     }
-    if (file.size > 4 * 1024 * 1024) {
-      setError('تصویر 4MB سے چھوٹی ہونی چاہیے۔');
+    const maxSize = isVideo ? 20 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setError(isVideo ? 'ویڈیو 20MB سے چھوٹی ہونی چاہیے۔' : 'تصویر 4MB سے چھوٹی ہونی چاہیے۔');
       return;
     }
     const reader = new FileReader();
@@ -495,7 +498,7 @@ export default function ChatPage() {
       setAttachedImage(dataUrl);
       setError('');
     };
-    reader.onerror = () => setError('تصویر پڑھنے میں مسئلہ ہوا۔');
+    reader.onerror = () => setError('فائل پڑھنے میں مسئلہ ہوا۔');
     reader.readAsDataURL(file);
   }
 
@@ -841,7 +844,11 @@ export default function ChatPage() {
                   <article key={message.id} className={`jmsg ${message.role}`} data-testid={`message-${message.role}-${message.id}`}>
                     <div className="jmsg-bubble" dir="auto" data-testid={`text-message-content-${message.id}`}>
                       {message.image ? (
-                        <img src={message.image} alt="بھیجی گئی تصویر" className="jmsg-image" />
+                        message.image.startsWith('data:video/') ? (
+                          <video src={message.image} controls className="jmsg-image" />
+                        ) : (
+                          <img src={message.image} alt="بھیجی گئی فائل" className="jmsg-image" />
+                        )
                       ) : null}
                       {renderMessageContent(message.content)}
                     </div>
@@ -894,16 +901,20 @@ export default function ChatPage() {
           ) : null}
           {attachedImage ? (
             <div className="hero-attach-preview" dir="ltr">
-              <img src={attachedImage} alt="منسلک تصویر" className="hero-attach-thumb" />
+              {attachedImage.startsWith('data:video/') ? (
+                <video src={attachedImage} className="hero-attach-thumb" muted />
+              ) : (
+                <img src={attachedImage} alt="منسلک فائل" className="hero-attach-thumb" />
+              )}
               <button
                 type="button"
                 className="hero-attach-remove"
                 onClick={() => setAttachedImage(null)}
-                aria-label="تصویر ہٹائیں"
+                aria-label="فائل ہٹائیں"
               >
                 ✕
               </button>
-              <span className="hero-attach-hint">تصویر تیار ہے — سوال لکھیں یا بھیج دیں 📷</span>
+              <span className="hero-attach-hint">{attachedImage.startsWith('data:video/') ? 'ویڈیو تیار ہے — سوال لکھیں یا بھیج دیں 🎬' : 'تصویر تیار ہے — سوال لکھیں یا بھیج دیں 📷'}</span>
             </div>
           ) : null}
           <div className="hero-composer">
@@ -919,19 +930,19 @@ export default function ChatPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               style={{ display: 'none' }}
               onChange={handleImagePick}
-              aria-label="تصویر لگائیں"
+              aria-label="تصویر یا ویڈیو لگائیں"
               data-testid="input-image-attach"
             />
             <button
               className="hero-attach"
               onClick={() => fileInputRef.current?.click()}
               disabled={busy}
-              aria-label="تصویر بھیجیں"
+              aria-label="تصویر یا ویڈیو بھیجیں"
               data-testid="button-attach-image"
-              title="تصویر بھیجیں 📷"
+              title="تصویر یا ویڈیو بھیجیں 📷"
             >
               📎
             </button>
