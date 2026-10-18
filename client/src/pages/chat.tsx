@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import {
+  AudioLines,
   Clock3,
   Hand,
   Mic,
@@ -101,10 +102,19 @@ export default function ChatPage() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [projectBuild, setProjectBuild] = useState<{ description: string } | null>(null);
+  // Continuous voice mode (hands-free): listen -> auto-send on silence -> auto-speak reply.
+  const [continuousVoice, setContinuousVoice] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState('');
   const chatMutation = useSendMairaChatMessage();
   const timerRef = useRef<number | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const recognizedTextRef = useRef('');
+  // Continuous-mode refs (avoid stale closures inside recognition callbacks).
+  const continuousVoiceRef = useRef(false);
+  const continuousRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const continuousTextRef = useRef('');
+  const silenceTimerRef = useRef<number | null>(null);
+  const continuousIntendedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const serverAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -151,7 +161,16 @@ export default function ChatPage() {
   useEffect(() => () => {
     if (timerRef.current !== null) window.clearInterval(timerRef.current);
     recognitionRef.current?.stop();
+    // Continuous voice mode cleanup.
+    continuousIntendedRef.current = false;
+    if (silenceTimerRef.current !== null) window.clearTimeout(silenceTimerRef.current);
+    try { continuousRecognitionRef.current?.stop(); } catch { /* already stopped */ }
   }, []);
+
+  // Keep the ref in sync so recognition callbacks always see the live value.
+  useEffect(() => {
+    continuousVoiceRef.current = continuousVoice;
+  }, [continuousVoice]);
 
   function startNewChat() {
     const conversation: Conversation = {
@@ -314,9 +333,13 @@ export default function ChatPage() {
     }
     // If no Urdu voice is installed, Chrome still attempts with its default
     // voice instead of staying silent; onerror reports the failure plainly.
-    utterance.onend = () => setIsSpeaking(false);
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      resumeContinuousAfterTts();
+    };
     utterance.onerror = () => {
       setIsSpeaking(false);
+      resumeContinuousAfterTts();
       const n = window.speechSynthesis.getVoices().length;
       setError(`آواز نہیں چل سکی (آوازیں: ${n})۔ آپ جواب پڑھ سکتے ہیں۔`);
     };
@@ -368,6 +391,8 @@ export default function ChatPage() {
     }
     lastSpokenRef.current = { text, at: now };
     stopSpeaking();
+    // Hands-free mode: pause the mic while the reply plays (no echo).
+    pauseContinuousForTts();
     // Primary: server-side masculine Urdu voice (Gemini TTS) — same voice on every device.
     try {
       const out = await synthesizeMairaSpeech({ text: text.slice(0, 4000) });
@@ -381,6 +406,7 @@ export default function ChatPage() {
         setIsSpeaking(false);
         URL.revokeObjectURL(url);
         if (serverAudioRef.current === audio) serverAudioRef.current = null;
+        resumeContinuousAfterTts();
       };
       audio.onerror = () => {
         URL.revokeObjectURL(url);
@@ -393,6 +419,167 @@ export default function ChatPage() {
       // Server voice unavailable — fall back to the browser voice.
     }
     speakWithBrowser(text);
+  }
+
+  // ------------------------------------------------------------------
+  // Continuous voice mode (hands-free conversation).
+  // Listen continuously -> auto-send after ~2s silence -> reply auto-speaks.
+  // Recognition pauses while the assistant's voice plays (no echo) and
+  // resumes automatically afterwards.
+  // ------------------------------------------------------------------
+  const busyRef = useRef(false);
+  useEffect(() => {
+    busyRef.current = chatMutation.isPending;
+  }, [chatMutation.isPending]);
+
+  function clearSilenceTimer() {
+    if (silenceTimerRef.current !== null) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }
+
+  function scheduleSilenceSend() {
+    clearSilenceTimer();
+    silenceTimerRef.current = window.setTimeout(() => {
+      silenceTimerRef.current = null;
+      const text = continuousTextRef.current.trim();
+      continuousTextRef.current = '';
+      if (!text || !continuousIntendedRef.current || busyRef.current) return;
+      // Pause listening while we send + get the reply, to avoid self-trigger.
+      pauseContinuousForTts();
+      const handledAsWebsiteCommand = handleVoiceWebsiteCommand(text);
+      if (!handledAsWebsiteCommand) void sendMessage(text, true);
+      // Note: sendMessage -> playAssistantMessage will resume listening
+      // via resumeContinuousAfterTts() when the reply finishes speaking.
+      // If the send fails, resume here so we don't go silent.
+      window.setTimeout(() => {
+        if (continuousIntendedRef.current && !isSpeakingRef.current && !busyRef.current) {
+          startContinuousListening();
+        }
+      }, 4000);
+    }, 2000);
+  }
+
+  const isSpeakingRef = useRef(false);
+  useEffect(() => {
+    isSpeakingRef.current = isSpeaking;
+  }, [isSpeaking]);
+
+  function startContinuousListening() {
+    if (!continuousIntendedRef.current) return;
+    // Don't listen while a reply is playing or a message is in flight.
+    if (isSpeakingRef.current || busyRef.current) return;
+    if (continuousRecognitionRef.current) return; // already running
+
+    const browserWindow = window as SpeechRecognitionWindow;
+    const Recognition = browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setError('اس براؤزر میں مفت آواز پہچاننے کی سہولت دستیاب نہیں۔ براہِ کرم Chrome استعمال کریں۔');
+      setContinuousVoice(false);
+      continuousIntendedRef.current = false;
+      return;
+    }
+
+    try {
+      const recognition = new Recognition();
+      recognition.lang = 'ur-PK';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event) => {
+        if (!continuousIntendedRef.current) return;
+        let gotSpeech = false;
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          if (!result) continue;
+          gotSpeech = true;
+          if (result.isFinal) {
+            continuousTextRef.current += `${result[0]?.transcript ?? ''} `;
+          }
+        }
+        if (gotSpeech) {
+          setVoiceStatus('سن رہا ہوں…');
+          scheduleSilenceSend();
+        }
+      };
+
+      recognition.onerror = (event) => {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          continuousIntendedRef.current = false;
+          setContinuousVoice(false);
+          setVoiceStatus('');
+          setError('مائیکروفون کی اجازت دیں، پھر مسلسل آواز دوبارہ چالو کریں۔');
+        }
+        // Other errors: onend will trigger a restart if still intended.
+      };
+
+      recognition.onend = () => {
+        continuousRecognitionRef.current = null;
+        clearSilenceTimer();
+        // Chrome auto-stops recognition; restart if the user still wants it.
+        if (continuousIntendedRef.current && !isSpeakingRef.current && !busyRef.current) {
+          window.setTimeout(() => {
+            if (continuousIntendedRef.current) startContinuousListening();
+          }, 350);
+        }
+      };
+
+      continuousRecognitionRef.current = recognition;
+      recognition.start();
+      setVoiceStatus('سن رہا ہوں…');
+    } catch {
+      continuousRecognitionRef.current = null;
+      setError('مائیکروفون شروع نہیں ہو سکا۔ Chrome کی اجازت چیک کریں۔');
+    }
+  }
+
+  function pauseContinuousForTts() {
+    // Stop the mic while the assistant speaks (avoid echo), but keep the
+    // *intention* so it resumes afterwards.
+    clearSilenceTimer();
+    const rec = continuousRecognitionRef.current;
+    continuousRecognitionRef.current = null;
+    if (rec) {
+      try { rec.stop(); } catch { /* already stopped */ }
+    }
+    if (continuousIntendedRef.current) setVoiceStatus('جواب سن رہے ہیں…');
+  }
+
+  function resumeContinuousAfterTts() {
+    if (!continuousIntendedRef.current) return;
+    setVoiceStatus('سن رہا ہوں…');
+    // Small delay so the mic doesn't catch the tail of the TTS audio.
+    window.setTimeout(() => {
+      if (continuousIntendedRef.current) startContinuousListening();
+    }, 600);
+  }
+
+  function stopContinuousListening() {
+    continuousIntendedRef.current = false;
+    clearSilenceTimer();
+    continuousTextRef.current = '';
+    const rec = continuousRecognitionRef.current;
+    continuousRecognitionRef.current = null;
+    if (rec) {
+      try { rec.stop(); } catch { /* already stopped */ }
+    }
+    setVoiceStatus('');
+  }
+
+  function toggleContinuousVoice() {
+    if (continuousVoice) {
+      stopContinuousListening();
+      setContinuousVoice(false);
+      return;
+    }
+    setError('');
+    // The one-shot mic and continuous mode must not run together.
+    if (recording) toggleRecording();
+    stopSpeaking();
+    continuousIntendedRef.current = true;
+    setContinuousVoice(true);
+    startContinuousListening();
   }
 
   function toggleRecording() {
@@ -543,6 +730,16 @@ export default function ChatPage() {
           </div>
           <div className="top-actions">
             <button
+              className={`icon-button voice-mode-toggle${continuousVoice ? ' active' : ''}`}
+              onClick={toggleContinuousVoice}
+              aria-label={continuousVoice ? 'مسلسل آواز بند کریں' : 'مسلسل آواز چالو کریں (بغیر بٹن بات کریں)'}
+              aria-pressed={continuousVoice}
+              title={continuousVoice ? 'مسلسل آواز بند کریں' : 'مسلسل آواز چالو کریں — بولیں، جواب خود آئے گا'}
+              data-testid="button-continuous-voice"
+            >
+              <AudioLines size={17} />
+            </button>
+            <button
               className={`icon-button gesture-toggle${gesturesEnabled ? ' active' : ''}`}
               onClick={() => setGesturesEnabled((v) => !v)}
               aria-label={gesturesEnabled ? 'ہاتھ کے اشارے بند کریں' : 'ہاتھ کے اشارے چالو کریں'}
@@ -560,6 +757,13 @@ export default function ChatPage() {
             </button>
           </div>
         </header>
+
+        {continuousVoice && voiceStatus && (
+          <div className="voice-status" dir="rtl" data-testid="status-continuous-voice">
+            <span className="voice-pulse" aria-hidden="true" />
+            <span>{voiceStatus}</span>
+          </div>
+        )}
 
         <div className="chat-scroll">
           <div className="chat-inner">
@@ -693,29 +897,38 @@ export default function ChatPage() {
         )}
       </section>
 
+      {/* Avatar side panel — ALWAYS visible, never hidden for camera/gestures */}
+      <aside className={`avatar-panel${isSpeaking ? ' is-speaking' : ''}${busy ? ' is-thinking' : ''}`} aria-label="Unique AI اوتار">
+        <div className="avatar-panel-figure">
+          <span className="avatar-glow" aria-hidden="true" />
+          <img className="avatar-panel-img" src="/avatars/boy-avatar.webp" alt="Unique AI" />
+        </div>
+        <div className="avatar-panel-name" dir="rtl">یونیک اے آئی</div>
+        <div className={`avatar-panel-status${continuousVoice ? ' listening' : ''}`} dir="rtl" data-testid="text-avatar-status">
+          {continuousVoice
+            ? (voiceStatus || 'سن رہا ہوں…')
+            : isSpeaking
+              ? 'بول رہا ہوں…'
+              : busy
+                ? 'سوچ رہا ہوں…'
+                : 'میں آپ کے ساتھ ہوں'}
+        </div>
+      </aside>
+
       {gesturesEnabled && (
         <div className="gesture-panel" dir="rtl" data-testid="panel-gestures" aria-label="ہاتھ کے اشارے">
           <div className="gesture-panel-head">
-            <span className="gesture-panel-title">ہاتھ کے اشارے</span>
+            <span className="gesture-panel-title">اشارے</span>
             <button className="icon-button" onClick={() => setGesturesEnabled(false)} aria-label="اشارے بند کریں" data-testid="button-close-gestures">
-              <X size={15} />
+              <X size={14} />
             </button>
           </div>
           <video ref={gestureVideoRef} className="gesture-video" muted playsInline data-testid="video-gesture" />
-          {gestureStatus === 'ready' ? (
-            <div className="gesture-hint" data-testid="text-gesture-active">
-              {activeGesture !== 'none' ? GESTURE_LABELS[activeGesture] : 'ہاتھ کیمرے کے سامنے رکھیں'}
-            </div>
-          ) : (
-            <div className="gesture-hint" data-testid="text-gesture-status">
-              {gestureStatusMessage || 'تیار ہو رہا ہے…'}
-            </div>
-          )}
-          <ul className="gesture-list">
-            {(Object.keys(GESTURE_LABELS) as Array<Exclude<GestureName, 'none'>>).map((g) => (
-              <li key={g} className={activeGesture === g ? 'lit' : ''}>{GESTURE_LABELS[g]}</li>
-            ))}
-          </ul>
+          <div className="gesture-hint" data-testid="text-gesture-status">
+            {gestureStatus === 'ready'
+              ? (activeGesture !== 'none' ? GESTURE_LABELS[activeGesture] : 'ہاتھ سامنے رکھیں')
+              : (gestureStatusMessage || 'تیار ہو رہا ہے…')}
+          </div>
         </div>
       )}
 
