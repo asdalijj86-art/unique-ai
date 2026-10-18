@@ -519,6 +519,7 @@ function EmailHelper() {
           <option value="ur">اردو</option>
           <option value="roman">رومن اردو</option>
           <option value="en">English</option>
+          <option value="ar">العربية</option>
         </select>
         <button type="button" className="tool-action-button" onClick={generate} disabled={busy || !purpose.trim()}>
           {busy ? 'لکھ رہا ہوں…' : '✉️ ای میل بنائیں'}

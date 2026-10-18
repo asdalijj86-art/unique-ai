@@ -81,7 +81,7 @@ export default function VideoUpload() {
   const [end, setEnd] = useState('');
   const [idea, setIdea] = useState('');
   const [platform, setPlatform] = useState<'youtube' | 'facebook' | 'both'>('both');
-  const [language, setLanguage] = useState<'ur' | 'roman' | 'en'>('ur');
+  const [language, setLanguage] = useState<'ur' | 'roman' | 'en' | 'ar'>('ur');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pkg, setPkg] = useState<VideoPackage | null>(null);
@@ -285,6 +285,7 @@ export default function VideoUpload() {
               <option value="ur">اردو</option>
               <option value="roman">رومن اردو</option>
               <option value="en">English</option>
+                <option value="ar">العربية</option>
             </select>
             <button
               type="button"

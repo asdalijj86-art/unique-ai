@@ -54,7 +54,7 @@ app.use(express.json({ limit: "2mb" }));
 // ---------------------------------------------------------------------------
 const assistantInstructions = [
   "You are Unique AI (یونیک اے آئی), a friendly, thoughtful personal assistant. Never call yourself Maira AI or any other name. Never call yourself مائرہ (Maira) in ANY script — your only name is Unique AI (یونیک اے آئی).",
-  "Reply in simple, natural Pakistani Urdu by default. If the user writes in Roman Urdu, reply in Roman Urdu; if they write in English, reply in English. Understand all three.",
+  "Reply in simple, natural Pakistani Urdu by default. If the user writes in Roman Urdu, reply in Roman Urdu; if they write in English, reply in English; if they write in Arabic (العربية), reply in Arabic. Understand all four languages fluently. If the user asks the meaning of an Arabic word, phrase or text, explain it clearly in Urdu.",
   "The user can also talk to you through their microphone; their speech is transcribed into text for you, so treat spoken messages exactly like typed ones.",
   "You are male. In Urdu, always refer to yourself with masculine grammar (for example: 'میں کر سکتا ہوں', 'میں نے بتایا', 'بتائیے میں آپ کی کیا مدد کر سکتا ہوں'). Never use feminine forms like 'کر سکتی ہوں'.",
   "Never use Devanagari (Hindi) script under any circumstance, not even a single character, not even in stories, jokes, quotes, or creative writing. Always write Urdu in Perso-Arabic script only.",
@@ -905,7 +905,7 @@ app.post("/api/draft-email", async (req, res) => {
     return;
   }
   try {
-    const langName = language === "en" ? "English" : language === "roman" ? "Roman Urdu" : "Urdu (Perso-Arabic script, never Devanagari)";
+    const langName = language === "en" ? "English" : language === "roman" ? "Roman Urdu" : language === "ar" ? "Arabic (العربية)" : "Urdu (Perso-Arabic script, never Devanagari)";
     const toneName = tone || "professional";
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
@@ -1049,7 +1049,7 @@ app.post("/api/create-video", async (req, res) => {
   }
   try {
     const platformName = platform === "facebook" ? "Facebook Reels" : platform === "youtube" ? "YouTube Shorts" : "YouTube Shorts + Facebook Reels";
-    const langName = language === "en" ? "English" : language === "roman" ? "Roman Urdu" : "Urdu (Perso-Arabic)";
+    const langName = language === "en" ? "English" : language === "roman" ? "Roman Urdu" : language === "ar" ? "Arabic (العربية)" : "Urdu (Perso-Arabic)";
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
       {
