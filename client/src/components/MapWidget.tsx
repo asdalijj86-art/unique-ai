@@ -5,6 +5,41 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Search, Loader2, MapPin } from 'lucide-react';
 
+const GEO_CACHE_KEY = 'unique-ai-geo-cache';
+const GEO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function getGeoCache(): Record<string, { lat: number; lon: number; name: string; ts: number }> {
+  try {
+    return JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function setGeoCache(query: string, lat: number, lon: number, name: string) {
+  try {
+    const cache = getGeoCache();
+    cache[query.toLowerCase().trim()] = { lat, lon, name, ts: Date.now() };
+    // Keep cache small: drop oldest beyond 100 entries
+    const keys = Object.keys(cache);
+    if (keys.length > 100) {
+      keys.sort((a, b) => cache[a].ts - cache[b].ts);
+      for (let i = 0; i < keys.length - 100; i++) delete cache[keys[i]];
+    }
+    localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // storage full or unavailable — skip caching
+  }
+}
+
+function getCachedGeo(query: string): { lat: number; lon: number; name: string } | null {
+  const entry = getGeoCache()[query.toLowerCase().trim()];
+  if (entry && Date.now() - entry.ts < GEO_CACHE_TTL) {
+    return { lat: entry.lat, lon: entry.lon, name: entry.name };
+  }
+  return null;
+}
+
 export default function MapWidget() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
@@ -47,7 +82,13 @@ export default function MapWidget() {
       if (!map) return;
       let lat: number, lon: number, displayName: string;
 
-      if (coordMatch) {
+      // 1) Instant: check local cache first (no network at all)
+      const cached = !coordMatch ? getCachedGeo(q) : null;
+      if (cached) {
+        lat = cached.lat;
+        lon = cached.lon;
+        displayName = cached.name;
+      } else if (coordMatch) {
         lat = parseFloat(coordMatch[1]);
         lon = parseFloat(coordMatch[2]);
         if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
@@ -75,6 +116,8 @@ export default function MapWidget() {
         lat = parseFloat(place.lat);
         lon = parseFloat(place.lon);
         displayName = place.display_name;
+        // Cache for instant repeat searches
+        setGeoCache(q, lat, lon, displayName);
       }
 
       if (markerRef.current) {
@@ -88,7 +131,7 @@ export default function MapWidget() {
         iconAnchor: [16, 32],
       });
       markerRef.current = L.marker([lat, lon], { icon }).addTo(map);
-      map.flyTo([lat, lon], 16, { duration: 1.2 });
+      map.flyTo([lat, lon], 16, { duration: 0.8 });
       setFoundName(displayName);
     } catch {
       setError('تلاش میں مسئلہ ہوا۔ انٹرنیٹ چیک کریں۔');
