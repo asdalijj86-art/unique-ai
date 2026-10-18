@@ -905,7 +905,7 @@ export default function ChatPage() {
       {/* ======= TOP BAR ======= */}
       <header className="jarvis-topbar">
         <div className="jarvis-brand" data-testid="brand-maira">
-          <span className="jarvis-brand-orb" aria-hidden="true" />
+          <img src="/logo.png" alt="Unique AI" className="jarvis-brand-logo" />
           <span className="jarvis-brand-title">Unique AI</span>
         </div>
         <div className="jarvis-top-right">
