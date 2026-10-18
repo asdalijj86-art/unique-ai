@@ -113,6 +113,14 @@ export default function ChatPage() {
   // never claims to be speaking during the network wait.
   const [isPreparingVoice, setIsPreparingVoice] = useState(false);
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
+  // App settings (persisted to localStorage)
+  const [appSettings, setAppSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('unique-ai-settings');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { locationEnabled: true, voiceEnabled: true, continuousVoice: false, gesturesEnabled: false };
+  });
   const [projectBuild, setProjectBuild] = useState<{ description: string } | null>(null);
   const [appBuild, setAppBuild] = useState<{ description: string } | null>(null);
   const [toolAction, setToolAction] = useState<ChatAction | null>(null);
@@ -190,6 +198,13 @@ export default function ChatPage() {
   useEffect(() => {
     continuousVoiceRef.current = continuousVoice;
   }, [continuousVoice]);
+
+  // Sync app settings to individual states + persist to localStorage.
+  useEffect(() => {
+    try { localStorage.setItem('unique-ai-settings', JSON.stringify(appSettings)); } catch {}
+    setGesturesEnabled(appSettings.gesturesEnabled);
+    setContinuousVoice(appSettings.continuousVoice);
+  }, [appSettings]);
 
   function startNewChat() {
     const conversation: Conversation = {
@@ -380,6 +395,7 @@ export default function ChatPage() {
   }
 
   function speakNow(text: string) {
+    if (!appSettings.voiceEnabled) return;
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
     const utterance = new SpeechSynthesisUtterance(text.slice(0, 4000));
@@ -441,6 +457,7 @@ export default function ChatPage() {
 
   async function playAssistantMessage(text: string) {
     setError('');
+    if (!appSettings.voiceEnabled) return;
     // Guard against double-speak: skip if the exact same text was already
     // spoken within the last few seconds (e.g. mic echo or double trigger).
     const now = Date.now();
@@ -1016,6 +1033,16 @@ export default function ChatPage() {
             thinking: busy,
             gesturesOn: gesturesEnabled,
             continuousVoice,
+          }}
+          settings={appSettings}
+          onSettingsChange={setAppSettings}
+          onClearChat={() => {
+            if (activeConversation) {
+              // Clear messages of active conversation
+              setConversations(prev => prev.map(c =>
+                c.id === activeConversation.id ? { ...c, messages: [] } : c
+              ));
+            }
           }}
         />
       </div>

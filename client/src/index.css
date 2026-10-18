@@ -837,3 +837,74 @@ body {
 .unique-ai-dark-tiles {
   filter: invert(100%) hue-rotate(180deg) brightness(0.92) contrast(0.92);
 }
+
+/* ---------------- StatusPanel: brain in corner, clear title ---------------- */
+.status-head {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  padding: 2px 0 4px;
+}
+.status-head .status-title {
+  font-size: 16px; font-weight: 700; color: #eaf9ff; letter-spacing: 0.5px;
+}
+.brain-corner {
+  position: absolute; top: 0; left: 0;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #a5f3fc;
+  background: radial-gradient(circle at 40% 35%, rgba(34, 211, 238, 0.3), rgba(4, 12, 26, 0.9) 72%);
+  border: 1px solid rgba(125, 211, 252, 0.4);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.4);
+  animation: orb-breathe 3.5s ease-in-out infinite;
+}
+
+/* ---------------- Settings panel ---------------- */
+.settings-wrap { position: relative; }
+.settings-gear {
+  position: absolute; top: 0; right: 0;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #9fd8ef; background: rgba(15, 28, 52, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.25); cursor: pointer;
+  transition: all 0.2s;
+}
+.settings-gear:hover { color: #fff; border-color: rgba(56, 189, 248, 0.5); box-shadow: 0 0 10px rgba(34, 211, 238, 0.3); }
+.settings-dropdown {
+  position: absolute; top: 40px; right: 0; z-index: 50;
+  width: 230px; background: rgba(8, 17, 33, 0.97);
+  border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 14px;
+  padding: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(14px);
+}
+.settings-head {
+  display: flex; align-items: center; justify-content: space-between;
+  color: #eaf9ff; font-weight: 700; font-size: 14px; padding: 2px 4px 8px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.12); margin-bottom: 6px;
+}
+.settings-close {
+  background: none; border: none; color: #9fd8ef; cursor: pointer;
+  display: flex; padding: 2px;
+}
+.settings-group {
+  color: #67e8f9; font-size: 11px; font-weight: 600; padding: 8px 4px 4px;
+  letter-spacing: 0.3px;
+}
+.setting-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; padding: 8px 6px; cursor: pointer;
+  border-radius: 8px; transition: background 0.15s;
+}
+.setting-row:hover { background: rgba(56, 189, 248, 0.08); }
+.setting-row.danger .setting-label { color: #fca5a5; }
+.setting-row.danger .setting-icon { color: #f87171; }
+.setting-icon { color: #9fd8ef; display: flex; flex-shrink: 0; }
+.setting-label { color: #eaf9ff; font-size: 13px; flex: 1; text-align: right; }
+.setting-switch {
+  width: 38px; height: 21px; border-radius: 12px; flex-shrink: 0;
+  background: #2a3f55; position: relative; transition: background 0.2s;
+}
+.setting-switch.on { background: #22d3ee; }
+.setting-switch i {
+  position: absolute; top: 2.5px; right: 3px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; transition: transform 0.2s;
+}
+.setting-switch.on i { transform: translateX(-15px); }

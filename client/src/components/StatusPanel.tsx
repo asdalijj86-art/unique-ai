@@ -5,6 +5,7 @@
  */
 import { BrainCircuit } from 'lucide-react';
 import MapWidget from './MapWidget';
+import SettingsPanel, { type AppSettings } from './SettingsPanel';
 
 export type SystemStatus = {
   micActive: boolean;
@@ -16,6 +17,9 @@ export type SystemStatus = {
 
 type StatusPanelProps = {
   status: SystemStatus;
+  settings: AppSettings;
+  onSettingsChange: (s: AppSettings) => void;
+  onClearChat: () => void;
 };
 
 const TOOLS_COUNT = 30;
@@ -40,21 +44,20 @@ function StatusRow({
   );
 }
 
-export default function StatusPanel({ status }: StatusPanelProps) {
+export default function StatusPanel({ status, settings, onSettingsChange, onClearChat }: StatusPanelProps) {
   return (
     <aside className="status-panel" aria-label="سسٹم کی حالت">
-      <div className="brain-wrap" aria-hidden="true">
-        <svg className="brain-rings" viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="52" fill="none" strokeWidth="1.2" strokeDasharray="10 8" className="bring b1" />
-          <circle cx="60" cy="60" r="42" fill="none" strokeWidth="1" strokeDasharray="4 10" className="bring b2" />
-          <circle cx="60" cy="60" r="32" fill="none" strokeWidth="1.4" strokeDasharray="22 14" className="bring b3" />
-        </svg>
-        <span className="brain-core">
-          <BrainCircuit size={30} strokeWidth={1.6} />
+      <div className="status-head">
+        <div className="status-title" dir="rtl">سسٹم</div>
+        <span className="brain-corner" aria-hidden="true">
+          <BrainCircuit size={20} strokeWidth={1.8} />
         </span>
-        <span className="brain-halo" />
+        <SettingsPanel
+          settings={settings}
+          onChange={onSettingsChange}
+          onClearChat={onClearChat}
+        />
       </div>
-      <div className="status-title" dir="rtl">سسٹم</div>
       <div className="status-rows">
         <StatusRow label="آواز" active={status.speaking} level={status.speaking ? 0.95 : status.thinking ? 0.5 : 0.18} />
         <StatusRow label="مائیکروفون" active={status.micActive} level={status.micActive ? 0.9 : 0.12} />
