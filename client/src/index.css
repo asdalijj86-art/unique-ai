@@ -432,6 +432,27 @@ body {
   padding-top: 10px;
 }
 
+/* ================= MAP WIDGET ================= */
+.map-widget {
+  margin-top: 12px; border-top: 1px solid rgba(56, 189, 248, 0.12);
+  padding-top: 10px; display: flex; flex-direction: column; gap: 8px;
+}
+.map-widget-head {
+  display: flex; align-items: center; gap: 6px; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #a5f3fc;
+}
+.map-search-row { display: flex; gap: 6px; }
+.map-search-input { flex: 1; font-size: 12px; padding: 6px 8px; }
+.map-container {
+  height: 220px; border-radius: 10px; overflow: hidden;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.12);
+  z-index: 0;
+}
+.map-container .leaflet-container { height: 100%; width: 100%; background: #0a1628; font-family: inherit; }
+.map-found { font-size: 11px; max-height: 60px; overflow: hidden; text-overflow: ellipsis; }
+.unique-map-pin { background: none; border: none; }
+
 /* ================= GESTURE PiP ================= */
 .gesture-pip {
   position: fixed; bottom: 18px; right: 18px; z-index: 40;

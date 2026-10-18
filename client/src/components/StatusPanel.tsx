@@ -4,6 +4,7 @@
  * green dots, Urdu labels and thin progress bars.
  */
 import { BrainCircuit } from 'lucide-react';
+import MapWidget from './MapWidget';
 
 export type SystemStatus = {
   micActive: boolean;
@@ -66,6 +67,7 @@ export default function StatusPanel({ status }: StatusPanelProps) {
         <span className="status-dot on" aria-hidden="true" />
         سب سسٹم فعال ہیں
       </div>
+      <MapWidget />
     </aside>
   );
 }
