@@ -14,6 +14,10 @@ export default defineConfig({
   build: {
     outDir: '../server/dist',
     emptyOutDir: true,
+    rollupOptions: {
+      // Three.js loads at runtime via CDN importmap (see index.html) — don't bundle it
+      external: ['three'],
+    },
   },
   server: {
     port: 5173,

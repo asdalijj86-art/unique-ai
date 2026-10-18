@@ -20,6 +20,7 @@ import { parseWebsiteCommand } from '@/lib/voice-commands';
 import { useGestures } from '@/hooks/useGestures';
 import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
 import ProjectBuilder from '@/components/ProjectBuilder';
+import BoyAvatar3D from '@/components/BoyAvatar3D';
 
 type ChatRole = 'user' | 'assistant';
 type ChatMessage = { id: string; role: ChatRole; content: string; createdAt: string };
@@ -901,7 +902,9 @@ export default function ChatPage() {
       <aside className={`avatar-panel${isSpeaking ? ' is-speaking' : ''}${busy ? ' is-thinking' : ''}`} aria-label="Unique AI اوتار">
         <div className="avatar-panel-figure">
           <span className="avatar-glow" aria-hidden="true" />
-          <img className="avatar-panel-img" src="/avatars/boy-avatar.webp" alt="Unique AI" />
+          <div className="avatar-panel-3d">
+            <BoyAvatar3D isSpeaking={isSpeaking} isThinking={busy} />
+          </div>
         </div>
         <div className="avatar-panel-name" dir="rtl">یونیک اے آئی</div>
         <div className={`avatar-panel-status${continuousVoice ? ' listening' : ''}`} dir="rtl" data-testid="text-avatar-status">

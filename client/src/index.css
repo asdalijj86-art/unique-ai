@@ -611,6 +611,31 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid #a994ff; outli
   position: relative;
   z-index: 1;
 }
+/* 3D avatar canvas — replaces the static image in the avatar panel */
+.avatar-panel-3d {
+  width: 100%;
+  height: 340px;
+  max-height: 62vh;
+  position: relative;
+  z-index: 1;
+  border-radius: 22px;
+  border: 2px solid rgba(178, 150, 250, .85);
+  box-shadow: 0 0 18px rgba(170, 141, 246, .5), 0 0 44px rgba(102, 121, 217, .28);
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 70%, rgba(143, 105, 245, .12), transparent 70%);
+}
+.avatar-panel-3d canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+.avatar-panel.is-speaking .avatar-panel-3d {
+  border-color: rgba(190, 165, 255, 1);
+  box-shadow: 0 0 24px rgba(170, 141, 246, .7), 0 0 60px rgba(102, 121, 217, .4);
+}
+.boy-avatar-3d {
+  position: relative;
+}
 .avatar-panel.is-speaking .avatar-panel-img {
   animation: avatar-speak-bob 1.1s ease-in-out infinite;
 }
