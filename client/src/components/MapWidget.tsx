@@ -40,6 +40,17 @@ function getCachedGeo(query: string): { lat: number; lon: number; name: string }
   return null;
 }
 
+const HOME_KEY = 'unique-ai-map-home';
+
+function getHome(): { lat: number; lon: number; name: string } | null {
+  try {
+    const h = JSON.parse(localStorage.getItem(HOME_KEY) || 'null');
+    return h && typeof h.lat === 'number' ? h : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function MapWidget() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
@@ -48,6 +59,8 @@ export default function MapWidget() {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [foundName, setFoundName] = useState('');
+  const [home, setHome] = useState<{ lat: number; lon: number; name: string } | null>(() => getHome());
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
@@ -84,6 +97,71 @@ export default function MapWidget() {
     setFoundName('');
     setQuery('');
     map.flyTo([25, 10], 2, { duration: 1 });
+  }
+
+  function showOnMap(lat: number, lon: number, name: string, zoom = 16) {
+    const map = mapInstance.current;
+    if (!map) return;
+    if (markerRef.current) {
+      markerRef.current.remove();
+      markerRef.current = null;
+    }
+    const icon = L.divIcon({
+      className: 'unique-map-pin',
+      html: '<div style="font-size:32px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))">📍</div>',
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+    });
+    markerRef.current = L.marker([lat, lon], { icon }).addTo(map);
+    map.flyTo([lat, lon], zoom, { duration: 0.8 });
+    setFoundName(name);
+  }
+
+  // Set current search result (or map center) as home
+  function setAsHome() {
+    const map = mapInstance.current;
+    if (!map) return;
+    let lat: number, lon: number, name: string;
+    if (markerRef.current) {
+      const ll = markerRef.current.getLatLng();
+      lat = ll.lat; lon = ll.lng;
+      name = foundName || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    } else {
+      const c = map.getCenter();
+      lat = c.lat; lon = c.lng;
+      name = `نقشے کا مرکز (${lat.toFixed(2)}, ${lon.toFixed(2)})`;
+    }
+    const h = { lat, lon, name };
+    try {
+      localStorage.setItem(HOME_KEY, JSON.stringify(h));
+    } catch { /* ignore */ }
+    setHome(h);
+  }
+
+  function goHome() {
+    if (!home) return;
+    showOnMap(home.lat, home.lon, `🏠 گھر: ${home.name}`);
+  }
+
+  // Browser geolocation → show my location
+  function locateMe() {
+    if (!navigator.geolocation) {
+      setError('تمہارا براؤزر location سپورٹ نہیں کرتا۔');
+      return;
+    }
+    setLocating(true);
+    setError('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocating(false);
+        showOnMap(pos.coords.latitude, pos.coords.longitude, '📍 تمہاری موجودہ جگہ', 16);
+      },
+      () => {
+        setLocating(false);
+        setError('Location نہیں مل سکی۔ اجازت دیں یا دوبارہ کوشش کریں۔');
+      },
+      { timeout: 10000 }
+    );
   }
 
   async function search() {
@@ -138,19 +216,7 @@ export default function MapWidget() {
         setGeoCache(q, lat, lon, displayName);
       }
 
-      if (markerRef.current) {
-        markerRef.current.remove();
-        markerRef.current = null;
-      }
-      const icon = L.divIcon({
-        className: 'unique-map-pin',
-        html: '<div style="font-size:32px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))">📍</div>',
-        iconSize: [32, 32],
-        iconAnchor: [16, 32],
-      });
-      markerRef.current = L.marker([lat, lon], { icon }).addTo(map);
-      map.flyTo([lat, lon], 16, { duration: 0.8 });
-      setFoundName(displayName);
+      showOnMap(lat, lon, displayName, 16);
     } catch {
       setError('تلاش میں مسئلہ ہوا۔ انٹرنیٹ چیک کریں۔');
     } finally {
@@ -183,6 +249,19 @@ export default function MapWidget() {
       {error && <div className="tool-error">{error}</div>}
       {foundName && <div className="tool-small-note map-found">📍 {foundName}</div>}
       <div ref={mapRef} className="map-container" />
+      <div className="map-action-row">
+        <button type="button" className="map-mini-btn" onClick={locateMe} disabled={locating} title="میری موجودہ جگہ">
+          {locating ? <Loader2 size={13} className="spin" /> : '🎯'} میری جگہ
+        </button>
+        <button type="button" className="map-mini-btn" onClick={setAsHome} title="اس جگہ کو گھر بنائیں">
+          🏠 گھر بنائیں
+        </button>
+        {home && (
+          <button type="button" className="map-mini-btn" onClick={goHome} title="گھر جائیں">
+            🏠 گھر جائیں
+          </button>
+        )}
+      </div>
       <div className="tool-small-note">زوم کریں — جگہ بالکل صاف نظر آئے گی 🔍</div>
     </div>
   );
