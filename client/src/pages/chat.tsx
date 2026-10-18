@@ -20,6 +20,11 @@ import { parseWebsiteCommand } from '@/lib/voice-commands';
 import { useGestures } from '@/hooks/useGestures';
 import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
 import ProjectBuilder from '@/components/ProjectBuilder';
+import AppBuilder from '@/components/AppBuilder';
+import ToolResults from '@/components/ToolResults';
+import MediaTools, { type MediaToolName } from '@/components/MediaTools';
+import VideoCreator from '@/components/VideoCreator';
+import type { ChatAction } from '@/lib/api';
 import BoyAvatar3D from '@/components/BoyAvatar3D';
 
 type ChatRole = 'user' | 'assistant';
@@ -103,6 +108,9 @@ export default function ChatPage() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [projectBuild, setProjectBuild] = useState<{ description: string } | null>(null);
+  const [appBuild, setAppBuild] = useState<{ description: string } | null>(null);
+  const [toolAction, setToolAction] = useState<ChatAction | null>(null);
+  const [mediaTool, setMediaTool] = useState<MediaToolName | null>(null);
   // Continuous voice mode (hands-free): listen -> auto-send on silence -> auto-speak reply.
   const [continuousVoice, setContinuousVoice] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState('');
@@ -245,6 +253,13 @@ export default function ChatPage() {
         }
       } else if (result.action?.type === 'build_project') {
         setProjectBuild({ description: result.action.description });
+      } else if (result.action?.type === 'android_app') {
+        setAppBuild({ description: result.action.description });
+      } else if (result.action?.type === 'open_tool') {
+        setMediaTool(result.action.tool as MediaToolName);
+      } else if (result.action) {
+        // Professional toolbox actions: search, weather, videos, timer, notes, etc.
+        setToolAction(result.action as ChatAction);
       }
       // The boy speaks EVERY reply aloud automatically — no mic or button needed.
       void playAssistantMessage(result.text);
@@ -895,6 +910,34 @@ export default function ChatPage() {
             description={projectBuild.description}
             onClose={() => setProjectBuild(null)}
           />
+        )}
+
+        {appBuild && (
+          <AppBuilder
+            description={appBuild.description}
+            onClose={() => setAppBuild(null)}
+          />
+        )}
+
+        {toolAction && (
+          <ToolResults
+            action={toolAction}
+            onClose={() => setToolAction(null)}
+            onTimerDone={() => {
+              void playAssistantMessage('ٹائمر ختم ہو گیا!');
+            }}
+          />
+        )}
+
+        {mediaTool && mediaTool !== 'video_creator' && (
+          <MediaTools
+            tool={mediaTool}
+            onClose={() => setMediaTool(null)}
+          />
+        )}
+
+        {mediaTool === 'video_creator' && (
+          <VideoCreator onClose={() => setMediaTool(null)} />
         )}
       </section>
 

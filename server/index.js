@@ -8,7 +8,40 @@ import {
   isMultiStep,
   websiteConfirmation,
   buildConfirmation,
+  searchConfirmation,
+  weatherConfirmation,
+  calcConfirmation,
+  youtubeSearchConfirmation,
+  newsConfirmation,
+  currencyConfirmation,
+  timerConfirmation,
+  noteSaveConfirmation,
+  noteListConfirmation,
+  prayerConfirmation,
+  translateConfirmation,
+  unitConvertConfirmation,
+  qrConfirmation,
+  videoIdeasConfirmation,
+  clockConfirmation,
+  readPageConfirmation,
+  appBuildConfirmation,
+  mediaToolConfirmation,
+  videoCreatorConfirmation,
 } from "./brain.js";
+import {
+  webSearch,
+  getWeather,
+  evaluateMath,
+  youtubeSearch,
+  getNews,
+  parseCurrencyRequest,
+  convertCurrency,
+  getPrayerTimes,
+  convertUnits,
+  getWorldTime,
+  videoIdeasPrompt,
+  fetchPageText,
+} from "./tools.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -79,21 +112,300 @@ app.post("/api/openai/chat", async (req, res) => {
 
   // --- Smart brain: classify the latest user message BEFORE spending quota.
   const latestUserText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-  const { intent, website, project } = classifyIntent(latestUserText);
+  const c = classifyIntent(latestUserText);
   const lang = detectLanguage(latestUserText);
+  const { intent } = c;
 
-  if (intent === "open_website" && website) {
+  if (intent === "open_website" && c.website) {
     res.json({
-      text: websiteConfirmation(website, lang),
-      action: { type: "open_url", url: website.url, displayName: website.displayName },
+      text: websiteConfirmation(c.website, lang),
+      action: { type: "open_url", url: c.website.url, displayName: c.website.displayName },
     });
     return;
   }
 
-  if (intent === "build_project" && project) {
+  if (intent === "build_project" && c.project) {
     res.json({
-      text: buildConfirmation(project.description, lang),
-      action: { type: "build_project", description: project.description },
+      text: buildConfirmation(c.project.description, lang),
+      action: { type: "build_project", description: c.project.description },
+    });
+    return;
+  }
+
+  // --- Professional toolbox: rule-based tools (zero Gemini quota) -----------
+  if (intent === "calculator" && c.expression) {
+    const r = evaluateMath(c.expression);
+    if (r.ok) {
+      res.json({
+        text: calcConfirmation(c.expression, r.result, lang),
+        action: { type: "calc_result", expression: c.expression, result: r.result },
+      });
+      return;
+    }
+  }
+
+  if (intent === "timer" && c.timer) {
+    res.json({
+      text: timerConfirmation(c.timer.seconds, c.timer.unitUr, lang),
+      action: { type: "set_timer", seconds: c.timer.seconds, label: `${c.timer.amount} ${c.timer.unitUr}` },
+    });
+    return;
+  }
+
+  if (intent === "currency" && c.currency) {
+    const { amount, from, to } = c.currency;
+    const r = await convertCurrency(amount, from, to);
+    if (r.ok) {
+      res.json({
+        text: currencyConfirmation(amount, from, to, r.result, lang),
+        action: { type: "currency_result", amount, from, to, result: r.result, rate: r.rate },
+      });
+      return;
+    }
+    // fall through to chat on API failure
+  }
+
+  if (intent === "weather" && c.city) {
+    const r = await getWeather(c.city);
+    if (r.ok) {
+      const text = lang === "roman"
+        ? `${r.city} me aaj ${r.tempC}°C hai, ${r.conditionUr}.`
+        : lang === "en"
+          ? `It's ${r.tempC}°C in ${r.cityEn} right now, ${r.conditionEn}.`
+          : `${r.city} میں آج ${r.tempC}°C ہے، ${r.conditionUr}۔`;
+      res.json({
+        text,
+        action: {
+          type: "weather", city: r.city, tempC: r.tempC, feelsLikeC: r.feelsLikeC,
+          conditionUr: r.conditionUr, conditionEn: r.conditionEn,
+          humidity: r.humidity, windKmph: r.windKmph,
+        },
+      });
+      return;
+    }
+  }
+
+  if (intent === "prayer_times" && c.city) {
+    const r = await getPrayerTimes(c.city);
+    if (r.ok) {
+      res.json({
+        text: prayerConfirmation(r.city, lang),
+        action: { type: "prayer_times", city: r.city, date: r.date, hijri: r.hijri, times: r.times },
+      });
+      return;
+    }
+  }
+
+  if (intent === "world_clock" && c.city) {
+    const r = getWorldTime(c.city);
+    if (r.ok) {
+      const text = lang === "roman"
+        ? `${r.city} me waqt: ${r.time}`
+        : lang === "en"
+          ? `Current time in ${r.city}: ${r.time}`
+          : `${r.city} کا وقت: ${r.time} (${r.date})`;
+      res.json({
+        text,
+        action: { type: "world_clock", city: r.city, time: r.time, date: r.date },
+      });
+      return;
+    }
+  }
+
+  if (intent === "unit_convert" && c.unitConv) {
+    const { amount, from, to } = c.unitConv;
+    const r = convertUnits(amount, from, to);
+    if (r.ok) {
+      res.json({
+        text: unitConvertConfirmation(amount, r.fromUr, r.result, r.toUr, lang),
+        action: { type: "unit_convert", amount, fromUr: r.fromUr, result: r.result, toUr: r.toUr },
+      });
+      return;
+    }
+  }
+
+  if (intent === "youtube_search" && c.query) {
+    const r = await youtubeSearch(c.query);
+    if (r.ok && !r.fallback) {
+      res.json({
+        text: youtubeSearchConfirmation(c.query, lang),
+        action: { type: "youtube_results", query: c.query, videos: r.videos },
+      });
+      return;
+    }
+    if (r.ok && r.fallback) {
+      res.json({
+        text: youtubeSearchConfirmation(c.query, lang),
+        action: { type: "open_url", url: r.searchUrl, displayName: "یوٹیوب تلاش" },
+      });
+      return;
+    }
+  }
+
+  if (intent === "news") {
+    const r = await getNews(c.topic || "");
+    if (r.ok) {
+      res.json({
+        text: newsConfirmation(lang),
+        action: { type: "news_results", headlines: r.headlines },
+      });
+      return;
+    }
+  }
+
+  if (intent === "web_search" && c.query) {
+    const r = await webSearch(c.query);
+    if (r.ok) {
+      res.json({
+        text: searchConfirmation(c.query, lang),
+        action: { type: "search_results", query: c.query, results: r.results },
+      });
+      return;
+    }
+  }
+
+  if (intent === "notes_save" && c.noteText) {
+    res.json({
+      text: noteSaveConfirmation(lang),
+      action: { type: "save_note", text: c.noteText },
+    });
+    return;
+  }
+
+  if (intent === "notes_list") {
+    res.json({
+      text: noteListConfirmation(lang),
+      action: { type: "list_notes" },
+    });
+    return;
+  }
+
+  if (intent === "translate" && c.translate) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      try {
+        const targetName = c.translate.target === "en" ? "English" : "Urdu (Perso-Arabic script, NEVER Devanagari)";
+        const response = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: "You are a translator. Output ONLY the translation, no explanations." }] },
+              contents: [{ role: "user", parts: [{ text: `Translate this to ${targetName}: ${c.translate.text}` }] }],
+              generationConfig: { maxOutputTokens: 512 },
+            }),
+          }
+        );
+        if (response.ok) {
+          const result = await response.json();
+          const translated = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+          if (translated) {
+            res.json({
+              text: translateConfirmation(c.translate.target, lang),
+              action: { type: "translate_result", original: c.translate.text, translated, target: c.translate.target },
+            });
+            return;
+          }
+        }
+      } catch { /* fall through to chat */ }
+    }
+  }
+
+  if (intent === "youtube_trending") {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      try {
+        const response = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: "You are a YouTube Shorts strategist. Write in Urdu (Perso-Arabic script, never Devanagari). Be punchy, no fluff." }] },
+              contents: [{ role: "user", parts: [{ text: videoIdeasPrompt(c.niche || "") }] }],
+              generationConfig: { maxOutputTokens: 1024 },
+            }),
+          }
+        );
+        if (response.ok) {
+          const result = await response.json();
+          const ideas = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+          if (ideas) {
+            res.json({
+              text: videoIdeasConfirmation(lang),
+              action: { type: "video_ideas", ideas },
+            });
+            return;
+          }
+        }
+      } catch { /* fall through to chat */ }
+    }
+  }
+
+  if (intent === "read_webpage" && c.url) {
+    const page = await fetchPageText(c.url);
+    if (page.ok) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (apiKey) {
+        try {
+          const langHint = lang === "en" ? "in English" : lang === "roman" ? "in Roman Urdu" : "in Urdu (Perso-Arabic script, never Devanagari)";
+          const response = await fetch(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: `You summarize web pages briefly ${langHint}. 3-5 bullet points max.` }] },
+                contents: [{ role: "user", parts: [{ text: `Summarize this page (title: ${page.title}):\n\n${page.text}` }] }],
+                generationConfig: { maxOutputTokens: 512 },
+              }),
+            }
+          );
+          if (response.ok) {
+            const result = await response.json();
+            const summary = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+            if (summary) {
+              res.json({
+                text: readPageConfirmation(lang),
+                action: { type: "page_summary", url: page.url, title: page.title, summary },
+              });
+              return;
+            }
+          }
+        } catch { /* fall through to chat */ }
+      }
+    }
+  }
+
+  if (intent === "qr_code" && c.qrData) {
+    res.json({
+      text: qrConfirmation(lang),
+      action: { type: "qr_code", data: c.qrData },
+    });
+    return;
+  }
+
+  if (intent === "android_app" && c.app) {
+    res.json({
+      text: appBuildConfirmation(c.app.description, lang),
+      action: { type: "android_app", description: c.app.description },
+    });
+    return;
+  }
+
+  if (intent === "media_tool" && c.tool) {
+    res.json({
+      text: mediaToolConfirmation(c.tool, lang),
+      action: { type: "open_tool", tool: c.tool },
+    });
+    return;
+  }
+
+  if (intent === "video_creator") {
+    res.json({
+      text: videoCreatorConfirmation(lang),
+      action: { type: "open_tool", tool: "video_creator" },
     });
     return;
   }
@@ -267,6 +579,380 @@ app.post("/api/build-project", async (req, res) => {
     res.status(502).json({
       error: "ویب سائٹ بنانے میں مسئلہ ہوا۔ انٹرنیٹ چیک کر کے دوبارہ کوشش کریں۔",
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/build-app — Gemini generates a PWA (installable "Android app"):
+// { html, manifest, serviceWorker }. Install via Chrome → Add to Home Screen.
+// ---------------------------------------------------------------------------
+const APP_SYSTEM_PROMPT = [
+  "You are an expert mobile app developer. Generate ONE complete, self-contained HTML file for a MOBILE APP (phone-first, max-width 480px centered, bottom tab bar, app-like cards).",
+  "Rules:",
+  "- Output ONLY the HTML code, no explanations, no markdown fences.",
+  "- Inline all CSS in <style> and all JS in <script> — no external files except Google Fonts.",
+  "- App-style UI: header bar, bottom navigation, cards, touch-friendly buttons (min 44px).",
+  "- RTL layout when the content is Urdu/Arabic.",
+  "- Write all Urdu text in Perso-Arabic script. NEVER use Devanagari (Hindi) script, not even one character.",
+  "- Match the app language to the user's request language (Urdu default for Urdu requests).",
+  "- Include sensible placeholder content so the app looks complete immediately.",
+  "- Add <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">.",
+  "- Register 'sw.js' as service worker if present (wrap in try/catch).",
+  "- Add <link rel=\"manifest\" href=\"manifest.json\"> in <head>.",
+].join("\n");
+
+function buildManifest(appName) {
+  const name = String(appName || "Unique AI App").slice(0, 40);
+  return {
+    name,
+    short_name: name.slice(0, 12),
+    description: `${name} — Unique AI سے بنائی گئی ایپ`,
+    start_url: "./index.html",
+    display: "standalone",
+    orientation: "portrait",
+    background_color: "#0f0a1e",
+    theme_color: "#7c3aed",
+    icons: [
+      {
+        src: "data:image/svg+xml," + encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="120" fill="#7c3aed"/><text x="256" y="330" font-size="220" text-anchor="middle" fill="white" font-family="sans-serif">U</text></svg>`
+        ),
+        sizes: "512x512",
+        type: "image/svg+xml",
+        purpose: "any",
+      },
+    ],
+  };
+}
+
+const APP_SERVICE_WORKER = `// Unique AI PWA service worker — cache-first for offline use.
+const CACHE = 'unique-ai-app-v1';
+const ASSETS = ['./', './index.html', './manifest.json'];
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); });
+self.addEventListener('fetch', (e) => {
+  e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request)));
+});
+`;
+
+app.post("/api/build-app", async (req, res) => {
+  const { description } = req.body ?? {};
+  if (typeof description !== "string" || description.trim().length === 0) {
+    res.status(400).json({ error: "ایپ کی تفصیل درست نہیں ہے۔" });
+    return;
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    return;
+  }
+
+  try {
+    const lang = detectLanguage(description);
+    const langHint =
+      lang === "en"
+        ? "The app content should be in English."
+        : lang === "roman"
+          ? "The app content should be in Roman Urdu (Latin script)."
+          : "The app content should be in Urdu (Perso-Arabic script, RTL).";
+
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: APP_SYSTEM_PROMPT }] },
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Build a complete mobile app (single HTML file) for: ${description.trim()}\n${langHint}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: { maxOutputTokens: 8192 },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error("Gemini build-app failed", { status: response.status });
+      res.status(502).json({ error: "ایپ بنانے میں مسئلہ ہوا۔ براہِ کرم دوبارہ کوشش کریں۔" });
+      return;
+    }
+
+    const result = await response.json();
+    let html = result.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text ?? "")
+      .join("")
+      .trim();
+    if (!html) {
+      res.status(502).json({ error: "ایپ تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔" });
+      return;
+    }
+    html = html
+      .replace(/^```html\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+
+    const appName = description.trim().split(/\s+/).slice(0, 4).join(" ");
+    res.json({
+      html,
+      manifest: buildManifest(appName),
+      serviceWorker: APP_SERVICE_WORKER,
+      appName,
+    });
+  } catch (err) {
+    console.error("build-app request failed", err);
+    res.status(502).json({
+      error: "ایپ بنانے میں مسئلہ ہوا۔ انٹرنیٹ چیک کر کے دوبارہ کوشش کریں۔",
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/translate — Gemini translation (Urdu ↔ English, Roman → Urdu)
+// ---------------------------------------------------------------------------
+app.post("/api/translate", async (req, res) => {
+  const { text, target } = req.body ?? {};
+  if (typeof text !== "string" || text.trim().length === 0) {
+    res.status(400).json({ error: "ترجمے والا متن درست نہیں ہے۔" });
+    return;
+  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    return;
+  }
+  try {
+    const targetName = target === "en" ? "English" : "Urdu (Perso-Arabic script, NEVER Devanagari)";
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: "You are a translator. Output ONLY the translation, no explanations." }] },
+          contents: [{ role: "user", parts: [{ text: `Translate this to ${targetName}: ${text.trim()}` }] }],
+          generationConfig: { maxOutputTokens: 512 },
+        }),
+      }
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    const translated = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+    if (!translated) throw new Error("empty");
+    res.json({ translated });
+  } catch (err) {
+    console.error("translate request failed", err);
+    res.status(502).json({ error: "ترجمہ نہیں ہو سکا۔ دوبارہ کوشش کریں۔" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/read-page — fetch a URL, strip to text, Gemini summarizes
+// ---------------------------------------------------------------------------
+app.post("/api/read-page", async (req, res) => {
+  const { url } = req.body ?? {};
+  const page = await fetchPageText(url);
+  if (!page.ok) {
+    res.status(400).json({ error: "صفحہ پڑھا نہیں جا سکا۔ لنک چیک کریں۔" });
+    return;
+  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    return;
+  }
+  try {
+    const lang = detectLanguage(page.text.slice(0, 500));
+    const langHint = lang === "en" ? "in English" : "in Urdu (Perso-Arabic script, never Devanagari)";
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: `You summarize web pages briefly ${langHint}. 3-5 bullet points max.` }] },
+          contents: [{ role: "user", parts: [{ text: `Summarize this page (title: ${page.title}):\n\n${page.text}` }] }],
+          generationConfig: { maxOutputTokens: 512 },
+        }),
+      }
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    const summary = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+    if (!summary) throw new Error("empty");
+    res.json({ url: page.url, title: page.title, summary });
+  } catch (err) {
+    console.error("read-page request failed", err);
+    res.status(502).json({ error: "خلاصہ نہیں بن سکا۔ دوبارہ کوشش کریں۔" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/draft-email — Gemini drafts a professional email
+// ---------------------------------------------------------------------------
+app.post("/api/draft-email", async (req, res) => {
+  const { purpose, tone, language } = req.body ?? {};
+  if (typeof purpose !== "string" || purpose.trim().length === 0) {
+    res.status(400).json({ error: "ای میل کا مقصد درست نہیں ہے۔" });
+    return;
+  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    return;
+  }
+  try {
+    const langName = language === "en" ? "English" : language === "roman" ? "Roman Urdu" : "Urdu (Perso-Arabic script, never Devanagari)";
+    const toneName = tone || "professional";
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: `You draft professional emails in ${langName}. Output subject line then the email body. Tone: ${toneName}.` }] },
+          contents: [{ role: "user", parts: [{ text: `Draft an email for this purpose: ${purpose.trim()}` }] }],
+          generationConfig: { maxOutputTokens: 1024 },
+        }),
+      }
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    const draft = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+    if (!draft) throw new Error("empty");
+    res.json({ draft });
+  } catch (err) {
+    console.error("draft-email request failed", err);
+    res.status(502).json({ error: "ای میل نہیں بن سکی۔ دوبارہ کوشش کریں۔" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/transcribe — Gemini transcribes uploaded audio (base64)
+// ---------------------------------------------------------------------------
+app.post("/api/transcribe", async (req, res) => {
+  const { audioBase64, mimeType } = req.body ?? {};
+  if (typeof audioBase64 !== "string" || audioBase64.length === 0) {
+    res.status(400).json({ error: "آڈیو درست نہیں ہے۔" });
+    return;
+  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    return;
+  }
+  try {
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: "Transcribe the audio exactly. Output ONLY the transcription text, no explanations. If the speech is Urdu, write it in Perso-Arabic script (never Devanagari)." }] },
+          contents: [{
+            role: "user",
+            parts: [
+              { inlineData: { mimeType: mimeType || "audio/webm", data: audioBase64 } },
+              { text: "Transcribe this audio." },
+            ],
+          }],
+          generationConfig: { maxOutputTokens: 2048 },
+        }),
+      }
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    const text = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+    if (!text) throw new Error("empty");
+    res.json({ text });
+  } catch (err) {
+    console.error("transcribe request failed", err);
+    res.status(502).json({ error: "آڈیو تحریر میں نہیں بدلی جا سکی۔ دوبارہ کوشش کریں۔" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/create-video — Gemini generates a complete upload-ready package:
+// script, title, description, hashtags, thumbnail texts, upload-time tip.
+// Follows the user's TITLE+DESCRIPTION POWER RULE style.
+// ---------------------------------------------------------------------------
+const VIDEO_PACKAGE_PROMPT = [
+  "You are a VIRAL YouTube/Facebook Shorts strategist for a Pakistani desi comedy/action channel. Everything must be optimized for MAXIMUM virality.",
+  "Given the user's video idea, output a COMPLETE 100% ready-to-upload package as JSON with exactly these keys:",
+  '{ "script": "...", "title": "...", "description": "...", "hashtags": ["#..."], "thumbnailTexts": ["...", "...", "..."], "trendingSounds": ["...", "..."], "uploadTip": "..." }',
+  "VIRAL RULES (follow strictly):",
+  "- HOOK-FIRST script: the FIRST 3 SECONDS must have an explosive hook (shocking line, bold claim, or visual jolt). Then fast-paced dialogue, audible spoken lines, emotional beats (love/pride/laughter/justice), and a CLIFFHANGER ending.",
+  "- CTA: the script's last 2 lines MUST include a subscribe/follow call-to-action woven naturally into the dialogue (never a dry 'please subscribe').",
+  "- TITLE: use proven viral formulas — curiosity gap ('X ہو گیا… مگر سچ ابھی باقی ہے'), numbers ('7 سال بعد…'), emotional hooks. Format: [Urdu hook + emoji] [tease] | English keywords. Policy-safe: no misleading clickbait, no spam.",
+  "- HASHTAGS: AI picks everything, user does zero manual work. Mix: 3-4 high-volume tags (#viral #trending #shorts #fyp) + 4-6 niche tags matched to the video topic + 2-3 evergreen channel tags.",
+  "- PLATFORM-SPECIFIC: if platform is YouTube Shorts → lean tags toward #shorts #ytshorts; if Facebook Reels → include #reels #facebookreels #fyp.",
+  "- TRENDING SOUNDS: suggest 2-3 trending audio types that fit this video (e.g. 'dramatic dhol beat drop', 'emotional piano build-up') — describe the vibe, not a specific copyrighted song.",
+  "- description: keyword-rich first 2 lines (searchable), then subscribe CTA line, then the hashtags.",
+  "- thumbnailTexts: 3 short punchy options (max 5 words each), curiosity-driven.",
+  "- uploadTip: best upload time for Pakistan audience, one line.",
+  "- Write Urdu in Perso-Arabic script. NEVER use Devanagari (Hindi) script.",
+  "- Output ONLY the JSON, no markdown fences, no explanations.",
+].join("\n");
+
+app.post("/api/create-video", async (req, res) => {
+  const { idea, platform, language } = req.body ?? {};
+  if (typeof idea !== "string" || idea.trim().length === 0) {
+    res.status(400).json({ error: "ویڈیو کا آئیڈیا درست نہیں ہے۔" });
+    return;
+  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    return;
+  }
+  try {
+    const platformName = platform === "facebook" ? "Facebook Reels" : platform === "youtube" ? "YouTube Shorts" : "YouTube Shorts + Facebook Reels";
+    const langName = language === "en" ? "English" : language === "roman" ? "Roman Urdu" : "Urdu (Perso-Arabic)";
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: VIDEO_PACKAGE_PROMPT }] },
+          contents: [{
+            role: "user",
+            parts: [{ text: `Video idea: ${idea.trim()}\nPlatform: ${platformName}\nLanguage: ${langName}` }],
+          }],
+          generationConfig: { maxOutputTokens: 2048, responseMimeType: "application/json" },
+        }),
+      }
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    let raw = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() || "";
+    raw = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+    const pkg = JSON.parse(raw);
+    if (!pkg.title || !pkg.script) throw new Error("incomplete-package");
+    res.json({
+      title: pkg.title,
+      description: pkg.description || "",
+      hashtags: Array.isArray(pkg.hashtags) ? pkg.hashtags : [],
+      thumbnailTexts: Array.isArray(pkg.thumbnailTexts) ? pkg.thumbnailTexts : [],
+      trendingSounds: Array.isArray(pkg.trendingSounds) ? pkg.trendingSounds : [],
+      script: pkg.script,
+      uploadTip: pkg.uploadTip || "",
+    });
+  } catch (err) {
+    console.error("create-video request failed", err);
+    res.status(502).json({ error: "ویڈیو پیکج نہیں بن سکا۔ دوبارہ کوشش کریں۔" });
   }
 });
 
