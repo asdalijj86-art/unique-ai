@@ -957,7 +957,7 @@ app.post("/api/create-video", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/openai/speech — Gemini TTS with the Fenrir male voice
+// POST /api/openai/speech — Gemini TTS with the Charon male voice
 // ---------------------------------------------------------------------------
 app.post("/api/openai/speech", async (req, res) => {
   const { text } = req.body ?? {};
@@ -974,6 +974,11 @@ app.post("/api/openai/speech", async (req, res) => {
     return;
   }
 
+  // Truncate the spoken text for speed: long replies take much longer to
+  // synthesize. The full text is still displayed in chat — only the audio
+  // is shortened.
+  const ttsText = text.slice(0, 2000);
+
   // The upstream call can fail intermittently, so retry a few times before
   // giving up — this keeps the masculine voice consistent instead of
   // falling back to the device voice.
@@ -989,11 +994,11 @@ app.post("/api/openai/speech", async (req, res) => {
             "x-goog-api-key": apiKey,
           },
           body: JSON.stringify({
-            contents: [{ parts: [{ text }] }],
+            contents: [{ parts: [{ text: ttsText }] }],
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
-                voiceConfig: { prebuiltVoiceConfig: { voiceName: "Fenrir" } },
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: "Charon" } },
               },
             },
           }),
@@ -1023,7 +1028,7 @@ app.post("/api/openai/speech", async (req, res) => {
       lastError = err;
       console.warn("Unique AI speech attempt failed, retrying", { attempt, err: String(err) });
       if (attempt < 3) {
-        await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
       }
     }
   }

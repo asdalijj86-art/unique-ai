@@ -108,6 +108,10 @@ export default function ChatPage() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [storageError, setStorageError] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // True while the server TTS reply is being fetched/buffered — the orb shows
+  // "preparing" until audio actually starts playing (onplaying), so the UI
+  // never claims to be speaking during the network wait.
+  const [isPreparingVoice, setIsPreparingVoice] = useState(false);
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [projectBuild, setProjectBuild] = useState<{ description: string } | null>(null);
   const [appBuild, setAppBuild] = useState<{ description: string } | null>(null);
@@ -374,6 +378,7 @@ export default function ChatPage() {
       window.speechSynthesis.cancel();
     }
     setIsSpeaking(false);
+    setIsPreparingVoice(false);
   }
 
   function speakWithBrowser(text: string) {
@@ -412,21 +417,29 @@ export default function ChatPage() {
     // Hands-free mode: pause the mic while the reply plays (no echo).
     pauseContinuousForTts();
     // Primary: server-side masculine Urdu voice (Gemini TTS) — same voice on every device.
+    // Show "preparing" while the audio is fetched; isSpeaking flips on only
+    // when playback actually begins (audio.onplaying below).
+    setIsPreparingVoice(true);
     try {
-      const out = await synthesizeMairaSpeech({ text: text.slice(0, 4000) });
+      const out = await synthesizeMairaSpeech({ text: text.slice(0, 2000) });
       const bytes = Uint8Array.from(atob(out.audioBase64), (c) => c.charCodeAt(0));
       const blob = new Blob([bytes], { type: out.mimeType || 'audio/wav' });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       serverAudioRef.current = audio;
-      setIsSpeaking(true);
+      audio.onplaying = () => {
+        setIsPreparingVoice(false);
+        setIsSpeaking(true);
+      };
       audio.onended = () => {
+        setIsPreparingVoice(false);
         setIsSpeaking(false);
         URL.revokeObjectURL(url);
         if (serverAudioRef.current === audio) serverAudioRef.current = null;
         resumeContinuousAfterTts();
       };
       audio.onerror = () => {
+        setIsPreparingVoice(false);
         URL.revokeObjectURL(url);
         if (serverAudioRef.current === audio) serverAudioRef.current = null;
         speakWithBrowser(text);
@@ -435,6 +448,7 @@ export default function ChatPage() {
       return;
     } catch {
       // Server voice unavailable — fall back to the browser voice.
+      setIsPreparingVoice(false);
     }
     speakWithBrowser(text);
   }
@@ -709,14 +723,16 @@ export default function ChatPage() {
 
   // Waveform + orb state.
   const micLive = recording || continuousVoice;
-  const waveMode: WaveMode = isSpeaking ? 'speaking' : micLive ? 'listening' : 'idle';
-  const heroStatus = continuousVoice
-    ? (voiceStatus || 'سن رہا ہوں…')
-    : isSpeaking
-      ? 'بول رہا ہوں…'
-      : busy
-        ? 'سوچ رہا ہوں…'
-        : 'میں آپ کے ساتھ ہوں';
+  const waveMode: WaveMode = isSpeaking ? 'speaking' : isPreparingVoice ? 'idle' : micLive ? 'listening' : 'idle';
+  const heroStatus = isPreparingVoice
+    ? 'آواز تیار ہو رہی ہے…'
+    : continuousVoice
+      ? (voiceStatus || 'سن رہا ہوں…')
+      : isSpeaking
+        ? 'بول رہا ہوں…'
+        : busy
+          ? 'سوچ رہا ہوں…'
+          : 'میں آپ کے ساتھ ہوں';
 
   return (
     <main className="jarvis" lang="ur" data-testid="page-maira-chat">
@@ -830,7 +846,7 @@ export default function ChatPage() {
         {/* CENTER: hero orb + waveform + input */}
         <section className="jarvis-center" aria-label="Unique AI">
           <div className="hero-orb-wrap">
-            <AiOrb isSpeaking={isSpeaking} isThinking={busy} size={180} />
+            <AiOrb isSpeaking={isSpeaking} isThinking={busy || isPreparingVoice} size={180} />
           </div>
           <div className="hero-name">
             <span className="hero-name-text">Unique AI</span>
