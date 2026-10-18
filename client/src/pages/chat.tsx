@@ -142,6 +142,10 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // TTS prefetch: start synthesizing the first sentence while text still streams,
+  // so voice begins almost immediately after the reply completes.
+  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string }> } | null>(null);
+  const streamedTextRef = useRef('');
   // Attached image (base64 data URL) for vision — sent with the next message.
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const serverAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -269,6 +273,9 @@ export default function ChatPage() {
       updatedAt: assistantPlaceholder.createdAt,
       messages: [...item.messages, assistantPlaceholder],
     }));
+    // Reset TTS prefetch for this new message
+    ttsPrefetchRef.current = null;
+    streamedTextRef.current = '';
     try {
       const result = await chatMutation.mutateAsync({
         data: {
@@ -282,6 +289,18 @@ export default function ChatPage() {
                 m.id === assistantId ? { ...m, content: m.content + delta } : m
               ),
             }));
+            // TTS prefetch: once the first sentence streams in, start synthesizing
+            // it in the background so voice begins almost immediately.
+            streamedTextRef.current += delta;
+            if (!ttsPrefetchRef.current && appSettings.voiceEnabled) {
+              const firstSentence = extractFirstSentence(streamedTextRef.current);
+              if (firstSentence && firstSentence.length >= 30) {
+                ttsPrefetchRef.current = {
+                  text: firstSentence,
+                  promise: synthesizeMairaSpeech({ text: firstSentence }),
+                };
+              }
+            }
           },
         },
       });
@@ -455,6 +474,49 @@ export default function ChatPage() {
     }
   }
 
+  // Extract the first complete sentence (ending with ۔ ! ? . or newline) for TTS prefetch.
+  // Falls back to first 200 chars if no sentence boundary found yet.
+  function extractFirstSentence(text: string): string {
+    const match = text.match(/^(.{30,}?[۔.!?\n])/);
+    if (match) return match[1].trim();
+    if (text.length >= 200) return text.slice(0, 200).trim();
+    return '';
+  }
+
+  // Play a base64 audio chunk; resolves when playback ends or fails.
+  function playAudioChunk(audioBase64: string, mimeType: string): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        const bytes = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.playbackRate = 1.3;
+        serverAudioRef.current = audio;
+        audio.onplaying = () => {
+          setIsPreparingVoice(false);
+          setIsSpeaking(true);
+        };
+        const done = () => {
+          setIsPreparingVoice(false);
+          setIsSpeaking(false);
+          URL.revokeObjectURL(url);
+          if (serverAudioRef.current === audio) serverAudioRef.current = null;
+          resolve();
+        };
+        audio.onended = done;
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          if (serverAudioRef.current === audio) serverAudioRef.current = null;
+          done();
+        };
+        audio.play().catch(done);
+      } catch {
+        resolve();
+      }
+    });
+  }
+
   async function playAssistantMessage(text: string) {
     setError('');
     if (!appSettings.voiceEnabled) return;
@@ -474,31 +536,32 @@ export default function ChatPage() {
     // when playback actually begins (audio.onplaying below).
     setIsPreparingVoice(true);
     try {
-      const out = await synthesizeMairaSpeech({ text: text.slice(0, 2000) });
-      const bytes = Uint8Array.from(atob(out.audioBase64), (c) => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: out.mimeType || 'audio/wav' });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.playbackRate = 1.3; // Faster speech — user asked for quicker voice
-      serverAudioRef.current = audio;
-      audio.onplaying = () => {
-        setIsPreparingVoice(false);
-        setIsSpeaking(true);
-      };
-      audio.onended = () => {
-        setIsPreparingVoice(false);
-        setIsSpeaking(false);
-        URL.revokeObjectURL(url);
-        if (serverAudioRef.current === audio) serverAudioRef.current = null;
+      // Fast path: use prefetched first-sentence audio if it matches this reply.
+      const prefetch = ttsPrefetchRef.current;
+      ttsPrefetchRef.current = null; // consume once
+      if (prefetch && text.startsWith(prefetch.text) && prefetch.text.length >= 30) {
+        const first = await prefetch.promise.catch(() => null);
+        const restText = text.slice(prefetch.text.length).trim().slice(0, 600);
+        // Start synthesizing the rest immediately while the first chunk plays.
+        const restPromise = restText
+          ? synthesizeMairaSpeech({ text: restText }).catch(() => null)
+          : Promise.resolve(null);
+        if (first) {
+          await playAudioChunk(first.audioBase64, first.mimeType);
+        }
+        const rest = await restPromise;
+        if (rest) {
+          await playAudioChunk(rest.audioBase64, rest.mimeType);
+        } else if (!first) {
+          speakWithBrowser(text);
+        }
         resumeContinuousAfterTts();
-      };
-      audio.onerror = () => {
-        setIsPreparingVoice(false);
-        URL.revokeObjectURL(url);
-        if (serverAudioRef.current === audio) serverAudioRef.current = null;
-        speakWithBrowser(text);
-      };
-      await audio.play();
+        return;
+      }
+      // Fallback: synthesize a trimmed reply (shorter = faster).
+      const out = await synthesizeMairaSpeech({ text: text.slice(0, 800) });
+      await playAudioChunk(out.audioBase64, out.mimeType);
+      resumeContinuousAfterTts();
       return;
     } catch {
       // Server voice unavailable — fall back to the browser voice.
