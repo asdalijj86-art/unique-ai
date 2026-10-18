@@ -10,12 +10,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import VideoUpload from './VideoUpload';
+import WhatsAppSender from './WhatsAppSender';
 
 export type MediaToolName =
   | 'background_remover' | 'ocr' | 'upscaler' | 'pdf'
   | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload'
   | 'password_gen' | 'emi_calc' | 'image_compress' | 'resume_builder' | 'invoice_gen'
-  | 'phone_lookup';
+  | 'phone_lookup' | 'whatsapp_send';
 
 const TOOL_TITLES: Record<MediaToolName, string> = {
   background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
@@ -32,6 +33,7 @@ const TOOL_TITLES: Record<MediaToolName, string> = {
   resume_builder: '📄 ریزیومے (CV) بنائیں',
   invoice_gen: '🧾 انوائس بنائیں',
   phone_lookup: '📞 نمبر سے شہر معلوم کریں',
+  whatsapp_send: '💬 WhatsApp پیغام بھیجیں',
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -1156,6 +1158,7 @@ export default function MediaTools({ tool, onClose, initialPhone }: { tool: Medi
         {tool === 'resume_builder' && <ResumeBuilder />}
         {tool === 'invoice_gen' && <InvoiceGenerator />}
         {tool === 'phone_lookup' && <PhoneLookup initialNumber={initialPhone} />}
+        {tool === 'whatsapp_send' && <WhatsAppSender />}
       </div>
     </div>
   );

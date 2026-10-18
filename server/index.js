@@ -975,6 +975,31 @@ app.post("/api/transcribe", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// WhatsApp sender (Baileys — unofficial; user accepted ban risk).
+// GET  /api/whatsapp/status → { connected, state, qr }
+// POST /api/whatsapp/send { to, text } → sends WhatsApp message
+// ---------------------------------------------------------------------------
+import('./whatsapp.js').then((wa) => {
+  app.get('/api/whatsapp/status', (req, res) => {
+    res.json(wa.getStatus());
+  });
+
+  app.post('/api/whatsapp/send', async (req, res) => {
+    const { to, text } = req.body ?? {};
+    if (!to || !text) {
+      res.status(400).json({ error: 'نمبر اور ٹیکسٹ دونوں ضروری ہیں۔' });
+      return;
+    }
+    try {
+      const result = await wa.sendMessage(String(to), String(text));
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message || 'بھیجنے میں مسئلہ ہوا۔' });
+    }
+  });
+}).catch((e) => console.error('[whatsapp] module load failed:', e.message));
+
+// ---------------------------------------------------------------------------
 // POST /api/phone-lookup — Abstract API phone intelligence:
 // returns carrier, line type, city, region, country for any international number.
 // ---------------------------------------------------------------------------

@@ -1,1 +1,1 @@
-{"dependencies":{"cors":"^2.8.5","express":"^4.21.2"},"name":"unique-ai-server","private":true,"scripts":{"dev":"node index.js","start":"node index.js"},"type":"module","version":"1.0.0"}
+{"dependencies":{"@whiskeysockets/baileys":"^7.0.0-rc14","cors":"^2.8.5","express":"^4.21.2","qrcode":"^1.5.4"},"name":"unique-ai-server","private":true,"scripts":{"dev":"node index.js","start":"node index.js"},"type":"module","version":"1.0.0"}

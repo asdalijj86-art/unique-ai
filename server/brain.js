@@ -476,6 +476,10 @@ export function classifyIntent(text) {
   if (/(number se sheher|نمبر سے شہر|phone.*location|فون نمبر.*شہر|number kahan ka|نمبر کہاں کا|area code|ایریا کوڈ|kis network ka|کس نیٹ ورک|number ki detail|نمبر کی ڈیٹیل|number ka pata|نمبر کا پتہ|is number ki|اس نمبر کی|number kahan chal|نمبر کہاں چل)/i.test(message)) {
     return { intent: 'media_tool', tool: 'phone_lookup' };
   }
+  // WhatsApp send: "whatsapp par bhejo", "واٹس ایپ پر بھیجو", "send whatsapp message"
+  if (/(whatsapp.*(bhejo|بھیجو|send|message|پیغام)|واٹس ایپ.*(بھیجو|پیغام)|send.*whatsapp)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'whatsapp_send' };
+  }
   // Bare phone number typed in chat (e.g. 03067045972, +923067045972, 04235712345)
   const digitsOnly = message.replace(/[\s\-()]/g, '');
   const phoneMatch = digitsOnly.match(/^(\+?\d{10,14})$/);
@@ -650,6 +654,7 @@ const MEDIA_TOOL_NAMES = {
   resume_builder: { ur: 'ریزیومے بنانے والا', roman: 'Resume builder', en: 'Resume builder' },
   invoice_gen: { ur: 'انوائس بنانے والا', roman: 'Invoice generator', en: 'Invoice generator' },
   phone_lookup: { ur: 'نمبر سے شہر', roman: 'Phone number lookup', en: 'Phone number lookup' },
+  whatsapp_send: { ur: 'واٹس ایپ پیغام', roman: 'WhatsApp sender', en: 'WhatsApp sender' },
 };
 
 export function mediaToolConfirmation(tool, lang) {
