@@ -234,6 +234,9 @@ export default function ChatPage() {
   async function sendMessage(textValue: string, fromVoice = false) {
     const text = textValue.trim();
     if ((!text && !attachedImage) || chatMutation.isPending) return;
+    // Website commands work from typed text too — not just voice.
+    // (Voice paths already check this before calling sendMessage.)
+    if (!fromVoice && !attachedImage && handleVoiceWebsiteCommand(text)) return;
     setError('');
     let conversation = activeConversation;
     if (!conversation) {
