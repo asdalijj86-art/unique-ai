@@ -39,21 +39,44 @@ export default function MapWidget() {
     setSearching(true);
     setError('');
     setFoundName('');
+
+    // Detect coordinates: "31.5, 74.3" or "31.5 74.3" → reverse geocode
+    const coordMatch = q.match(/^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/);
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1&accept-language=ur`,
-        { headers: { Accept: 'application/json' } }
-      );
-      const data = await res.json();
-      if (!data || data.length === 0) {
-        setError('یہ جگہ نہیں ملی۔ کوئی اور نام لکھ کر دیکھیں۔');
-        return;
-      }
-      const place = data[0];
-      const lat = parseFloat(place.lat);
-      const lon = parseFloat(place.lon);
       const map = mapInstance.current;
       if (!map) return;
+      let lat: number, lon: number, displayName: string;
+
+      if (coordMatch) {
+        lat = parseFloat(coordMatch[1]);
+        lon = parseFloat(coordMatch[2]);
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+          setError('غلط coordinates ہیں۔');
+          return;
+        }
+        // Reverse geocode for the full address
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=ur`,
+          { headers: { Accept: 'application/json' } }
+        );
+        const data = await res.json();
+        displayName = data.display_name || `${lat}, ${lon}`;
+      } else {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1&accept-language=ur&addressdetails=1`,
+          { headers: { Accept: 'application/json' } }
+        );
+        const data = await res.json();
+        if (!data || data.length === 0) {
+          setError('یہ جگہ نہیں ملی۔ کوئی اور نام لکھ کر دیکھیں۔');
+          return;
+        }
+        const place = data[0];
+        lat = parseFloat(place.lat);
+        lon = parseFloat(place.lon);
+        displayName = place.display_name;
+      }
+
       if (markerRef.current) {
         markerRef.current.remove();
         markerRef.current = null;
@@ -65,8 +88,8 @@ export default function MapWidget() {
         iconAnchor: [16, 32],
       });
       markerRef.current = L.marker([lat, lon], { icon }).addTo(map);
-      map.flyTo([lat, lon], 15, { duration: 1.5 });
-      setFoundName(place.display_name);
+      map.flyTo([lat, lon], 16, { duration: 1.2 });
+      setFoundName(displayName);
     } catch {
       setError('تلاش میں مسئلہ ہوا۔ انٹرنیٹ چیک کریں۔');
     } finally {
@@ -85,7 +108,7 @@ export default function MapWidget() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && search()}
-          placeholder="شہر، گاؤں، پتہ لکھیں…"
+          placeholder="شہر، پتہ، یا coordinates (31.5, 74.3)…"
           className="tool-input map-search-input"
           dir="auto"
         />
