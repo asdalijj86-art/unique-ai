@@ -441,12 +441,20 @@ body {
   display: flex; align-items: center; gap: 6px; justify-content: center;
   font-size: 13px; font-weight: 700; color: #a5f3fc;
 }
+.map-globe-btn {
+  background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 50%; width: 26px; height: 26px; cursor: pointer;
+  font-size: 14px; display: flex; align-items: center; justify-content: center;
+  transition: transform 0.2s, background 0.2s; margin-right: auto;
+}
+.map-globe-btn:hover { transform: scale(1.15); background: rgba(56, 189, 248, 0.3); }
 .map-search-row { display: flex; gap: 6px; }
 .map-search-input { flex: 1; font-size: 12px; padding: 6px 8px; }
 .map-container {
-  height: 220px; border-radius: 10px; overflow: hidden;
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  box-shadow: 0 0 18px rgba(34, 211, 238, 0.12);
+  height: 180px; border-radius: 50% / 12%;
+  overflow: hidden;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.2), inset 0 0 30px rgba(34, 211, 238, 0.08);
   z-index: 0;
 }
 .map-container .leaflet-container { height: 100%; width: 100%; background: #0a1628; font-family: inherit; }

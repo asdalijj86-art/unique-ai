@@ -52,10 +52,16 @@ export default function MapWidget() {
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
     const map = L.map(mapRef.current, {
-      center: [30.3753, 69.3451], // Pakistan center
-      zoom: 5,
+      center: [25, 10], // World view — whole globe visible
+      zoom: 2,
       zoomControl: true,
-      attributionControl: true,
+      attributionControl: false,
+      scrollWheelZoom: true,
+      doubleClickZoom: true,
+      dragging: true,
+      minZoom: 2,
+      maxZoom: 19,
+      worldCopyJump: true,
     });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -67,6 +73,18 @@ export default function MapWidget() {
       mapInstance.current = null;
     };
   }, []);
+
+  function resetToGlobe() {
+    const map = mapInstance.current;
+    if (!map) return;
+    if (markerRef.current) {
+      markerRef.current.remove();
+      markerRef.current = null;
+    }
+    setFoundName('');
+    setQuery('');
+    map.flyTo([25, 10], 2, { duration: 1 });
+  }
 
   async function search() {
     const q = query.trim();
@@ -145,6 +163,9 @@ export default function MapWidget() {
       <div className="map-widget-head">
         <MapPin size={16} />
         <span>🗺️ دنیا کا نقشہ</span>
+        <button type="button" className="map-globe-btn" onClick={resetToGlobe} title="پوری دنیا دیکھیں">
+          🌍
+        </button>
       </div>
       <div className="map-search-row">
         <input
