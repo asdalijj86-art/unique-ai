@@ -112,7 +112,7 @@ function imageToGeminiPart(dataUrl) {
 // POST /api/openai/chat — chat with Gemini (+ smart-brain intent actions)
 // ---------------------------------------------------------------------------
 app.post("/api/openai/chat", async (req, res) => {
-  const { messages } = req.body ?? {};
+  const { messages, stream } = req.body ?? {};
   if (!validMessages(messages)) {
     res.status(400).json({ error: "پیغام درست نہیں ہے۔ دوبارہ کوشش کریں۔" });
     return;
@@ -432,6 +432,96 @@ app.post("/api/openai/chat", async (req, res) => {
       ? `${assistantInstructions} The user gave a multi-step request. Structure your answer with clear numbered steps (1. 2. 3.), one step per line, then a brief closing line.`
       : assistantInstructions;
 
+    const requestBody = {
+      systemInstruction: { parts: [{ text: systemText }] },
+      contents: messages.map(({ role, content, image }) => {
+        const parts = [{ text: content }];
+        // Vision: attach the user's image so Gemini can see it.
+        if (role === "user" && image) {
+          const imgPart = imageToGeminiPart(image);
+          if (imgPart) parts.push(imgPart);
+        }
+        return {
+          role: role === "assistant" ? "model" : "user",
+          parts,
+        };
+      }),
+      generationConfig: { maxOutputTokens: 512 },
+    };
+
+    // STREAMING MODE: pipe Gemini's SSE stream to the client for instant word-by-word display
+    if (stream) {
+      const streamResponse = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify(requestBody),
+        }
+      );
+      if (!streamResponse.ok) {
+        console.error("Gemini stream request failed", { status: streamResponse.status });
+        res.status(502).json({
+          error: "Gemini AI ابھی جواب نہیں دے سکی۔ API key، انٹرنیٹ اور API کی دستیابی چیک کریں۔",
+        });
+        return;
+      }
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+
+      let fullText = "";
+      const reader = streamResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trim();
+            if (data === "[DONE]") continue;
+            try {
+              const chunk = JSON.parse(data);
+              const delta = chunk.candidates?.[0]?.content?.parts
+                ?.map((p) => p.text ?? "")
+                .join("") ?? "";
+              if (delta) {
+                fullText += delta;
+                res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+              }
+            } catch { /* skip malformed chunk */ }
+          }
+        }
+      } catch (streamErr) {
+        console.error("Gemini stream read failed", streamErr);
+      }
+      fullText = fullText.trim();
+      // Send final metadata (plan extraction for multi-step)
+      let plan;
+      if (multiStep && fullText) {
+        const steps = fullText
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => /^\d+[.)\-:]\s+/.test(line))
+          .map((line) => line.replace(/^\d+[.)\-:]\s+/, "").trim())
+          .filter(Boolean);
+        if (steps.length >= 2) plan = steps;
+      }
+      res.write(`data: ${JSON.stringify({ done: true, text: fullText, ...(plan ? { multiStep: true, plan } : {}) })}\n\n`);
+      res.end();
+      return;
+    }
+
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
       {
@@ -440,22 +530,7 @@ app.post("/api/openai/chat", async (req, res) => {
           "Content-Type": "application/json",
           "x-goog-api-key": apiKey,
         },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemText }] },
-          contents: messages.map(({ role, content, image }) => {
-            const parts = [{ text: content }];
-            // Vision: attach the user's image so Gemini can see it.
-            if (role === "user" && image) {
-              const imgPart = imageToGeminiPart(image);
-              if (imgPart) parts.push(imgPart);
-            }
-            return {
-              role: role === "assistant" ? "model" : "user",
-              parts,
-            };
-          }),
-          generationConfig: { maxOutputTokens: 512 },
-        }),
+        body: JSON.stringify(requestBody),
       }
     );
 

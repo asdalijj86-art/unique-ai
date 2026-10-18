@@ -241,20 +241,42 @@ export default function ChatPage() {
     const imageToSend = attachedImage;
     setAttachedImage(null);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    // Create the assistant message placeholder immediately for streaming
+    const assistantId = createId();
+    const assistantPlaceholder: ChatMessage = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+    };
+    updateConversation(id, (item) => ({
+      ...item,
+      updatedAt: assistantPlaceholder.createdAt,
+      messages: [...item.messages, assistantPlaceholder],
+    }));
     try {
       const result = await chatMutation.mutateAsync({
-        data: { messages: sentMessages.slice(-30).map(({ role, content, image }) => ({ role, content, ...(image ? { image } : {}) })) },
+        data: {
+          messages: sentMessages.slice(-30).map(({ role, content, image }) => ({ role, content, ...(image ? { image } : {}) })),
+          stream: true,
+          onDelta: (delta: string) => {
+            // Append streamed text to the placeholder message in real time
+            updateConversation(id, (item) => ({
+              ...item,
+              messages: item.messages.map((m) =>
+                m.id === assistantId ? { ...m, content: m.content + delta } : m
+              ),
+            }));
+          },
+        },
       });
-      const assistantMessage: ChatMessage = {
-        id: createId(),
-        role: 'assistant',
-        content: result.text,
-        createdAt: new Date().toISOString(),
-      };
+      // Replace placeholder content with final text (ensures exact match)
       updateConversation(id, (item) => ({
         ...item,
-        updatedAt: assistantMessage.createdAt,
-        messages: [...item.messages, assistantMessage],
+        updatedAt: new Date().toISOString(),
+        messages: item.messages.map((m) =>
+          m.id === assistantId ? { ...m, content: result.text } : m
+        ),
       }));
       // Smart-brain action (Phase 2): open a website or start a project build.
       if (result.action?.type === 'open_url') {
@@ -279,6 +301,11 @@ export default function ChatPage() {
       // The assistant speaks EVERY reply aloud automatically — no mic or button needed.
       void playAssistantMessage(result.text);
     } catch (sendError) {
+      // Remove the streaming placeholder on failure
+      updateConversation(id, (item) => ({
+        ...item,
+        messages: item.messages.filter((m) => m.id !== assistantId),
+      }));
       setError(getErrorMessage(sendError));
     }
   }

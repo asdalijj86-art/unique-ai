@@ -38,15 +38,43 @@ export type ChatResponse = {
  */
 export function useSendMairaChatMessage() {
   return useMutation({
-    mutationFn: async ({ data }: { data: { messages: ChatMessageInput[] } }) => {
+    mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void } }) => {
+      const { onDelta, ...body } = data;
       const res = await fetch('/api/openai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw { data: errData };
+      }
+      // Streaming mode: read SSE deltas and call onDelta for each
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('text/event-stream') && onDelta) {
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalData: ChatResponse = { text: '' };
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            try {
+              const evt = JSON.parse(trimmed.slice(5).trim());
+              if (evt.delta) onDelta(evt.delta);
+              if (evt.done) {
+                finalData = { text: evt.text || '', ...(evt.multiStep ? { multiStep: true, plan: evt.plan } : {}) };
+              }
+            } catch { /* skip */ }
+          }
+        }
+        return finalData;
       }
       return res.json() as Promise<ChatResponse>;
     },
