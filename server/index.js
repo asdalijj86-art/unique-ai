@@ -2,6 +2,13 @@ import express from "express";
 import cors from "cors";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  classifyIntent,
+  detectLanguage,
+  isMultiStep,
+  websiteConfirmation,
+  buildConfirmation,
+} from "./brain.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -61,12 +68,33 @@ function validMessages(messages) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/openai/chat — chat with Gemini
+// POST /api/openai/chat — chat with Gemini (+ smart-brain intent actions)
 // ---------------------------------------------------------------------------
 app.post("/api/openai/chat", async (req, res) => {
   const { messages } = req.body ?? {};
   if (!validMessages(messages)) {
     res.status(400).json({ error: "پیغام درست نہیں ہے۔ دوبارہ کوشش کریں۔" });
+    return;
+  }
+
+  // --- Smart brain: classify the latest user message BEFORE spending quota.
+  const latestUserText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  const { intent, website, project } = classifyIntent(latestUserText);
+  const lang = detectLanguage(latestUserText);
+
+  if (intent === "open_website" && website) {
+    res.json({
+      text: websiteConfirmation(website, lang),
+      action: { type: "open_url", url: website.url, displayName: website.displayName },
+    });
+    return;
+  }
+
+  if (intent === "build_project" && project) {
+    res.json({
+      text: buildConfirmation(project.description, lang),
+      action: { type: "build_project", description: project.description },
+    });
     return;
   }
 
@@ -77,6 +105,13 @@ app.post("/api/openai/chat", async (req, res) => {
       return;
     }
 
+    // Multi-step requests: ask for clearly numbered steps (the sacred prompt
+    // above is untouched — this is a per-request task instruction only).
+    const multiStep = isMultiStep(latestUserText);
+    const systemText = multiStep
+      ? `${assistantInstructions} The user gave a multi-step request. Structure your answer with clear numbered steps (1. 2. 3.), one step per line, then a brief closing line.`
+      : assistantInstructions;
+
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
       {
@@ -86,7 +121,7 @@ app.post("/api/openai/chat", async (req, res) => {
           "x-goog-api-key": apiKey,
         },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: assistantInstructions }] },
+          systemInstruction: { parts: [{ text: systemText }] },
           contents: messages.map(({ role, content }) => ({
             role: role === "assistant" ? "model" : "user",
             parts: [{ text: content }],
@@ -117,11 +152,120 @@ app.post("/api/openai/chat", async (req, res) => {
       return;
     }
 
-    res.json({ text });
+    // Extract a structured plan for multi-step answers (numbered lines).
+    let plan;
+    if (multiStep) {
+      const steps = text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => /^\d+[.)\-:]\s+/.test(line))
+        .map((line) => line.replace(/^\d+[.)\-:]\s+/, "").trim())
+        .filter(Boolean);
+      if (steps.length >= 2) plan = steps;
+    }
+
+    res.json(plan ? { text, multiStep: true, plan } : { text });
   } catch (err) {
     console.error("Unique AI chat request failed", err);
     res.status(502).json({
       error: "Gemini AI سروس سے رابطہ نہیں ہو سکا۔ انٹرنیٹ اور API کی دستیابی چیک کریں۔",
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/build-project — Gemini generates a complete single-file website
+// ---------------------------------------------------------------------------
+const BUILD_SYSTEM_PROMPT = [
+  "You are an expert front-end developer. Generate ONE complete, self-contained HTML file.",
+  "Rules:",
+  "- Output ONLY the HTML code, no explanations, no markdown fences.",
+  "- Inline all CSS in <style> and all JS in <script> — no external files.",
+  "- Mobile-responsive, clean modern design, RTL layout when the content is Urdu/Arabic.",
+  "- Write all Urdu text in Perso-Arabic script. NEVER use Devanagari (Hindi) script, not even one character.",
+  "- Match the site language to the user's request language (Urdu default for Urdu requests).",
+  "- Include sensible placeholder content so the page looks complete immediately.",
+].join("\n");
+
+app.post("/api/build-project", async (req, res) => {
+  const { description } = req.body ?? {};
+  if (typeof description !== "string" || description.trim().length === 0) {
+    res.status(400).json({ error: "پروجیکٹ کی تفصیل درست نہیں ہے۔" });
+    return;
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    return;
+  }
+
+  try {
+    const lang = detectLanguage(description);
+    const langHint =
+      lang === "en"
+        ? "The site content should be in English."
+        : lang === "roman"
+          ? "The site content should be in Roman Urdu (Latin script)."
+          : "The site content should be in Urdu (Perso-Arabic script, RTL).";
+
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: BUILD_SYSTEM_PROMPT }] },
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Build a complete single-file website for: ${description.trim()}\n${langHint}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: { maxOutputTokens: 8192 },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error("Gemini build-project failed", { status: response.status });
+      res.status(502).json({
+        error: "ویب سائٹ بنانے میں مسئلہ ہوا۔ براہِ کرم دوبارہ کوشش کریں۔",
+      });
+      return;
+    }
+
+    const result = await response.json();
+    let html = result.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text ?? "")
+      .join("")
+      .trim();
+    if (!html) {
+      res.status(502).json({ error: "ویب سائٹ تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔" });
+      return;
+    }
+    // Strip markdown fences if the model added them despite instructions.
+    html = html
+      .replace(/^```html\s*/i, "")
+      .replace(/^```\s*/, "")
+      .replace(/\s*```$/g, "")
+      .trim();
+    if (!/^<!doctype html/i.test(html) && !/^<html/i.test(html)) {
+      console.warn("build-project returned non-HTML content");
+    }
+
+    res.json({ html });
+  } catch (err) {
+    console.error("build-project request failed", err);
+    res.status(502).json({
+      error: "ویب سائٹ بنانے میں مسئلہ ہوا۔ انٹرنیٹ چیک کر کے دوبارہ کوشش کریں۔",
     });
   }
 });

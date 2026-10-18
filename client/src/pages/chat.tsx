@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   Clock3,
+  Hand,
   Mic,
   MicOff,
   Plus,
@@ -15,6 +16,9 @@ import {
   useSendMairaChatMessage,
 } from '@/lib/api';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
+import { useGestures } from '@/hooks/useGestures';
+import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
+import ProjectBuilder from '@/components/ProjectBuilder';
 
 type ChatRole = 'user' | 'assistant';
 type ChatMessage = { id: string; role: ChatRole; content: string; createdAt: string };
@@ -95,6 +99,8 @@ export default function ChatPage() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [storageError, setStorageError] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [gesturesEnabled, setGesturesEnabled] = useState(false);
+  const [projectBuild, setProjectBuild] = useState<{ description: string } | null>(null);
   const chatMutation = useSendMairaChatMessage();
   const timerRef = useRef<number | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
@@ -105,6 +111,29 @@ export default function ChatPage() {
   const lastSpokenRef = useRef<{ text: string; at: number } | null>(null);
   const activeConversation = conversations.find((conversation) => conversation.id === activeId);
   const busy = chatMutation.isPending;
+
+  // Hand gestures (Phase 2): camera-based commands, all client-side.
+  const {
+    videoRef: gestureVideoRef,
+    status: gestureStatus,
+    statusMessage: gestureStatusMessage,
+    activeGesture,
+  } = useGestures({
+    enabled: gesturesEnabled,
+    onGesture: (gesture: Exclude<GestureName, 'none'>) => {
+      if (gesture === 'open_palm') {
+        stopSpeaking(); // "رکو" — stop the voice
+      } else if (gesture === 'fist') {
+        toggleRecording(); // mic on/off
+      } else if (gesture === 'thumbs_up') {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      } else if (gesture === 'point') {
+        textareaRef.current?.focus();
+      } else if (gesture === 'wave') {
+        setGesturesEnabled(false);
+      }
+    },
+  });
 
   useEffect(() => {
     try {
@@ -187,6 +216,16 @@ export default function ChatPage() {
         updatedAt: assistantMessage.createdAt,
         messages: [...item.messages, assistantMessage],
       }));
+      // Smart-brain action (Phase 2): open a website or start a project build.
+      if (result.action?.type === 'open_url') {
+        try {
+          window.open(result.action.url, '_blank', 'noopener,noreferrer');
+        } catch {
+          // Popup blocked — the URL is still visible in the reply text.
+        }
+      } else if (result.action?.type === 'build_project') {
+        setProjectBuild({ description: result.action.description });
+      }
       // The boy speaks EVERY reply aloud automatically — no mic or button needed.
       void playAssistantMessage(result.text);
     } catch (sendError) {
@@ -503,6 +542,16 @@ export default function ChatPage() {
             <span className="status-dot" /> <span dir="rtl">میں آپ کے ساتھ ہوں</span>
           </div>
           <div className="top-actions">
+            <button
+              className={`icon-button gesture-toggle${gesturesEnabled ? ' active' : ''}`}
+              onClick={() => setGesturesEnabled((v) => !v)}
+              aria-label={gesturesEnabled ? 'ہاتھ کے اشارے بند کریں' : 'ہاتھ کے اشارے چالو کریں'}
+              aria-pressed={gesturesEnabled}
+              title={gesturesEnabled ? 'ہاتھ کے اشارے بند کریں' : 'ہاتھ کے اشارے چالو کریں'}
+              data-testid="button-gesture-toggle"
+            >
+              <Hand size={17} />
+            </button>
             <button className="icon-button mobile-new" onClick={() => setShowHistory(true)} aria-label="گفتگوؤں کی فہرست کھولیں" data-testid="button-mobile-history">
               <Clock3 size={17} />
             </button>
@@ -635,7 +684,40 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
+
+        {projectBuild && (
+          <ProjectBuilder
+            description={projectBuild.description}
+            onClose={() => setProjectBuild(null)}
+          />
+        )}
       </section>
+
+      {gesturesEnabled && (
+        <div className="gesture-panel" dir="rtl" data-testid="panel-gestures" aria-label="ہاتھ کے اشارے">
+          <div className="gesture-panel-head">
+            <span className="gesture-panel-title">ہاتھ کے اشارے</span>
+            <button className="icon-button" onClick={() => setGesturesEnabled(false)} aria-label="اشارے بند کریں" data-testid="button-close-gestures">
+              <X size={15} />
+            </button>
+          </div>
+          <video ref={gestureVideoRef} className="gesture-video" muted playsInline data-testid="video-gesture" />
+          {gestureStatus === 'ready' ? (
+            <div className="gesture-hint" data-testid="text-gesture-active">
+              {activeGesture !== 'none' ? GESTURE_LABELS[activeGesture] : 'ہاتھ کیمرے کے سامنے رکھیں'}
+            </div>
+          ) : (
+            <div className="gesture-hint" data-testid="text-gesture-status">
+              {gestureStatusMessage || 'تیار ہو رہا ہے…'}
+            </div>
+          )}
+          <ul className="gesture-list">
+            {(Object.keys(GESTURE_LABELS) as Array<Exclude<GestureName, 'none'>>).map((g) => (
+              <li key={g} className={activeGesture === g ? 'lit' : ''}>{GESTURE_LABELS[g]}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {showHistory && (
         <div className="mobile-history-backdrop" role="presentation" onClick={(event) => {
