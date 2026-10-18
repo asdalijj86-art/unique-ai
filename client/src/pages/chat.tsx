@@ -117,6 +117,7 @@ export default function ChatPage() {
   const [appBuild, setAppBuild] = useState<{ description: string } | null>(null);
   const [toolAction, setToolAction] = useState<ChatAction | null>(null);
   const [mediaTool, setMediaTool] = useState<MediaToolName | null>(null);
+  const [toolPrefill, setToolPrefill] = useState<{ phone?: string } | null>(null);
   // Continuous voice mode (hands-free): listen -> auto-send on silence -> auto-speak reply.
   const [continuousVoice, setContinuousVoice] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState('');
@@ -268,6 +269,9 @@ export default function ChatPage() {
         setAppBuild({ description: result.action.description });
       } else if (result.action?.type === 'open_tool') {
         setMediaTool(result.action.tool as MediaToolName);
+        if (result.action.phone) {
+          setToolPrefill({ phone: result.action.phone });
+        }
       } else if (result.action) {
         // Professional toolbox actions: search, weather, videos, timer, notes, etc.
         setToolAction(result.action as ChatAction);
@@ -1005,7 +1009,7 @@ export default function ChatPage() {
         />
       )}
       {mediaTool && mediaTool !== 'video_creator' && (
-        <MediaTools tool={mediaTool} onClose={() => setMediaTool(null)} />
+        <MediaTools tool={mediaTool} onClose={() => { setMediaTool(null); setToolPrefill(null); }} initialPhone={toolPrefill?.phone} />
       )}
       {mediaTool === 'video_creator' && (
         <VideoCreator onClose={() => setMediaTool(null)} />

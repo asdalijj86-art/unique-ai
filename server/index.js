@@ -405,7 +405,7 @@ app.post("/api/openai/chat", async (req, res) => {
   if (intent === "media_tool" && c.tool) {
     res.json({
       text: mediaToolConfirmation(c.tool, lang),
-      action: { type: "open_tool", tool: c.tool },
+      action: { type: "open_tool", tool: c.tool, ...(c.phone ? { phone: c.phone } : {}) },
     });
     return;
   }

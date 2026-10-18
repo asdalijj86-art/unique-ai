@@ -7,7 +7,7 @@
 // - audio_to_text: upload → /api/transcribe (Gemini)
 // - email: form → /api/draft-email (Gemini)
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import VideoUpload from './VideoUpload';
 
@@ -917,11 +917,22 @@ function mobileNetwork(prefix4: string): string | null {
   return null;
 }
 
-function PhoneLookup() {
-  const [number, setNumber] = useState('');
+function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
+  const [number, setNumber] = useState(initialNumber || '');
   const [result, setResult] = useState<{ type: string; info: string; note: string } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const autoRanRef = useRef(false);
+
+  // Auto-lookup when a number was passed from chat
+  useEffect(() => {
+    if (initialNumber && !autoRanRef.current) {
+      autoRanRef.current = true;
+      // Small delay so the panel renders first
+      const t = setTimeout(() => { void lookup(); }, 300);
+      return () => clearTimeout(t);
+    }
+  }, [initialNumber]);
 
   async function liveLookup(intlPhone: string): Promise<{ type: string; info: string; note: string } | null> {
     try {
@@ -1091,7 +1102,7 @@ function PhoneLookup() {
 }
 
 // --- main -------------------------------------------------------------------------------
-export default function MediaTools({ tool, onClose }: { tool: MediaToolName; onClose: () => void }) {
+export default function MediaTools({ tool, onClose, initialPhone }: { tool: MediaToolName; onClose: () => void; initialPhone?: string }) {
   return (
     <div className="tool-results" dir="rtl" data-testid="panel-media-tools" role="region" aria-label="میڈیا ٹولز">
       <div className="tool-results-head">
@@ -1114,7 +1125,7 @@ export default function MediaTools({ tool, onClose }: { tool: MediaToolName; onC
         {tool === 'image_compress' && <ImageCompressor />}
         {tool === 'resume_builder' && <ResumeBuilder />}
         {tool === 'invoice_gen' && <InvoiceGenerator />}
-        {tool === 'phone_lookup' && <PhoneLookup />}
+        {tool === 'phone_lookup' && <PhoneLookup initialNumber={initialPhone} />}
       </div>
     </div>
   );

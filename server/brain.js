@@ -473,8 +473,14 @@ export function classifyIntent(text) {
   if (/(invoice banao|انوائس بناؤ|bill banao|بل بناؤ|invoice generator)/i.test(message)) {
     return { intent: 'media_tool', tool: 'invoice_gen' };
   }
-  if (/(number se sheher|نمبر سے شہر|phone.*location|فون نمبر.*شہر|number kahan ka|نمبر کہاں کا|area code|ایریا کوڈ|kis network ka|کس نیٹ ورک)/i.test(message)) {
+  if (/(number se sheher|نمبر سے شہر|phone.*location|فون نمبر.*شہر|number kahan ka|نمبر کہاں کا|area code|ایریا کوڈ|kis network ka|کس نیٹ ورک|number ki detail|نمبر کی ڈیٹیل|number ka pata|نمبر کا پتہ|is number ki|اس نمبر کی|number kahan chal|نمبر کہاں چل)/i.test(message)) {
     return { intent: 'media_tool', tool: 'phone_lookup' };
+  }
+  // Bare phone number typed in chat (e.g. 03067045972, +923067045972, 04235712345)
+  const digitsOnly = message.replace(/[\s\-()]/g, '');
+  const phoneMatch = digitsOnly.match(/^(\+?\d{10,14})$/);
+  if (phoneMatch) {
+    return { intent: 'media_tool', tool: 'phone_lookup', phone: phoneMatch[1] };
   }
 
   // --- video creator suite ---------------------------------------------------
