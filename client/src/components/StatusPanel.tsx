@@ -18,7 +18,7 @@ type StatusPanelProps = {
   status: SystemStatus;
 };
 
-const TOOLS_COUNT = 29;
+const TOOLS_COUNT = 30;
 
 function StatusRow({
   label,

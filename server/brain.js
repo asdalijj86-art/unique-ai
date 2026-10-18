@@ -473,6 +473,9 @@ export function classifyIntent(text) {
   if (/(invoice banao|انوائس بناؤ|bill banao|بل بناؤ|invoice generator)/i.test(message)) {
     return { intent: 'media_tool', tool: 'invoice_gen' };
   }
+  if (/(number se sheher|نمبر سے شہر|phone.*location|فون نمبر.*شہر|number kahan ka|نمبر کہاں کا|area code|ایریا کوڈ|kis network ka|کس نیٹ ورک)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'phone_lookup' };
+  }
 
   // --- video creator suite ---------------------------------------------------
   if (/(video banao|ویڈیو بناؤ|script likho|اسکرپٹ لکھو|title batao|ٹائٹل بتاؤ|hashtag|ہیش ٹیگ|video ka plan|ویڈیو کا پلان|youtube video|یوٹیوب ویڈیو)/i.test(message)) {
@@ -640,6 +643,7 @@ const MEDIA_TOOL_NAMES = {
   image_compress: { ur: 'تصویر کمپریسر', roman: 'Image compressor', en: 'Image compressor' },
   resume_builder: { ur: 'ریزیومے بنانے والا', roman: 'Resume builder', en: 'Resume builder' },
   invoice_gen: { ur: 'انوائس بنانے والا', roman: 'Invoice generator', en: 'Invoice generator' },
+  phone_lookup: { ur: 'نمبر سے شہر', roman: 'Phone number lookup', en: 'Phone number lookup' },
 };
 
 export function mediaToolConfirmation(tool, lang) {

@@ -14,7 +14,8 @@ import VideoUpload from './VideoUpload';
 export type MediaToolName =
   | 'background_remover' | 'ocr' | 'upscaler' | 'pdf'
   | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload'
-  | 'password_gen' | 'emi_calc' | 'image_compress' | 'resume_builder' | 'invoice_gen';
+  | 'password_gen' | 'emi_calc' | 'image_compress' | 'resume_builder' | 'invoice_gen'
+  | 'phone_lookup';
 
 const TOOL_TITLES: Record<MediaToolName, string> = {
   background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
@@ -30,6 +31,7 @@ const TOOL_TITLES: Record<MediaToolName, string> = {
   image_compress: '🗜️ تصویر چھوٹی کریں',
   resume_builder: '📄 ریزیومے (CV) بنائیں',
   invoice_gen: '🧾 انوائس بنائیں',
+  phone_lookup: '📞 نمبر سے شہر معلوم کریں',
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -838,6 +840,114 @@ th,td{border:1px solid #ccc;padding:8px;text-align:right}th{background:#f5f5f5}
   );
 }
 
+// --- phone number lookup: area code → city, mobile prefix → network -------------
+const PAK_AREA_CODES: Record<string, string> = {
+  '021': 'کراچی', '022': 'حیدرآباد', '023': 'میرپور خاص', '024': 'نواب شاہ',
+  '025': 'سکھر (لاڑکانہ ریجن)', '026': 'جیکب آباد', '027': 'شکارپور',
+  '041': 'فیصل آباد', '042': 'لاہور', '043': 'سرگودھا', '044': 'اوکاڑہ',
+  '045': 'جھنگ', '046': 'بھکر', '047': 'ٹوبہ ٹیک سنگھ', '048': 'خوشاب',
+  '049': 'شیخوپورہ',
+  '051': 'اسلام آباد / راولپنڈی', '052': 'سیالکوٹ', '053': 'گجرات',
+  '054': 'منڈی بہاؤالدین', '055': 'گوجرانوالہ', '056': 'اٹک',
+  '057': 'چکوال', '058': 'جہلم', '059': 'میانوالی',
+  '061': 'ملتان', '062': 'بہاولپور', '063': 'وہاڑی', '064': 'ڈیرہ غازی خان',
+  '065': 'رحیم یار خان', '066': 'لیہ', '067': 'ساہیوال', '068': 'راجن پور',
+  '069': 'مظفر گڑھ',
+  '071': 'سکھر', '072': 'خیرپور', '073': 'دادو', '074': 'نوشہرو فیروز',
+  '081': 'کوئٹہ', '082': 'سبی', '083': 'ژوب', '084': 'نصیر آباد',
+  '085': 'خضدار', '086': 'تربت', '087': 'گوادر',
+  '091': 'پشاور', '092': 'مردان', '093': 'سوات', '094': 'ایبٹ آباد',
+  '095': 'ڈیرہ اسماعیل خان', '096': 'کوہاٹ', '097': 'بنوں', '099': 'ہری پور',
+};
+
+function mobileNetwork(prefix4: string): string | null {
+  const p = prefix4;
+  if (/^030[0-9]$/.test(p)) return 'جاز (Jazz)';
+  if (/^031[0-9]$/.test(p)) return 'زونگ (Zong)';
+  if (/^032[0-9]$/.test(p)) return 'جاز (سابقہ وارڈ)';
+  if (/^033[0-9]$/.test(p)) return 'یوفون (Ufone)';
+  if (/^034[0-9]$/.test(p)) return 'ٹیلی نار (Telenor)';
+  return null;
+}
+
+function PhoneLookup() {
+  const [number, setNumber] = useState('');
+  const [result, setResult] = useState<{ type: string; info: string; note: string } | null>(null);
+  const [error, setError] = useState('');
+
+  function lookup() {
+    setError('');
+    setResult(null);
+    // Normalize: remove spaces, dashes, +92 → 0
+    let n = number.replace(/[\s\-()]/g, '');
+    if (n.startsWith('+92')) n = '0' + n.slice(3);
+    if (n.startsWith('92') && n.length >= 12) n = '0' + n.slice(2);
+
+    if (!/^0\d{9,10}$/.test(n)) {
+      setError('صحیح پاکستانی نمبر لکھیں (مثلاً 03001234567 یا 04235712345)');
+      return;
+    }
+
+    // Mobile: 03XX XXXXXXX
+    if (/^03\d{9}$/.test(n)) {
+      const net = mobileNetwork(n.slice(0, 4));
+      setResult({
+        type: '📱 موبائل نمبر',
+        info: net ? `نیٹ ورک: ${net}` : 'نیٹ ورک معلوم نہیں',
+        note: 'موبائل نمبر سے شہر معلوم نہیں ہو سکتا — نمبر پورٹیبلٹی کی وجہ سے۔ صرف نیٹ ورک بتایا جا سکتا ہے۔',
+      });
+      return;
+    }
+
+    // Landline: 0XX XXXXXXX — area code lookup
+    for (let len = 3; len >= 2; len--) {
+      const code = n.slice(0, len + 1); // 0XX or 0XXX
+      const city = PAK_AREA_CODES[code];
+      if (city) {
+        setResult({
+          type: '☎️ لینڈ لائن نمبر',
+          info: `شہر: ${city} (کوڈ ${code})`,
+          note: 'یہ ایریا کوڈ کی بنیاد پر ہے — نمبر اسی شہر/علاقے کا ہے۔',
+        });
+        return;
+      }
+    }
+    setResult({
+      type: '☎️ لینڈ لائن نمبر',
+      info: 'ایریا کوڈ معلوم نہیں',
+      note: 'یہ کوڈ ہماری لسٹ میں نہیں۔',
+    });
+  }
+
+  return (
+    <div>
+      <div className="tool-label">پاکستانی فون نمبر لکھیں:</div>
+      <div className="tool-row">
+        <input
+          value={number}
+          onChange={(e) => setNumber(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && lookup()}
+          placeholder="03001234567 یا 04235712345"
+          className="tool-input"
+          dir="ltr"
+          style={{ flex: 1 }}
+        />
+        <button type="button" className="tool-action-button" onClick={lookup}>
+          🔍 معلوم کریں
+        </button>
+      </div>
+      {error && <div className="tool-error">{error}</div>}
+      {result && (
+        <div className="tool-text-block" data-testid="text-phone-result">
+          <div><b>{result.type}</b></div>
+          <div style={{ marginTop: 6 }}>{result.info}</div>
+          <div className="tool-small-note" style={{ marginTop: 8 }}>{result.note}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- main -------------------------------------------------------------------------------
 export default function MediaTools({ tool, onClose }: { tool: MediaToolName; onClose: () => void }) {
   return (
@@ -862,6 +972,7 @@ export default function MediaTools({ tool, onClose }: { tool: MediaToolName; onC
         {tool === 'image_compress' && <ImageCompressor />}
         {tool === 'resume_builder' && <ResumeBuilder />}
         {tool === 'invoice_gen' && <InvoiceGenerator />}
+        {tool === 'phone_lookup' && <PhoneLookup />}
       </div>
     </div>
   );
