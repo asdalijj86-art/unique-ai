@@ -921,51 +921,76 @@ function PhoneLookup() {
   const [number, setNumber] = useState('');
   const [result, setResult] = useState<{ type: string; info: string; note: string } | null>(null);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  function lookup() {
+  async function liveLookup(intlPhone: string): Promise<{ type: string; info: string; note: string } | null> {
+    try {
+      const res = await fetch('/api/phone-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: intlPhone }),
+      });
+      const data = await res.json();
+      if (!res.ok) return null;
+      const parts: string[] = [];
+      if (data.country) parts.push(`ملک: ${data.country}`);
+      if (data.region) parts.push(`علاقہ: ${data.region}`);
+      if (data.city) parts.push(`شہر: ${data.city}`);
+      if (data.carrier) parts.push(`نیٹ ورک: ${data.carrier}`);
+      if (data.lineType) parts.push(`قسم: ${data.lineType === 'mobile' ? 'موبائل' : data.lineType === 'landline' ? 'لینڈ لائن' : data.lineType}`);
+      if (parts.length === 0) return null;
+      return {
+        type: '🌍 Live تلاش',
+        info: parts.join('\n'),
+        note: 'یہ معلومات live API سے آئی ہیں۔',
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async function lookup() {
     setError('');
     setResult(null);
     // Normalize: remove spaces, dashes, parentheses
     let n = number.replace(/[\s\-()]/g, '');
 
-    // International format: +XX... or 00XX...
+    // Build international format for the live API
+    let intl = '';
+    if (n.startsWith('+')) intl = n;
+    else if (n.startsWith('00')) intl = '+' + n.slice(2);
+    else if (n.startsWith('0')) intl = '+92' + n.slice(1);
+    else intl = '+' + n;
+
+    // Try live API first (city-level data)
+    setBusy(true);
+    const live = await liveLookup(intl);
+    setBusy(false);
+    if (live) {
+      setResult(live);
+      return;
+    }
+
+    // Fallback: local offline lookup below
     let countryCode = '';
-    let national = '';
     if (n.startsWith('+')) {
       const digits = n.slice(1);
-      // Try 3-digit, then 2-digit, then 1-digit country codes
       for (let len = 3; len >= 1; len--) {
         const cc = digits.slice(0, len);
-        if (COUNTRY_CODES[cc]) {
-          countryCode = cc;
-          national = digits.slice(len);
-          break;
-        }
+        if (COUNTRY_CODES[cc]) { countryCode = cc; break; }
       }
-      if (!countryCode) {
-        setError('یہ ملک کا کوڈ معلوم نہیں۔ نمبر چیک کریں۔');
-        return;
-      }
+      if (!countryCode) { setError('یہ ملک کا کوڈ معلوم نہیں۔ نمبر چیک کریں۔'); return; }
     } else if (n.startsWith('00')) {
       const digits = n.slice(2);
       for (let len = 3; len >= 1; len--) {
         const cc = digits.slice(0, len);
-        if (COUNTRY_CODES[cc]) {
-          countryCode = cc;
-          national = digits.slice(len);
-          break;
-        }
+        if (COUNTRY_CODES[cc]) { countryCode = cc; break; }
       }
-      if (!countryCode) {
-        setError('یہ ملک کا کوڈ معلوم نہیں۔ نمبر چیک کریں۔');
-        return;
-      }
+      if (!countryCode) { setError('یہ ملک کا کوڈ معلوم نہیں۔ نمبر چیک کریں۔'); return; }
     } else {
-      // Assume Pakistani local format: 0XXXXXXXXXX
       if (n.startsWith('92') && n.length >= 12) n = '0' + n.slice(2);
       countryCode = '92';
-      national = n.startsWith('0') ? n.slice(1) : n;
-      n = '0' + national;
+      n = '0' + (n.startsWith('0') ? n.slice(1) : n);
     }
 
     const country = COUNTRY_CODES[countryCode] || 'نامعلوم ملک';
@@ -976,7 +1001,6 @@ function PhoneLookup() {
         setError('صحیح پاکستانی نمبر لکھیں (مثلاً 03001234567 یا 04235712345)');
         return;
       }
-      // Mobile: 03XX XXXXXXX
       if (/^03\d{9}$/.test(n)) {
         const net = mobileNetwork(n.slice(0, 4));
         setResult({
@@ -986,7 +1010,6 @@ function PhoneLookup() {
         });
         return;
       }
-      // Landline: area code → city
       for (let len = 3; len >= 2; len--) {
         const code = n.slice(0, len + 1);
         const city = PAK_AREA_CODES[code];
@@ -1007,11 +1030,10 @@ function PhoneLookup() {
       return;
     }
 
-    // Other countries: show country
     setResult({
       type: '🌍 بین الاقوامی نمبر',
       info: `ملک: ${country}\nکوڈ: +${countryCode}`,
-      note: 'دوسرے ملکوں کے لیے صرف ملک بتایا جا سکتا ہے — شہر کے لیے paid service چاہیے۔',
+      note: 'Live تلاش دستیاب نہیں — صرف ملک بتایا جا سکتا ہے۔',
     });
   }
 
@@ -1028,8 +1050,8 @@ function PhoneLookup() {
           dir="ltr"
           style={{ flex: 1 }}
         />
-        <button type="button" className="tool-action-button" onClick={lookup}>
-          🔍 معلوم کریں
+        <button type="button" className="tool-action-button" onClick={lookup} disabled={busy}>
+          {busy ? <><Loader2 size={14} className="spin" /> تلاش ہو رہی ہے…</> : '🔍 معلوم کریں'}
         </button>
       </div>
       {error && <div className="tool-error">{error}</div>}

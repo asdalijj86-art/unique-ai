@@ -884,6 +884,45 @@ app.post("/api/transcribe", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/phone-lookup — Abstract API phone intelligence:
+// returns carrier, line type, city, region, country for any international number.
+// ---------------------------------------------------------------------------
+app.post("/api/phone-lookup", async (req, res) => {
+  const { phone } = req.body ?? {};
+  if (typeof phone !== "string" || phone.trim().length === 0) {
+    res.status(400).json({ error: "فون نمبر درست نہیں ہے۔" });
+    return;
+  }
+  const apiKey = process.env.ABSTRACT_PHONE_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "فون تلاش کی سروس ابھی تیار نہیں۔" });
+    return;
+  }
+  try {
+    const response = await fetch(
+      `https://phoneintelligence.abstractapi.com/v1/?api_key=${encodeURIComponent(apiKey)}&phone=${encodeURIComponent(phone.trim())}`,
+      { method: "GET" }
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const loc = data.phone_location || {};
+    const carrier = data.phone_carrier || {};
+    res.json({
+      valid: data.phone_validation?.is_valid ?? true,
+      city: loc.city || "",
+      region: loc.region || "",
+      country: loc.country_name || "",
+      countryCode: loc.country_code || "",
+      carrier: carrier.name || "",
+      lineType: carrier.line_type || "",
+    });
+  } catch (err) {
+    console.error("phone lookup failed", err);
+    res.status(502).json({ error: "نمبر کی معلومات نہیں مل سکیں۔ دوبارہ کوشش کریں۔" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/create-video — Gemini generates a complete upload-ready package:
 // script, title, description, hashtags, thumbnail texts, upload-time tip.
 // Follows the user's TITLE+DESCRIPTION POWER RULE style.
