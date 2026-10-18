@@ -116,9 +116,12 @@ export function classifyIntent(text) {
 // --- confirmation texts (rule-based, no quota) ------------------------------
 export function websiteConfirmation(website, lang) {
   if (lang === 'roman') {
+    // Use the Latin-script name for Roman Urdu so the reply stays in one script.
+    const name = /^[A-Za-z]/.test(website.displayName) ? website.displayName : website.url.replace(/^https?:\/\/(www\.)?/, '').split('.')[0];
+    const pretty = name.charAt(0).toUpperCase() + name.slice(1);
     return website.isSearchFallback
       ? `Ji, ${website.displayName} Google par talaash kar ke khol raha hoon.`
-      : `Ji, ${website.displayName} khol raha hoon.`;
+      : `Ji, ${pretty} khol raha hoon.`;
   }
   if (lang === 'en') {
     const name = website.displayName;
