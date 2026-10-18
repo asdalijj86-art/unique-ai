@@ -1104,7 +1104,7 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
           <div style={{ marginTop: 6 }}>{result.info}</div>
           <div className="tool-small-note" style={{ marginTop: 8 }}>{result.note}</div>
           {result.intlNumber && (
-            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <a
                 href={`https://wa.me/${result.intlNumber.replace('+', '')}`}
                 target="_blank"
@@ -1113,6 +1113,15 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
                 style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
                 💬 WhatsApp پر دیکھیں
+              </a>
+              <a
+                href={`https://www.google.com/search?q="${result.intlNumber}"`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="tool-action-button"
+                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                🔍 Google پر تلاش کریں
               </a>
             </div>
           )}
