@@ -30,7 +30,7 @@ import StatusPanel from '@/components/StatusPanel';
 import type { ChatAction } from '@/lib/api';
 
 type ChatRole = 'user' | 'assistant';
-type ChatMessage = { id: string; role: ChatRole; content: string; createdAt: string };
+type ChatMessage = { id: string; role: ChatRole; content: string; createdAt: string; image?: string };
 type Conversation = { id: string; title: string; updatedAt: string; messages: ChatMessage[] };
 
 type BrowserSpeechRecognition = {
@@ -132,6 +132,9 @@ export default function ChatPage() {
   const continuousIntendedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Attached image (base64 data URL) for vision — sent with the next message.
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const serverAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastSpokenRef = useRef<{ text: string; at: number } | null>(null);
   const activeConversation = conversations.find((conversation) => conversation.id === activeId);
@@ -210,7 +213,7 @@ export default function ChatPage() {
 
   async function sendMessage(textValue: string, fromVoice = false) {
     const text = textValue.trim();
-    if (!text || chatMutation.isPending) return;
+    if ((!text && !attachedImage) || chatMutation.isPending) return;
     setError('');
     let conversation = activeConversation;
     if (!conversation) {
@@ -224,7 +227,7 @@ export default function ChatPage() {
       setActiveId(conversation.id);
     }
     const id = conversation.id;
-    const userMessage: ChatMessage = { id: createId(), role: 'user', content: text, createdAt: new Date().toISOString() };
+    const userMessage: ChatMessage = { id: createId(), role: 'user', content: text || '📷 تصویر بھیجی', createdAt: new Date().toISOString(), ...(attachedImage ? { image: attachedImage } : {}) };
     const previousMessages = conversation.messages;
     const sentMessages = [...previousMessages, userMessage];
     updateConversation(id, (item) => ({
@@ -234,10 +237,12 @@ export default function ChatPage() {
       messages: sentMessages,
     }));
     setDraft('');
+    const imageToSend = attachedImage;
+    setAttachedImage(null);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     try {
       const result = await chatMutation.mutateAsync({
-        data: { messages: sentMessages.slice(-30).map(({ role, content }) => ({ role, content })) },
+        data: { messages: sentMessages.slice(-30).map(({ role, content, image }) => ({ role, content, ...(image ? { image } : {}) })) },
       });
       const assistantMessage: ChatMessage = {
         id: createId(),
@@ -469,6 +474,29 @@ export default function ChatPage() {
       window.clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+  }
+
+  // Image attach for vision: read as base64 data URL (max ~4MB).
+  function handleImagePick(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('صرف تصویر والی فائل بھیجیں۔');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setError('تصویر 4MB سے چھوٹی ہونی چاہیے۔');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setAttachedImage(dataUrl);
+      setError('');
+    };
+    reader.onerror = () => setError('تصویر پڑھنے میں مسئلہ ہوا۔');
+    reader.readAsDataURL(file);
   }
 
   function scheduleSilenceSend() {
@@ -812,6 +840,9 @@ export default function ChatPage() {
                 {activeConversation.messages.map((message) => (
                   <article key={message.id} className={`jmsg ${message.role}`} data-testid={`message-${message.role}-${message.id}`}>
                     <div className="jmsg-bubble" dir="auto" data-testid={`text-message-content-${message.id}`}>
+                      {message.image ? (
+                        <img src={message.image} alt="بھیجی گئی تصویر" className="jmsg-image" />
+                      ) : null}
                       {renderMessageContent(message.content)}
                     </div>
                     {message.role === 'assistant' ? (
@@ -861,6 +892,20 @@ export default function ChatPage() {
               <span>{recording ? `ریکارڈ ہو رہا ہے · ${durationLabel}` : voiceStatus}</span>
             </div>
           ) : null}
+          {attachedImage ? (
+            <div className="hero-attach-preview" dir="ltr">
+              <img src={attachedImage} alt="منسلک تصویر" className="hero-attach-thumb" />
+              <button
+                type="button"
+                className="hero-attach-remove"
+                onClick={() => setAttachedImage(null)}
+                aria-label="تصویر ہٹائیں"
+              >
+                ✕
+              </button>
+              <span className="hero-attach-hint">تصویر تیار ہے — سوال لکھیں یا بھیج دیں 📷</span>
+            </div>
+          ) : null}
           <div className="hero-composer">
             <button
               className={`hero-mic${recording ? ' recording' : ''}`}
@@ -870,6 +915,25 @@ export default function ChatPage() {
               data-testid="button-microphone"
             >
               {recording ? <MicOff size={17} /> : <Mic size={17} />}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleImagePick}
+              aria-label="تصویر لگائیں"
+              data-testid="input-image-attach"
+            />
+            <button
+              className="hero-attach"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={busy}
+              aria-label="تصویر بھیجیں"
+              data-testid="button-attach-image"
+              title="تصویر بھیجیں 📷"
+            >
+              📎
             </button>
             <textarea
               ref={textareaRef}
@@ -889,7 +953,7 @@ export default function ChatPage() {
             <button
               className="hero-send"
               onClick={() => void sendMessage(draft)}
-              disabled={!draft.trim() || busy}
+              disabled={(!draft.trim() && !attachedImage) || busy}
               aria-label="پیغام بھیجیں"
               data-testid="button-send-message"
             >

@@ -95,9 +95,17 @@ function validMessages(messages) {
         typeof m === "object" &&
         (m.role === "user" || m.role === "assistant") &&
         typeof m.content === "string" &&
-        m.content.length > 0
+        m.content.length > 0 &&
+        (m.image === undefined || (typeof m.image === "string" && m.image.startsWith("data:image/")))
     )
   );
+}
+
+// Convert a data-URL image to a Gemini inlineData part.
+function imageToGeminiPart(dataUrl) {
+  const match = /^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/.exec(dataUrl || "");
+  if (!match) return null;
+  return { inlineData: { mimeType: match[1], data: match[2] } };
 }
 
 // ---------------------------------------------------------------------------
@@ -434,10 +442,18 @@ app.post("/api/openai/chat", async (req, res) => {
         },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemText }] },
-          contents: messages.map(({ role, content }) => ({
-            role: role === "assistant" ? "model" : "user",
-            parts: [{ text: content }],
-          })),
+          contents: messages.map(({ role, content, image }) => {
+            const parts = [{ text: content }];
+            // Vision: attach the user's image so Gemini can see it.
+            if (role === "user" && image) {
+              const imgPart = imageToGeminiPart(image);
+              if (imgPart) parts.push(imgPart);
+            }
+            return {
+              role: role === "assistant" ? "model" : "user",
+              parts,
+            };
+          }),
           generationConfig: { maxOutputTokens: 512 },
         }),
       }

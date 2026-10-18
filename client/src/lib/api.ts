@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 
-type ChatMessageInput = { role: string; content: string };
+type ChatMessageInput = { role: string; content: string; image?: string };
 
 /** Smart-brain action the server may return alongside a chat reply. */
 export type ChatAction =
