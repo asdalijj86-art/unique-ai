@@ -13,7 +13,8 @@ import VideoUpload from './VideoUpload';
 
 export type MediaToolName =
   | 'background_remover' | 'ocr' | 'upscaler' | 'pdf'
-  | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload';
+  | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload'
+  | 'password_gen' | 'emi_calc' | 'image_compress' | 'resume_builder' | 'invoice_gen';
 
 const TOOL_TITLES: Record<MediaToolName, string> = {
   background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
@@ -24,6 +25,11 @@ const TOOL_TITLES: Record<MediaToolName, string> = {
   email: '✉️ ای میل لکھوائیں',
   resize: '📐 تصویر ری سائز کریں',
   video_upload: '🎬 ویڈیو اپلوڈ اور وائرل تیاری',
+  password_gen: '🔐 پاس ورڈ بنائیں',
+  emi_calc: '💰 قرض کی قسط نکالیں',
+  image_compress: '🗜️ تصویر چھوٹی کریں',
+  resume_builder: '📄 ریزیومے (CV) بنائیں',
+  invoice_gen: '🧾 انوائس بنائیں',
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -531,6 +537,307 @@ function EmailHelper() {
   );
 }
 
+// --- password generator ----------------------------------------------------------
+function PasswordGenerator() {
+  const [length, setLength] = useState(16);
+  const [upper, setUpper] = useState(true);
+  const [lower, setLower] = useState(true);
+  const [digits, setDigits] = useState(true);
+  const [symbols, setSymbols] = useState(true);
+  const [password, setPassword] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  function generate() {
+    let chars = '';
+    if (upper) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    if (lower) chars += 'abcdefghijklmnopqrstuvwxyz';
+    if (digits) chars += '0123456789';
+    if (symbols) chars += '!@#$%^&*()-_=+[]{}|;:,.<>?';
+    if (!chars) return;
+    const arr = new Uint32Array(length);
+    crypto.getRandomValues(arr);
+    let pwd = '';
+    for (let i = 0; i < length; i++) pwd += chars[arr[i] % chars.length];
+    setPassword(pwd);
+    setCopied(false);
+  }
+
+  return (
+    <div>
+      <div className="tool-row">
+        <label>لمبائی: {length}</label>
+        <input type="range" min={8} max={64} value={length} onChange={(e) => setLength(Number(e.target.value))} dir="ltr" />
+      </div>
+      <div className="tool-row">
+        <label><input type="checkbox" checked={upper} onChange={(e) => setUpper(e.target.checked)} /> A-Z</label>
+        <label><input type="checkbox" checked={lower} onChange={(e) => setLower(e.target.checked)} /> a-z</label>
+        <label><input type="checkbox" checked={digits} onChange={(e) => setDigits(e.target.checked)} /> 0-9</label>
+        <label><input type="checkbox" checked={symbols} onChange={(e) => setSymbols(e.target.checked)} /> علامتیں</label>
+      </div>
+      <button type="button" className="tool-action-button" onClick={generate}>🔐 پاس ورڈ بنائیں</button>
+      {password && (
+        <div>
+          <div className="tool-text-block" dir="ltr" data-testid="text-password" style={{ fontFamily: 'monospace', fontSize: 18 }}>{password}</div>
+          <button type="button" className="tool-action-button" onClick={() => { navigator.clipboard?.writeText(password); setCopied(true); }}>
+            {copied ? '✅ کاپی ہو گیا' : '📋 کاپی کریں'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- EMI calculator ------------------------------------------------------------
+function EmiCalculator() {
+  const [principal, setPrincipal] = useState('500000');
+  const [rate, setRate] = useState('12');
+  const [years, setYears] = useState('5');
+  const [result, setResult] = useState<{ emi: number; total: number; interest: number } | null>(null);
+
+  function calculate() {
+    const P = parseFloat(principal);
+    const R = parseFloat(rate) / 1200;
+    const N = parseFloat(years) * 12;
+    if (!P || !R || !N || P <= 0 || N <= 0) return;
+    const emi = R === 0 ? P / N : (P * R * Math.pow(1 + R, N)) / (Math.pow(1 + R, N) - 1);
+    const total = emi * N;
+    setResult({ emi: Math.round(emi), total: Math.round(total), interest: Math.round(total - P) });
+  }
+
+  return (
+    <div>
+      <div className="tool-row">
+        <label>رقم (روپے): </label>
+        <input type="number" value={principal} onChange={(e) => setPrincipal(e.target.value)} className="tool-input" dir="ltr" />
+      </div>
+      <div className="tool-row">
+        <label>سود % سالانہ: </label>
+        <input type="number" value={rate} onChange={(e) => setRate(e.target.value)} className="tool-input" dir="ltr" step="0.1" />
+      </div>
+      <div className="tool-row">
+        <label>مدت (سال): </label>
+        <input type="number" value={years} onChange={(e) => setYears(e.target.value)} className="tool-input" dir="ltr" />
+      </div>
+      <button type="button" className="tool-action-button" onClick={calculate}>💰 قسط نکالیں</button>
+      {result && (
+        <div className="tool-text-block" data-testid="text-emi-result">
+          <div>📅 ماہانہ قسط: <b>{result.emi.toLocaleString()} روپے</b></div>
+          <div>💵 کل ادائیگی: {result.total.toLocaleString()} روپے</div>
+          <div>📈 کل سود: {result.interest.toLocaleString()} روپے</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- image compressor ------------------------------------------------------------
+function ImageCompressor() {
+  const [src, setSrc] = useState<string | null>(null);
+  const [origSize, setOrigSize] = useState(0);
+  const [quality, setQuality] = useState(70);
+  const [out, setOut] = useState<{ url: string; size: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleFile(f: File) {
+    setSrc(URL.createObjectURL(f));
+    setOrigSize(f.size);
+    setOut(null);
+  }
+
+  async function compress() {
+    if (!src) return;
+    setBusy(true);
+    try {
+      const img = await loadImage(src);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode-failed'))), 'image/jpeg', quality / 100)
+      );
+      setOut({ url: URL.createObjectURL(blob), size: blob.size });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const kb = (n: number) => (n / 1024).toFixed(0) + ' KB';
+
+  return (
+    <div>
+      <FilePicker accept="image/*" onFile={handleFile} label="📷 تصویر چنیں" />
+      {src && (
+        <div>
+          <img src={src} alt="اصل" className="tool-preview-img" />
+          <div className="tool-small-note">اصل سائز: {kb(origSize)}</div>
+          <div className="tool-row">
+            <label>کوالٹی: {quality}%</label>
+            <input type="range" min={10} max={95} value={quality} onChange={(e) => setQuality(Number(e.target.value))} dir="ltr" />
+            <button type="button" className="tool-action-button" onClick={compress} disabled={busy}>
+              {busy ? 'ہو رہا ہے…' : '🗜️ چھوٹی کریں'}
+            </button>
+          </div>
+        </div>
+      )}
+      {out && (
+        <div>
+          <img src={out.url} alt="چھوٹی شدہ" className="tool-preview-img" />
+          <div className="tool-small-note">نیا سائز: {kb(out.size)} ({Math.round((1 - out.size / origSize) * 100)}% چھوٹی)</div>
+          <button
+            type="button"
+            className="tool-action-button"
+            onClick={async () => {
+              const blob = await (await fetch(out.url)).blob();
+              downloadBlob(blob, 'compressed.jpg');
+            }}
+          >
+            ⬇️ ڈاؤن لوڈ کریں
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- resume builder ----------------------------------------------------------------
+function ResumeBuilder() {
+  const [name, setName] = useState('');
+  const [title, setTitle] = useState('');
+  const [phone, setPhone] = useState('');
+  const [emailAddr, setEmailAddr] = useState('');
+  const [address, setAddress] = useState('');
+  const [summary, setSummary] = useState('');
+  const [experience, setExperience] = useState('');
+  const [education, setEducation] = useState('');
+  const [skills, setSkills] = useState('');
+
+  function buildHtml(): string {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
+    return `<!DOCTYPE html><html dir="auto"><head><meta charset="utf-8"><title>Resume - ${esc(name)}</title>
+<style>body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;padding:0 20px;color:#222}
+h1{margin:0;font-size:28px}h2{font-size:18px;color:#1a73e8;border-bottom:2px solid #1a73e8;padding-bottom:4px;margin-top:24px}
+.sub{color:#555;margin-top:4px}.sec{margin-top:8px;line-height:1.6}</style></head><body>
+<h1>${esc(name)}</h1><div class="sub">${esc(title)}</div>
+<div class="sub">${esc(phone)} | ${esc(emailAddr)} | ${esc(address)}</div>
+${summary ? `<h2>خلاصہ / Summary</h2><div class="sec">${esc(summary)}</div>` : ''}
+${experience ? `<h2>تجربہ / Experience</h2><div class="sec">${esc(experience)}</div>` : ''}
+${education ? `<h2>تعلیم / Education</h2><div class="sec">${esc(education)}</div>` : ''}
+${skills ? `<h2>مہارتیں / Skills</h2><div class="sec">${esc(skills)}</div>` : ''}
+</body></html>`;
+  }
+
+  function download() {
+    if (!name.trim()) return;
+    const blob = new Blob([buildHtml()], { type: 'text/html;charset=utf-8' });
+    downloadBlob(blob, `resume-${name.trim().replace(/\s+/g, '-')}.html`);
+  }
+
+  const field = (label: string, value: string, set: (v: string) => void, textarea = false) => (
+    <div className="tool-row">
+      <label style={{ minWidth: 90 }}>{label}: </label>
+      {textarea ? (
+        <textarea value={value} onChange={(e) => set(e.target.value)} className="tool-textarea" dir="auto" rows={3} style={{ flex: 1 }} />
+      ) : (
+        <input value={value} onChange={(e) => set(e.target.value)} className="tool-input" dir="auto" style={{ flex: 1 }} />
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      {field('نام', name, setName)}
+      {field('عہدہ', title, setTitle)}
+      {field('فون', phone, setPhone)}
+      {field('ای میل', emailAddr, setEmailAddr)}
+      {field('پتہ', address, setAddress)}
+      {field('خلاصہ', summary, setSummary, true)}
+      {field('تجربہ', experience, setExperience, true)}
+      {field('تعلیم', education, setEducation, true)}
+      {field('مہارتیں', skills, setSkills, true)}
+      <button type="button" className="tool-action-button" onClick={download} disabled={!name.trim()}>
+        📄 ریزیومے ڈاؤن لوڈ کریں (HTML — پرنٹ کر کے PDF بنائیں)
+      </button>
+      <div className="tool-small-note">ٹپ: ڈاؤن لوڈ شدہ فائل کھولیں، Ctrl+P دبائیں اور "Save as PDF" چنیں۔</div>
+    </div>
+  );
+}
+
+// --- invoice generator ---------------------------------------------------------------
+function InvoiceGenerator() {
+  const [business, setBusiness] = useState('');
+  const [clientName, setClientName] = useState('');
+  const [invoiceNo, setInvoiceNo] = useState('001');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [items, setItems] = useState([{ desc: '', qty: '1', price: '' }]);
+
+  function setItem(i: number, key: 'desc' | 'qty' | 'price', val: string) {
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [key]: val } : it)));
+  }
+
+  function addItem() {
+    setItems((prev) => [...prev, { desc: '', qty: '1', price: '' }]);
+  }
+
+  const total = items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0), 0);
+
+  function buildHtml(): string {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const rows = items
+      .filter((it) => it.desc.trim())
+      .map((it, i) => {
+        const amt = (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0);
+        return `<tr><td>${i + 1}</td><td>${esc(it.desc)}</td><td>${esc(it.qty)}</td><td>${Number(amt).toLocaleString()}</td></tr>`;
+      })
+      .join('');
+    return `<!DOCTYPE html><html dir="auto"><head><meta charset="utf-8"><title>Invoice ${esc(invoiceNo)}</title>
+<style>body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;padding:0 20px;color:#222}
+h1{margin:0}table{width:100%;border-collapse:collapse;margin-top:20px}
+th,td{border:1px solid #ccc;padding:8px;text-align:right}th{background:#f5f5f5}
+.total{font-weight:bold;font-size:18px;margin-top:16px;text-align:left}</style></head><body>
+<h1>🧾 انوائس #${esc(invoiceNo)}</h1>
+<p><b>${esc(business)}</b><br>گاہک: ${esc(clientName)}<br>تاریخ: ${esc(date)}</p>
+<table><tr><th>#</th><th>تفصیل</th><th>تعداد</th><th>رقم</th></tr>${rows}</table>
+<div class="total">کل: ${total.toLocaleString()} روپے</div>
+</body></html>`;
+  }
+
+  function download() {
+    const blob = new Blob([buildHtml()], { type: 'text/html;charset=utf-8' });
+    downloadBlob(blob, `invoice-${invoiceNo}.html`);
+  }
+
+  return (
+    <div>
+      <div className="tool-row">
+        <label style={{ minWidth: 90 }}>کاروبار: </label>
+        <input value={business} onChange={(e) => setBusiness(e.target.value)} className="tool-input" dir="auto" style={{ flex: 1 }} />
+      </div>
+      <div className="tool-row">
+        <label style={{ minWidth: 90 }}>گاہک: </label>
+        <input value={clientName} onChange={(e) => setClientName(e.target.value)} className="tool-input" dir="auto" style={{ flex: 1 }} />
+      </div>
+      <div className="tool-row">
+        <label>انوائس نمبر: </label>
+        <input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} className="tool-input" dir="ltr" style={{ width: 80 }} />
+        <label>تاریخ: </label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="tool-input" dir="ltr" />
+      </div>
+      {items.map((it, i) => (
+        <div className="tool-row" key={i}>
+          <input value={it.desc} onChange={(e) => setItem(i, 'desc', e.target.value)} className="tool-input" dir="auto" placeholder="تفصیل" style={{ flex: 2 }} />
+          <input value={it.qty} onChange={(e) => setItem(i, 'qty', e.target.value)} className="tool-input" dir="ltr" placeholder="تعداد" style={{ width: 70 }} />
+          <input value={it.price} onChange={(e) => setItem(i, 'price', e.target.value)} className="tool-input" dir="ltr" placeholder="قیمت" style={{ width: 100 }} />
+        </div>
+      ))}
+      <button type="button" className="tool-action-button" onClick={addItem}>➕ آئٹم شامل کریں</button>
+      <div className="tool-text-block">کل: <b>{total.toLocaleString()} روپے</b></div>
+      <button type="button" className="tool-action-button" onClick={download}>🧾 انوائس ڈاؤن لوڈ کریں</button>
+    </div>
+  );
+}
+
 // --- main -------------------------------------------------------------------------------
 export default function MediaTools({ tool, onClose }: { tool: MediaToolName; onClose: () => void }) {
   return (
@@ -550,6 +857,11 @@ export default function MediaTools({ tool, onClose }: { tool: MediaToolName; onC
         {tool === 'audio_to_text' && <AudioToText />}
         {tool === 'email' && <EmailHelper />}
         {tool === 'video_upload' && <VideoUpload />}
+        {tool === 'password_gen' && <PasswordGenerator />}
+        {tool === 'emi_calc' && <EmiCalculator />}
+        {tool === 'image_compress' && <ImageCompressor />}
+        {tool === 'resume_builder' && <ResumeBuilder />}
+        {tool === 'invoice_gen' && <InvoiceGenerator />}
       </div>
     </div>
   );

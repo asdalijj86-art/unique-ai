@@ -458,6 +458,21 @@ export function classifyIntent(text) {
   if (/(video upload|ویڈیو اپلوڈ|gallery se video|گیلری سے ویڈیو|video lagao|ویڈیو لگاؤ|video taiyar|ویڈیو تیار)/i.test(message)) {
     return { intent: 'media_tool', tool: 'video_upload' };
   }
+  if (/(password banao|پاس ورڈ بناؤ|password generate|مضبوط پاس ورڈ|secure password)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'password_gen' };
+  }
+  if (/(emi|ای ایم آئی|qist nikalo|قسط نکالو|loan calculator|قرض کی قسط|monthly installment)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'emi_calc' };
+  }
+  if (/(image compress|تصویر چھوٹی|photo compress|تصویر کمپریس|image choti karo)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'image_compress' };
+  }
+  if (/(resume banao|ریزیومے بناؤ|cv banao|سی وی بناؤ|resume builder|نوکری.*cv)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'resume_builder' };
+  }
+  if (/(invoice banao|انوائس بناؤ|bill banao|بل بناؤ|invoice generator)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'invoice_gen' };
+  }
 
   // --- video creator suite ---------------------------------------------------
   if (/(video banao|ویڈیو بناؤ|script likho|اسکرپٹ لکھو|title batao|ٹائٹل بتاؤ|hashtag|ہیش ٹیگ|video ka plan|ویڈیو کا پلان|youtube video|یوٹیوب ویڈیو)/i.test(message)) {
@@ -620,6 +635,11 @@ const MEDIA_TOOL_NAMES = {
   email: { ur: 'ای میل مددگار', roman: 'Email helper', en: 'Email helper' },
   resize: { ur: 'تصویر ری سائز', roman: 'Image resize', en: 'Image resize' },
   video_upload: { ur: 'ویڈیو اپلوڈ', roman: 'Video upload', en: 'Video upload' },
+  password_gen: { ur: 'پاس ورڈ بنانے والا', roman: 'Password generator', en: 'Password generator' },
+  emi_calc: { ur: 'قسط کیلکولیٹر', roman: 'EMI calculator', en: 'EMI calculator' },
+  image_compress: { ur: 'تصویر کمپریسر', roman: 'Image compressor', en: 'Image compressor' },
+  resume_builder: { ur: 'ریزیومے بنانے والا', roman: 'Resume builder', en: 'Resume builder' },
+  invoice_gen: { ur: 'انوائس بنانے والا', roman: 'Invoice generator', en: 'Invoice generator' },
 };
 
 export function mediaToolConfirmation(tool, lang) {
