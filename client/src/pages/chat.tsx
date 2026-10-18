@@ -24,8 +24,10 @@ import AppBuilder from '@/components/AppBuilder';
 import ToolResults from '@/components/ToolResults';
 import MediaTools, { type MediaToolName } from '@/components/MediaTools';
 import VideoCreator from '@/components/VideoCreator';
+import AiOrb from '@/components/AiOrb';
+import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
+import StatusPanel from '@/components/StatusPanel';
 import type { ChatAction } from '@/lib/api';
-import BoyAvatar3D from '@/components/BoyAvatar3D';
 
 type ChatRole = 'user' | 'assistant';
 type ChatMessage = { id: string; role: ChatRole; content: string; createdAt: string };
@@ -261,7 +263,7 @@ export default function ChatPage() {
         // Professional toolbox actions: search, weather, videos, timer, notes, etc.
         setToolAction(result.action as ChatAction);
       }
-      // The boy speaks EVERY reply aloud automatically — no mic or button needed.
+      // The assistant speaks EVERY reply aloud automatically — no mic or button needed.
       void playAssistantMessage(result.text);
     } catch (sendError) {
       setError(getErrorMessage(sendError));
@@ -288,7 +290,7 @@ export default function ChatPage() {
       ...item,
       title: item.messages.length === 0 ? (userText.length > 42 ? `${userText.slice(0, 42).trim()}…` : userText) : item.title,
       updatedAt: now,
-      messages: [...item.messages, userMessage, assistantMessage],
+      messages: [...item.messages, assistantMessage],
     }));
   }
 
@@ -675,15 +677,15 @@ export default function ChatPage() {
     }
   }
 
-  function renderHistory(className = '') {
+  function renderHistoryList() {
     return (
-      <div className={`conversation-list ${className}`} data-testid="list-conversations">
+      <div className="history-list" data-testid="list-conversations">
         {conversations.length === 0 ? (
           <div className="history-empty" dir="rtl" data-testid="text-history-empty">آپ کی گفتگوئیں یہاں نظر آئیں گی۔</div>
         ) : conversations.map((conversation) => (
-          <div key={conversation.id} className={`conversation-row ${activeId === conversation.id ? 'active' : ''}`} data-testid={`row-conversation-${conversation.id}`}>
+          <div key={conversation.id} className={`history-row${activeId === conversation.id ? ' active' : ''}`} data-testid={`row-conversation-${conversation.id}`}>
             <button
-              className="conversation-select"
+              className="history-select"
               dir="auto"
               onClick={() => { setActiveId(conversation.id); setShowHistory(false); }}
               data-testid={`button-open-conversation-${conversation.id}`}
@@ -692,7 +694,7 @@ export default function ChatPage() {
               {conversation.title}
             </button>
             <button
-              className="delete-conversation"
+              className="history-delete"
               aria-label={`گفتگو حذف کریں: ${conversation.title}`}
               onClick={() => deleteConversation(conversation.id)}
               data-testid={`button-delete-conversation-${conversation.id}`}
@@ -705,272 +707,229 @@ export default function ChatPage() {
 
   const durationLabel = `${Math.floor(recordingSeconds / 60).toString().padStart(2, '0')}:${(recordingSeconds % 60).toString().padStart(2, '0')}`;
 
+  // Waveform + orb state.
+  const micLive = recording || continuousVoice;
+  const waveMode: WaveMode = isSpeaking ? 'speaking' : micLive ? 'listening' : 'idle';
+  const heroStatus = continuousVoice
+    ? (voiceStatus || 'سن رہا ہوں…')
+    : isSpeaking
+      ? 'بول رہا ہوں…'
+      : busy
+        ? 'سوچ رہا ہوں…'
+        : 'میں آپ کے ساتھ ہوں';
+
   return (
-    <main className="maira-shell" lang="ur" dir="ltr" data-testid="page-maira-chat">
-      <aside className="sidebar" aria-label="گفتگوؤں کی فہرست">
-        <div className="brand-row" data-testid="brand-maira">
-          <div className={`sidebar-avatar unique-avatar${busy ? ' is-thinking' : ''}${isSpeaking ? ' is-speaking' : ''}`} aria-label="Unique AI">
-            <img className="sidebar-avatar-face" src="/avatars/boy-avatar.webp" alt="" />
-          </div>
-          <div><div className="brand-title">Unique AI</div><div className="brand-subtitle" dir="rtl">آپ کی ذاتی معاون</div></div>
+    <main className="jarvis" lang="ur" data-testid="page-maira-chat">
+      {/* ======= TOP BAR ======= */}
+      <header className="jarvis-topbar">
+        <div className="jarvis-brand" data-testid="brand-maira">
+          <span className="jarvis-brand-orb" aria-hidden="true" />
+          <span className="jarvis-brand-title">Unique AI</span>
         </div>
-        <button className="new-chat" onClick={startNewChat} data-testid="button-new-chat">
-          <Plus size={16} /> <span dir="rtl">نئی گفتگو</span>
-        </button>
-        <div className="history-label" dir="rtl">حالیہ گفتگوئیں</div>
-        {renderHistory()}
-        <button
-          className="icon-button"
-          onClick={clearHistory}
-          disabled={!conversations.length}
-          data-testid="button-clear-history"
-          style={{ width: '100%', display: 'flex', justifyContent: 'flex-start', gap: 9, padding: '0 10px', color: conversations.length ? '#898598' : '#565363', fontSize: 11 }}
-        >
-          <Trash2 size={14} /> <span dir="rtl">تمام گفتگوئیں حذف کریں</span>
-        </button>
-        <div className="local-note" data-testid="text-local-history-note">
-          <Shield size={14} />
-          <span dir="rtl">آپ کی گفتگو صرف اسی آلے کے browser میں محفوظ ہے۔ یہ کسی account سے منسلک نہیں۔</span>
+        <div className="jarvis-top-right">
+          <span className={`jarvis-live-dot${busy || isSpeaking ? ' pulse' : ''}`} aria-hidden="true" />
+          <span className="jarvis-live-text" dir="rtl" data-testid="status-assistant">{heroStatus}</span>
+          {error && (
+            <button className="jarvis-top-error" onClick={() => setError('')} data-testid="status-chat-error" title={error}>
+              <X size={13} />
+            </button>
+          )}
         </div>
-      </aside>
+      </header>
 
-      <section className="workspace">
-        <header className="topbar">
-          <div className="topbar-brand">
-            <div className={`topbar-avatar unique-avatar${busy ? ' is-thinking' : ''}${isSpeaking ? ' is-speaking' : ''}`} aria-label="Unique AI">
-              <img className="topbar-avatar-face" src="/avatars/boy-avatar.webp" alt="" />
-            </div><div className="brand-title">Unique AI</div>
-          </div>
-          <div className="assistant-status" data-testid="status-assistant">
-            <span className="status-dot" /> <span dir="rtl">میں آپ کے ساتھ ہوں</span>
-          </div>
-          <div className="top-actions">
-            <button
-              className={`icon-button voice-mode-toggle${continuousVoice ? ' active' : ''}`}
-              onClick={toggleContinuousVoice}
-              aria-label={continuousVoice ? 'مسلسل آواز بند کریں' : 'مسلسل آواز چالو کریں (بغیر بٹن بات کریں)'}
-              aria-pressed={continuousVoice}
-              title={continuousVoice ? 'مسلسل آواز بند کریں' : 'مسلسل آواز چالو کریں — بولیں، جواب خود آئے گا'}
-              data-testid="button-continuous-voice"
-            >
-              <AudioLines size={17} />
-            </button>
-            <button
-              className={`icon-button gesture-toggle${gesturesEnabled ? ' active' : ''}`}
-              onClick={() => setGesturesEnabled((v) => !v)}
-              aria-label={gesturesEnabled ? 'ہاتھ کے اشارے بند کریں' : 'ہاتھ کے اشارے چالو کریں'}
-              aria-pressed={gesturesEnabled}
-              title={gesturesEnabled ? 'ہاتھ کے اشارے بند کریں' : 'ہاتھ کے اشارے چالو کریں'}
-              data-testid="button-gesture-toggle"
-            >
-              <Hand size={17} />
-            </button>
-            <button className="icon-button mobile-new" onClick={() => setShowHistory(true)} aria-label="گفتگوؤں کی فہرست کھولیں" data-testid="button-mobile-history">
-              <Clock3 size={17} />
-            </button>
-            <button className="icon-button mobile-new" onClick={startNewChat} aria-label="نئی گفتگو شروع کریں" data-testid="button-mobile-new-chat">
-              <Plus size={19} />
-            </button>
-          </div>
-        </header>
+      {/* ======= BODY: rail | chat | hero | status ======= */}
+      <div className="jarvis-body">
+        {/* Slim vertical icon toolbar */}
+        <nav className="jarvis-rail" aria-label="مینیو">
+          <button className="rail-btn" onClick={startNewChat} aria-label="نئی گفتگو" title="نئی گفتگو" data-testid="button-new-chat">
+            <Plus size={18} />
+          </button>
+          <button className="rail-btn" onClick={() => setShowHistory(true)} aria-label="گفتگوؤں کی فہرست" title="گفتگوؤں کی فہرست" data-testid="button-mobile-history">
+            <Clock3 size={18} />
+          </button>
+          <button
+            className={`rail-btn${continuousVoice ? ' active' : ''}`}
+            onClick={toggleContinuousVoice}
+            aria-label={continuousVoice ? 'مسلسل آواز بند کریں' : 'مسلسل آواز چالو کریں'}
+            aria-pressed={continuousVoice}
+            title="مسلسل آواز — بولیں، جواب خود آئے گا"
+            data-testid="button-continuous-voice"
+          >
+            <AudioLines size={18} />
+          </button>
+          <button
+            className={`rail-btn${gesturesEnabled ? ' active' : ''}`}
+            onClick={() => setGesturesEnabled((v) => !v)}
+            aria-label={gesturesEnabled ? 'ہاتھ کے اشارے بند کریں' : 'ہاتھ کے اشارے چالو کریں'}
+            aria-pressed={gesturesEnabled}
+            title="ہاتھ کے اشارے"
+            data-testid="button-gesture-toggle"
+          >
+            <Hand size={18} />
+          </button>
+        </nav>
 
-        {continuousVoice && voiceStatus && (
-          <div className="voice-status" dir="rtl" data-testid="status-continuous-voice">
-            <span className="voice-pulse" aria-hidden="true" />
-            <span>{voiceStatus}</span>
-          </div>
-        )}
-
-        <div className="chat-scroll">
-          <div className="chat-inner">
-            {error && (
-              <div className="error-banner" role="alert" data-testid="status-chat-error">
-                <span dir="auto">{error}</span><button onClick={() => setError('')} data-testid="button-dismiss-error">بند کریں</button>
-              </div>
-            )}
+        {/* LEFT: chat messages */}
+        <section className="jarvis-chat" aria-label="گفتگو">
+          <div className="jarvis-chat-scroll">
             {storageError && (
-              <div className="error-banner" role="status" data-testid="status-storage-error">
-                <span dir="rtl">Browser storage دستیاب نہیں، اس لیے جانے کے بعد یہ گفتگو محفوظ نہ رہ سکے گی۔</span>
-                <button onClick={() => setStorageError(false)} data-testid="button-dismiss-storage-warning">بند کریں</button>
+              <div className="jarvis-alert" role="status" dir="rtl" data-testid="status-storage-error">
+                <span>Browser storage دستیاب نہیں، اس لیے جانے کے بعد یہ گفتگو محفوظ نہ رہ سکے گی۔</span>
+                <button onClick={() => setStorageError(false)}>بند کریں</button>
               </div>
             )}
             {!activeConversation || activeConversation.messages.length === 0 ? (
-              <div className="welcome" data-testid="section-welcome">
-                <div className={`welcome-orb unique-avatar${busy ? ' is-thinking' : ''}${isSpeaking ? ' is-speaking' : ''}`} aria-label="Unique AI مرد اوتار">
-                  <span className="unique-avatar-halo" />
-                  <img className="unique-avatar-face" src="/avatars/boy-avatar.webp" alt="" />
-                </div>
-                <div className="eyebrow" dir="rtl">جب چاہیں، تھوڑی سی مدد</div>
-                <h1 lang="ur" dir="rtl">السلام علیکم۔<br /><span>میں Unique AI ہوں۔</span></h1>
-                <p className="welcome-copy" lang="ur" dir="rtl">یہاں آپ کسی بات پر غور کر سکتے ہیں، کچھ نیا سیکھ سکتے ہیں، یا اپنے لیے درست الفاظ ڈھونڈ سکتے ہیں۔ جہاں سے چاہیں بات شروع کریں۔</p>
-                <p className="welcome-urdu" lang="ur" dir="rtl" data-testid="text-welcome-urdu">آپ اردو، رومن اردو یا انگریزی میں بات کر سکتے ہیں۔</p>
-                <div className="prompt-label" dir="rtl">آپ یہ پوچھ سکتے ہیں…</div>
-                <div className="suggestions">
+              <div className="jarvis-welcome" data-testid="section-welcome">
+                <div className="jarvis-welcome-eyebrow" dir="rtl">جب چاہیں، تھوڑی سی مدد</div>
+                <h1 dir="rtl">السلام علیکم۔<br /><span>میں Unique AI ہوں۔</span></h1>
+                <p dir="rtl">آپ اردو، رومن اردو یا انگریزی میں بات کر سکتے ہیں۔</p>
+                <div className="jarvis-suggestions">
                   {suggestions.map((suggestion, index) => (
-                    <button key={suggestion} className="suggestion" dir="auto" onClick={() => void sendMessage(suggestion)} data-testid={`button-suggestion-${index}`}>
+                    <button key={suggestion} className="jarvis-suggestion" dir="auto" onClick={() => void sendMessage(suggestion)} data-testid={`button-suggestion-${index}`}>
                       {suggestion}
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
-              <div className="messages" data-testid="list-messages">
+              <div className="jarvis-messages" data-testid="list-messages">
                 {activeConversation.messages.map((message) => (
-                  <article key={message.id} className={`message-row ${message.role}`} data-testid={`message-${message.role}-${message.id}`}>
-                    {message.role === 'assistant' && <div className="message-avatar" aria-hidden="true">U</div>}
-                    <div className="message-content">
-                      <div className="message-bubble" dir="auto" data-testid={`text-message-content-${message.id}`}>{renderMessageContent(message.content)}</div>
-                      {message.role === 'assistant' ? (
-                        <div className="assistant-actions">
-                          <button
-                            className="speak-button"
-                            onClick={() => void playAssistantMessage(message.content)}
-                            disabled={false}
-                            data-testid={`button-speak-${message.id}`}
-                          >
-                            <Volume2 size={13} />
-                            سنیں
-                          </button>
-                        </div>
-                      ) : <div className="message-meta" dir="rtl">آپ</div>}
+                  <article key={message.id} className={`jmsg ${message.role}`} data-testid={`message-${message.role}-${message.id}`}>
+                    <div className="jmsg-bubble" dir="auto" data-testid={`text-message-content-${message.id}`}>
+                      {renderMessageContent(message.content)}
                     </div>
+                    {message.role === 'assistant' ? (
+                      <button
+                        className="jmsg-speak"
+                        onClick={() => void playAssistantMessage(message.content)}
+                        data-testid={`button-speak-${message.id}`}
+                        aria-label="جواب سنیں"
+                      >
+                        <Volume2 size={12} />
+                        <span dir="rtl">سنیں</span>
+                      </button>
+                    ) : (
+                      <div className="jmsg-meta" dir="rtl">آپ</div>
+                    )}
                   </article>
                 ))}
                 {busy && (
-                  <div className="message-row assistant" data-testid="status-thinking">
-                    <div className="message-avatar" aria-hidden="true">U</div>
-                    <div className="thinking" dir="rtl"><span>سوچ رہا ہوں</span><span className="thinking-dots"><i /><i /><i /></span></div>
+                  <div className="jmsg assistant" data-testid="status-thinking">
+                    <div className="jmsg-thinking" dir="rtl">
+                      <span>سوچ رہا ہوں</span>
+                      <span className="jmsg-dots" aria-hidden="true"><i /><i /><i /></span>
+                    </div>
                   </div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
             )}
           </div>
-        </div>
+        </section>
 
-        <div className="composer-wrap">
-          <div className="composer-inner">
-            <div className="composer">
-              <textarea
-                ref={textareaRef}
-                value={draft}
-                dir="auto"
-                onChange={(event) => {
-                  setDraft(event.target.value);
-                  event.currentTarget.style.height = 'auto';
-                  event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 170)}px`;
-                }}
-                onKeyDown={onComposerKeyDown}
-                placeholder="Unique AI سے اردو، رومن اردو یا انگریزی میں بات کریں…"
-                aria-label="Unique AI کو پیغام لکھیں"
-                rows={1}
-                data-testid="input-message"
-              />
-              <div className="composer-tools">
-                {recording ? (
-                  <span className="recording-note" data-testid="status-recording">ریکارڈ ہو رہا ہے · {durationLabel}</span>
-                ) : <span className="composer-hint" dir="rtl">بھیجنے کے لیے Enter · نئی سطر کے لیے Shift + Enter</span>}
-                <div className="tool-actions">
-                  <button
-                    className={`mic-button ${recording ? 'recording' : ''}`}
-                    onClick={() => void toggleRecording()}
-                    disabled={busy}
-                    aria-label={recording ? 'ریکارڈنگ روکیں' : 'آواز ریکارڈ کریں'}
-                    data-testid="button-microphone"
-                  >
-                    {recording ? <MicOff size={16} /> : <Mic size={16} />}
-                  </button>
-                  {recording && (
-                    <button className="icon-button" aria-label="ریکارڈنگ منسوخ کریں" onClick={() => {
-                      recognizedTextRef.current = '';
-                      recognitionRef.current?.stop();
-                      setRecording(false);
-                      if (timerRef.current !== null) window.clearInterval(timerRef.current);
-                      timerRef.current = null;
-                    }} data-testid="button-cancel-recording"><X size={16} /></button>
-                  )}
-                  <button
-                    className="send-button"
-                    onClick={() => void sendMessage(draft)}
-                    disabled={!draft.trim() || busy}
-                    aria-label="پیغام بھیجیں"
-                    data-testid="button-send-message"
-                  ><Send size={15} /></button>
-                </div>
-              </div>
-            </div>
-            <div className="composer-caption" data-testid="text-composer-caption">
-              Unique AI سے غلطی ہو سکتی ہے۔ جو مددگار لگے، وہ لے لیں۔
-            </div>
+        {/* CENTER: hero orb + waveform + input */}
+        <section className="jarvis-center" aria-label="Unique AI">
+          <div className="hero-orb-wrap">
+            <AiOrb isSpeaking={isSpeaking} isThinking={busy} size={180} />
           </div>
-        </div>
-
-        {projectBuild && (
-          <ProjectBuilder
-            description={projectBuild.description}
-            onClose={() => setProjectBuild(null)}
-          />
-        )}
-
-        {appBuild && (
-          <AppBuilder
-            description={appBuild.description}
-            onClose={() => setAppBuild(null)}
-          />
-        )}
-
-        {toolAction && (
-          <ToolResults
-            action={toolAction}
-            onClose={() => setToolAction(null)}
-            onTimerDone={() => {
-              void playAssistantMessage('ٹائمر ختم ہو گیا!');
-            }}
-          />
-        )}
-
-        {mediaTool && mediaTool !== 'video_creator' && (
-          <MediaTools
-            tool={mediaTool}
-            onClose={() => setMediaTool(null)}
-          />
-        )}
-
-        {mediaTool === 'video_creator' && (
-          <VideoCreator onClose={() => setMediaTool(null)} />
-        )}
-      </section>
-
-      {/* Avatar side panel — ALWAYS visible, never hidden for camera/gestures */}
-      <aside className={`avatar-panel${isSpeaking ? ' is-speaking' : ''}${busy ? ' is-thinking' : ''}`} aria-label="Unique AI اوتار">
-        <div className="avatar-panel-figure">
-          <span className="avatar-glow" aria-hidden="true" />
-          <div className="avatar-panel-3d">
-            <BoyAvatar3D isSpeaking={isSpeaking} isThinking={busy} />
+          <div className="hero-name">
+            <span className="hero-name-text">Unique AI</span>
+            <span className="hero-name-sub" dir="rtl" data-testid="text-avatar-status">{heroStatus}</span>
           </div>
-        </div>
-        <div className="avatar-panel-name" dir="rtl">یونیک اے آئی</div>
-        <div className={`avatar-panel-status${continuousVoice ? ' listening' : ''}`} dir="rtl" data-testid="text-avatar-status">
-          {continuousVoice
-            ? (voiceStatus || 'سن رہا ہوں…')
-            : isSpeaking
-              ? 'بول رہا ہوں…'
-              : busy
-                ? 'سوچ رہا ہوں…'
-                : 'میں آپ کے ساتھ ہوں'}
-        </div>
-      </aside>
-
-      {gesturesEnabled && (
-        <div className="gesture-panel" dir="rtl" data-testid="panel-gestures" aria-label="ہاتھ کے اشارے">
-          <div className="gesture-panel-head">
-            <span className="gesture-panel-title">اشارے</span>
-            <button className="icon-button" onClick={() => setGesturesEnabled(false)} aria-label="اشارے بند کریں" data-testid="button-close-gestures">
-              <X size={14} />
+          <div className="hero-wave">
+            <VoiceWaveform mode={waveMode} height={78} />
+          </div>
+          {(continuousVoice && voiceStatus) || recording ? (
+            <div className="hero-voice-status" dir="rtl" data-testid="status-continuous-voice">
+              <span className="hero-voice-pulse" aria-hidden="true" />
+              <span>{recording ? `ریکارڈ ہو رہا ہے · ${durationLabel}` : voiceStatus}</span>
+            </div>
+          ) : null}
+          <div className="hero-composer">
+            <button
+              className={`hero-mic${recording ? ' recording' : ''}`}
+              onClick={() => void toggleRecording()}
+              disabled={busy}
+              aria-label={recording ? 'ریکارڈنگ روکیں' : 'آواز ریکارڈ کریں'}
+              data-testid="button-microphone"
+            >
+              {recording ? <MicOff size={17} /> : <Mic size={17} />}
+            </button>
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              dir="auto"
+              onChange={(event) => {
+                setDraft(event.target.value);
+                event.currentTarget.style.height = 'auto';
+                event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
+              }}
+              onKeyDown={onComposerKeyDown}
+              placeholder="Type a message…"
+              aria-label="Unique AI کو پیغام لکھیں"
+              rows={1}
+              data-testid="input-message"
+            />
+            <button
+              className="hero-send"
+              onClick={() => void sendMessage(draft)}
+              disabled={!draft.trim() || busy}
+              aria-label="پیغام بھیجیں"
+              data-testid="button-send-message"
+            >
+              <Send size={16} />
             </button>
           </div>
-          <video ref={gestureVideoRef} className="gesture-video" muted playsInline data-testid="video-gesture" />
-          <div className="gesture-hint" data-testid="text-gesture-status">
+          <div className="hero-caption" dir="rtl" data-testid="text-composer-caption">
+            Unique AI سے غلطی ہو سکتی ہے۔ جو مددگار لگے، وہ لے لیں۔
+          </div>
+        </section>
+
+        {/* RIGHT: system status */}
+        <StatusPanel
+          status={{
+            micActive: micLive,
+            speaking: isSpeaking,
+            thinking: busy,
+            gesturesOn: gesturesEnabled,
+            continuousVoice,
+          }}
+        />
+      </div>
+
+      {/* ======= Overlays: builders, tools, gestures, history ======= */}
+      {projectBuild && (
+        <ProjectBuilder description={projectBuild.description} onClose={() => setProjectBuild(null)} />
+      )}
+      {appBuild && (
+        <AppBuilder description={appBuild.description} onClose={() => setAppBuild(null)} />
+      )}
+      {toolAction && (
+        <ToolResults
+          action={toolAction}
+          onClose={() => setToolAction(null)}
+          onTimerDone={() => {
+            void playAssistantMessage('ٹائمر ختم ہو گیا!');
+          }}
+        />
+      )}
+      {mediaTool && mediaTool !== 'video_creator' && (
+        <MediaTools tool={mediaTool} onClose={() => setMediaTool(null)} />
+      )}
+      {mediaTool === 'video_creator' && (
+        <VideoCreator onClose={() => setMediaTool(null)} />
+      )}
+
+      {gesturesEnabled && (
+        <div className="gesture-pip" dir="rtl" data-testid="panel-gestures" aria-label="ہاتھ کے اشارے">
+          <div className="gesture-pip-head">
+            <span className="gesture-pip-title">اشارے</span>
+            <button className="gesture-pip-close" onClick={() => setGesturesEnabled(false)} aria-label="اشارے بند کریں" data-testid="button-close-gestures">
+              <X size={13} />
+            </button>
+          </div>
+          <video ref={gestureVideoRef} className="gesture-pip-video" muted playsInline data-testid="video-gesture" />
+          <div className="gesture-pip-hint" data-testid="text-gesture-status">
             {gestureStatus === 'ready'
               ? (activeGesture !== 'none' ? GESTURE_LABELS[activeGesture] : 'ہاتھ سامنے رکھیں')
               : (gestureStatusMessage || 'تیار ہو رہا ہے…')}
@@ -979,20 +938,32 @@ export default function ChatPage() {
       )}
 
       {showHistory && (
-        <div className="mobile-history-backdrop" role="presentation" onClick={(event) => {
-          if (event.target === event.currentTarget) setShowHistory(false);
-        }} data-testid="dialog-mobile-history">
-          <section className="mobile-history-panel" aria-label="گفتگوؤں کی فہرست">
-            <div className="mobile-history-heading">
-              <div><div className="brand-title" dir="rtl">آپ کی گفتگوئیں</div><div className="brand-subtitle" dir="rtl">اسی آلے پر محفوظ</div></div>
-              <button className="icon-button" onClick={() => setShowHistory(false)} aria-label="فہرست بند کریں" data-testid="button-close-history"><X size={18} /></button>
+        <div
+          className="history-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowHistory(false);
+          }}
+          data-testid="dialog-mobile-history"
+        >
+          <section className="history-drawer" aria-label="گفتگوؤں کی فہرست">
+            <div className="history-drawer-head">
+              <div>
+                <div className="history-drawer-title" dir="rtl">آپ کی گفتگوئیں</div>
+                <div className="history-drawer-sub" dir="rtl">اسی آلے پر محفوظ</div>
+              </div>
+              <button className="rail-btn" onClick={() => setShowHistory(false)} aria-label="فہرست بند کریں" data-testid="button-close-history">
+                <X size={17} />
+              </button>
             </div>
-            <button className="new-chat" onClick={startNewChat} data-testid="button-mobile-dialog-new-chat"><Plus size={16} /> <span dir="rtl">نئی گفتگو</span></button>
-            {renderHistory()}
-            <button className="clear-mobile-history" onClick={clearHistory} disabled={!conversations.length} data-testid="button-mobile-clear-history">
+            <button className="history-new" onClick={startNewChat} data-testid="button-mobile-dialog-new-chat">
+              <Plus size={15} /> <span dir="rtl">نئی گفتگو</span>
+            </button>
+            {renderHistoryList()}
+            <button className="history-clear" onClick={clearHistory} disabled={!conversations.length} data-testid="button-mobile-clear-history">
               <Trash2 size={14} /> <span dir="rtl">تمام گفتگوئیں حذف کریں</span>
             </button>
-            <p className="mobile-history-note" dir="rtl"><Shield size={13} /> صرف اسی browser میں محفوظ۔ account سے sync نہیں ہوتی۔</p>
+            <p className="history-note" dir="rtl"><Shield size={13} /> صرف اسی browser میں محفوظ۔ account سے sync نہیں ہوتی۔</p>
           </section>
         </div>
       )}
