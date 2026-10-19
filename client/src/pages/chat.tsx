@@ -116,8 +116,6 @@ export default function ChatPage() {
     try { return localStorage.getItem('unique-ai-chat-lang') || 'auto'; }
     catch { return 'auto'; }
   });
-  // Remembers the conversation we came from, so + toggles back to it.
-  const prevChatIdRef = useRef<string | null>(null);
   // True while the server TTS reply is being fetched/buffered — the orb shows
   // "preparing" until audio actually starts playing (onplaying), so the UI
   // never claims to be speaking during the network wait.
@@ -254,12 +252,15 @@ export default function ChatPage() {
   }
 
   function startNewChat() {
-    // Toggle: if we're already on an empty new chat, go BACK to the previous
-    // conversation instead of stacking duplicates.
+    // Toggle: if we're already on an empty new chat, go BACK to the most
+    // recent conversation with messages. Uses the persisted conversations
+    // list (survives refresh) — NOT a ref (which is wiped on reload).
     if (activeConversation && activeConversation.messages.length === 0) {
-      if (prevChatIdRef.current) {
-        setActiveId(prevChatIdRef.current);
-        prevChatIdRef.current = null;
+      const previous = conversations
+        .filter((c) => c.id !== activeConversation.id && c.messages.length > 0)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+      if (previous) {
+        setActiveId(previous.id);
       }
       setDraft('');
       setError('');
@@ -267,8 +268,6 @@ export default function ChatPage() {
       window.setTimeout(() => textareaRef.current?.focus(), 30);
       return;
     }
-    // Remember where we came from so the next + click can go back.
-    if (activeId) prevChatIdRef.current = activeId;
     const conversation: Conversation = {      id: createId(),
       title: 'نئی گفتگو',
       updatedAt: new Date().toISOString(),
