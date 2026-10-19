@@ -159,6 +159,7 @@ body {
   border: 1px solid rgba(56, 189, 248, 0.16);
   color: #7dd3fc; cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;
 }
 .rail-btn:hover { background: rgba(34, 211, 238, 0.16); color: #e0f7ff; box-shadow: 0 0 12px rgba(34, 211, 238, 0.35); }
 .rail-btn.active {
@@ -166,6 +167,28 @@ body {
   box-shadow: 0 0 14px rgba(34, 211, 238, 0.55);
   border-color: rgba(34, 211, 238, 0.5);
 }
+/* Custom tooltip (replaces native title) — hides on click so it never gets stuck */
+.rail-btn[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #f1f5f9;
+  color: #1e293b;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 60;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.rail-btn[data-tip]:hover::after { opacity: 1; }
+.rail-btn[data-tip].no-tip::after { opacity: 0 !important; }
 
 /* ---- LEFT: chat panel ---- */
 .jarvis-chat {

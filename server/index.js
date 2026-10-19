@@ -302,7 +302,7 @@ app.post("/api/openai/chat", async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey) {
       try {
-        const targetName = c.translate.target === "en" ? "English" : "Urdu (Perso-Arabic script, NEVER Devanagari)";
+        const targetName = c.translate.target === "en" ? "English" : c.translate.target === "ar" ? "Modern Standard Arabic (العربية)" : "Urdu (Perso-Arabic script, NEVER Devanagari)";
         const response = await fetch(
           "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
           {
@@ -835,7 +835,7 @@ app.post("/api/translate", async (req, res) => {
     return;
   }
   try {
-    const targetName = target === "en" ? "English" : "Urdu (Perso-Arabic script, NEVER Devanagari)";
+    const targetName = target === "en" ? "English" : target === "ar" ? "Modern Standard Arabic (العربية)" : "Urdu (Perso-Arabic script, NEVER Devanagari)";
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
       {

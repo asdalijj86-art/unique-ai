@@ -22,8 +22,12 @@ import {
 } from './tools.js';
 
 // --- language detection -----------------------------------------------------
-// 'ur' = Perso-Arabic script, 'roman' = Roman Urdu, 'en' = English.
+// 'ur' = Perso-Arabic script (Urdu), 'ar' = Arabic, 'roman' = Roman Urdu, 'en' = English.
+// Urdu and Arabic share the Arabic script range — Urdu-specific letters
+// (ٹ ڈ ڑ ں ھ ے ۓ) mark Urdu; common Arabic words mark Arabic.
 const URDU_RANGE = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+const URDU_SPECIFIC = /[ٹڈڑںھےۓ]/;
+const ARABIC_WORDS = /(مرحبا|اهلا|أهلا|شكرا|كيف|ماذا|لماذا|أين|اين|متى|متي|صباح|مساء|الخير|من فضلك|لو سمحت|بالتأكيد|ربما|دائما|أبدا|شيء|أشياء|جميل|رائع|ممتاز|صديق|عائلة|وقت|يوم|سنة|كتاب|مدرسة|جامعة|عمل|مال|بيت|سيارة|طعام|ماء|حبيبي|حبيبتي)/;
 const ROMAN_URDU_WORDS = new Set([
   'mujhe', 'mujhay', 'mera', 'meri', 'mere', 'aap', 'tum', 'tumhara', 'tumhari',
   'kya', 'kaisa', 'kaisi', 'kaise', 'hai', 'hain', 'tha', 'thi', 'theen',
@@ -39,7 +43,11 @@ const ROMAN_URDU_WORDS = new Set([
 
 export function detectLanguage(text) {
   const t = String(text || '');
-  if (URDU_RANGE.test(t)) return 'ur';
+  if (URDU_RANGE.test(t)) {
+    if (URDU_SPECIFIC.test(t)) return 'ur';
+    if (ARABIC_WORDS.test(t)) return 'ar';
+    return 'ur'; // default: user's main language
+  }
   const words = t.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
   if (words.length === 0) return 'ur';
   const romanHits = words.filter((w) => ROMAN_URDU_WORDS.has(w)).length;
@@ -280,12 +288,13 @@ export function parseTranslateRequest(text) {
   const t = String(text || '').trim();
   let target = null;
   if (/(انگریزی|english)/i.test(t)) target = 'en';
+  else if (/(عربی|arabic)/i.test(t)) target = 'ar';
   else if (/(اردو|urdu)/i.test(t)) target = 'ur';
   if (!target) return null;
   const colon = t.indexOf(':');
   let src = colon !== -1 ? t.slice(colon + 1).trim() : t
     .replace(/(translate|ترجمہ|tarjuma)\s*(کرو|karo|karen|کریں)?\s*/i, '')
-    .replace(/\s*(کو|ko)\s*(انگریزی|اردو|english|urdu)\s*(میں|mein|me)?\s*/i, ' ')
+    .replace(/\s*(کو|ko)\s*(انگریزی|اردو|عربی|english|urdu|arabic)\s*(میں|mein|me)?\s*/i, ' ')
     .replace(/\s*(میں بتاؤ|mein batao|میں بتلاؤ)\s*/i, ' ')
     .replace(/\s+/g, ' ').trim();
   if (!src) return null;
@@ -434,7 +443,7 @@ export function classifyIntent(text) {
   if (unitConv) return { intent: 'unit_convert', unitConv };
 
   // --- translate --------------------------------------------------------------------------------
-  if (/(translate|ترجمہ|tarjuma|انگریزی میں|اردو میں|english me|urdu me)/.test(normalized)) {
+  if (/(translate|ترجمہ|tarjuma|انگریزی میں|اردو میں|عربی میں|english me|urdu me|arabic me)/.test(normalized)) {
     const tr = parseTranslateRequest(message);
     if (tr) return { intent: 'translate', translate: tr };
   }

@@ -233,9 +233,17 @@ export default function ChatPage() {
     setContinuousVoice(appSettings.continuousVoice);
   }, [appSettings]);
 
+  // Rail tooltip helpers: custom tooltips (data-tip) hide on click so they
+  // never get stuck on screen; they come back on next hover.
+  function hideTipOnClick(e: React.MouseEvent<HTMLButtonElement>) {
+    e.currentTarget.classList.add('no-tip');
+  }
+  function restoreTipOnLeave(e: React.MouseEvent<HTMLButtonElement>) {
+    e.currentTarget.classList.remove('no-tip');
+  }
+
   function startNewChat() {
-    const conversation: Conversation = {
-      id: createId(),
+    const conversation: Conversation = {      id: createId(),
       title: 'نئی گفتگو',
       updatedAt: new Date().toISOString(),
       messages: [],
@@ -1091,37 +1099,40 @@ export default function ChatPage() {
       <div className="jarvis-body">
         {/* Slim vertical icon toolbar */}
         <nav className="jarvis-rail" aria-label="مینیو">
-          <button className="rail-btn" onClick={startNewChat} aria-label="نئی گفتگو" title="نئی گفتگو" data-testid="button-new-chat">
+          <button className="rail-btn" onClick={(e) => { hideTipOnClick(e); startNewChat(); }} onMouseLeave={restoreTipOnLeave} aria-label="نئی گفتگو" data-tip="نئی گفتگو" data-testid="button-new-chat">
             <Plus size={18} />
           </button>
-          <button className="rail-btn" onClick={() => setShowHistory(true)} aria-label="گفتگوؤں کی فہرست" title="گفتگوؤں کی فہرست" data-testid="button-mobile-history">
+          <button className="rail-btn" onClick={(e) => { hideTipOnClick(e); setShowHistory(true); }} onMouseLeave={restoreTipOnLeave} aria-label="گفتگوؤں کی فہرست" data-tip="گفتگوؤں کی فہرست" data-testid="button-mobile-history">
             <Clock3 size={18} />
           </button>
           <button
             className={`rail-btn${continuousVoice ? ' active' : ''}`}
-            onClick={toggleContinuousVoice}
+            onClick={(e) => { hideTipOnClick(e); toggleContinuousVoice(); }}
+            onMouseLeave={restoreTipOnLeave}
             aria-label={continuousVoice ? 'مسلسل آواز بند کریں' : 'مسلسل آواز چالو کریں'}
             aria-pressed={continuousVoice}
-            title="مسلسل آواز — بولیں، جواب خود آئے گا"
+            data-tip="مسلسل آواز — بولیں، جواب خود آئے گا"
             data-testid="button-continuous-voice"
           >
             <AudioLines size={18} />
           </button>
           <button
             className={`rail-btn${gesturesEnabled ? ' active' : ''}`}
-            onClick={() => setGesturesEnabled((v) => !v)}
+            onClick={(e) => { hideTipOnClick(e); setGesturesEnabled((v) => !v); }}
+            onMouseLeave={restoreTipOnLeave}
             aria-label={gesturesEnabled ? 'ہاتھ کے اشارے بند کریں' : 'ہاتھ کے اشارے چالو کریں'}
             aria-pressed={gesturesEnabled}
-            title="ہاتھ کے اشارے"
+            data-tip="ہاتھ کے اشارے"
             data-testid="button-gesture-toggle"
           >
             <Hand size={18} />
           </button>
           <button
             className="rail-btn"
-            onClick={() => setToolsPanelOpen(true)}
+            onClick={(e) => { hideTipOnClick(e); setToolsPanelOpen(true); }}
+            onMouseLeave={restoreTipOnLeave}
             aria-label="ٹولز کھولیں"
-            title="ٹولز 🧰"
+            data-tip="ٹولز 🧰"
             data-testid="button-open-tools"
           >
             <Wrench size={18} />
@@ -1141,7 +1152,7 @@ export default function ChatPage() {
               <div className="jarvis-welcome" data-testid="section-welcome">
                 <div className="jarvis-welcome-eyebrow" dir="rtl">جب چاہیں، تھوڑی سی مدد</div>
                 <h1 dir="rtl">السلام علیکم۔<br /><span>میں Unique AI ہوں۔</span></h1>
-                <p dir="rtl">آپ اردو، رومن اردو یا انگریزی میں بات کر سکتے ہیں۔</p>
+                <p dir="rtl">آپ اردو، رومن اردو، انگریزی یا عربی میں بات کر سکتے ہیں۔</p>
                 <div className="jarvis-suggestions">
                   {suggestions.map((suggestion, index) => (
                     <button key={suggestion} className="jarvis-suggestion" dir="auto" onClick={() => void sendMessage(suggestion)} data-testid={`button-suggestion-${index}`}>
