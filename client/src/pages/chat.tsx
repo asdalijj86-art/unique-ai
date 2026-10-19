@@ -658,7 +658,21 @@ export default function ChatPage() {
         const result = await synthesizeMairaSpeech({ text });
         serverTtsFailsRef.current = 0;
         return result;
-      } catch {
+      } catch (geminiErr: any) {
+        // Gemini failed — explain WHY the male voice stopped instead of
+        // silently switching to the female backup voice.
+        const errorType = geminiErr?.data?.errorType || 'unknown';
+        const reasonMsg =
+          errorType === 'quota'
+            ? '⚠️ تمہاری key کی آج کی حد ختم ہو گئی ہے — backup آواز چل رہی ہے۔ کل پھر مردانہ آواز آئے گی۔'
+            : errorType === 'auth'
+              ? '⚠️ تمہاری key میں مسئلہ ہے — Settings میں key دوبارہ چیک کرو۔ backup آواز چل رہی ہے۔'
+              : errorType === 'network'
+                ? '⚠️ نیٹ سست ہے — مردانہ آواز بنانے میں دیر ہو رہی ہے، backup آواز چل رہی ہے۔'
+                : '⚠️ مردانہ آواز وقتی طور پر بند ہے — backup آواز چل رہی ہے۔';
+        // Show briefly (auto-clear after 6s so it doesn't block the chat).
+        setError(reasonMsg);
+        setTimeout(() => setError(''), 6000);
         // Gemini failed — try free Google TTS before giving up on server audio.
         try {
           const result = await synthesizeGoogleSpeech({ text });

@@ -1405,8 +1405,16 @@ app.post("/api/openai/speech", async (req, res) => {
     }
   }
   console.error("Unique AI speech generation failed after retries", lastError);
+  // Classify the failure so the client can explain WHY the male voice stopped
+  // instead of silently switching to the female backup voice.
+  const errStr = String(lastError && lastError.message || lastError || "");
+  let errorType = "unknown";
+  if (/429/.test(errStr)) errorType = "quota";
+  else if (/40[013]/.test(errStr)) errorType = "auth";
+  else if (/timeout|ETIMEDOUT|ENOTFOUND|ECONN|fetch failed/i.test(errStr)) errorType = "network";
   res.status(502).json({
     error: "آواز تیار نہیں ہو سکی۔ براہِ کرم دوبارہ کوشش کریں۔",
+    errorType,
   });
 });
 
