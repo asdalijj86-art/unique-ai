@@ -868,7 +868,7 @@ body {
 }
 .settings-gear:hover { color: #fff; border-color: rgba(56, 189, 248, 0.5); box-shadow: 0 0 10px rgba(34, 211, 238, 0.3); }
 .settings-dropdown {
-  position: absolute; top: 40px; right: 0; z-index: 50;
+  position: absolute; top: 40px; right: 24px; z-index: 50;
   width: 300px; max-width: calc(100vw - 32px); background: rgba(8, 17, 33, 0.97);
   border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 14px;
   padding: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
