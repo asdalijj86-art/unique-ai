@@ -20,6 +20,7 @@ type StatusPanelProps = {
   settings: AppSettings;
   onSettingsChange: (s: AppSettings) => void;
   onClearChat: () => void;
+  onTestVoice?: () => void;
 };
 
 const TOOLS_COUNT = 30;
@@ -44,7 +45,7 @@ function StatusRow({
   );
 }
 
-export default function StatusPanel({ status, settings, onSettingsChange, onClearChat }: StatusPanelProps) {
+export default function StatusPanel({ status, settings, onSettingsChange, onClearChat, onTestVoice }: StatusPanelProps) {
   return (
     <aside className="status-panel" aria-label="سسٹم کی حالت">
       <div className="status-head">
@@ -56,6 +57,7 @@ export default function StatusPanel({ status, settings, onSettingsChange, onClea
           settings={settings}
           onChange={onSettingsChange}
           onClearChat={onClearChat}
+          onTestVoice={onTestVoice}
         />
       </div>
       <div className="status-rows">

@@ -1257,6 +1257,11 @@ export default function ChatPage() {
               ));
             }
           }}
+          onTestVoice={() => {
+            // Voice test: speak a short phrase so the user can check if
+            // sound comes out of their speakers.
+            void speakNow('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
+          }}
         />
       </div>
 

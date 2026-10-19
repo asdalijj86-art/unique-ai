@@ -16,6 +16,7 @@ type SettingsPanelProps = {
   settings: AppSettings;
   onChange: (s: AppSettings) => void;
   onClearChat: () => void;
+  onTestVoice?: () => void;
 };
 
 function Toggle({
@@ -46,7 +47,7 @@ function Toggle({
   );
 }
 
-export default function SettingsPanel({ settings, onChange, onClearChat }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
 
   const toggle = (key: keyof AppSettings) =>
@@ -96,6 +97,18 @@ export default function SettingsPanel({ settings, onChange, onClearChat }: Setti
             value={settings.continuousVoice}
             onToggle={() => toggle('continuousVoice')}
           />
+          {onTestVoice && (
+            <button
+              type="button"
+              className="setting-row"
+              onClick={onTestVoice}
+              dir="rtl"
+              aria-label="آواز ٹیسٹ کریں"
+            >
+              <span className="setting-icon"><Volume2 size={16} /></span>
+              <span className="setting-label">🔊 آواز ٹیسٹ کریں</span>
+            </button>
+          )}
           <div className="settings-group">کنٹرول</div>
           <Toggle
             label="ہاتھ کے اشارے"
