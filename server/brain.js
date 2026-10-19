@@ -233,6 +233,16 @@ export function extractYoutubeQuery(text) {
   return t || null;
 }
 
+/** "بلی کی تصویر دکھاؤ" → "بلی". */
+export function extractImageQuery(text) {
+  let t = String(text || '').trim();
+  t = t
+    .replace(/(تصویر|تصویریں|tasveer|image|photo|picture)s?\s*(کی|ka|ke|of)?\s*/gi, ' ')
+    .replace(/\s*(دکھاؤ|dikhao|dekho|دیکھو|search|تلاش|کرو|karo|karen|کریں)\s*/gi, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return t || null;
+}
+
 /** "youtube ke liye comedy ideas" → niche hint. */
 export function extractNiche(text) {
   let t = String(text || '').trim();
@@ -383,6 +393,13 @@ export function classifyIntent(text) {
       && /(search|تلاش|video|ویڈیو|dikhao|دکھاؤ|dekho|دیکھو)/.test(normalized)) {
     const q = extractYoutubeQuery(message);
     if (q) return { intent: 'youtube_search', query: q };
+  }
+
+  // --- image search ------------------------------------------------------------------
+  if (/(تصویر|تصویریں|tasveer|image|photo|picture)/.test(normalized)
+      && /(دکھاؤ|dikhao|dekho|دیکھو|search|تلاش)/.test(normalized)) {
+    const q = extractImageQuery(message);
+    if (q) return { intent: 'image_search', query: q };
   }
 
   // --- youtube trending / video ideas ------------------------------------------------

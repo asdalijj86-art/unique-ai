@@ -251,6 +251,15 @@ app.post("/api/openai/chat", async (req, res) => {
     }
   }
 
+  if (intent === "image_search" && c.query) {
+    const searchUrl = "https://www.google.com/search?tbm=isch&q=" + encodeURIComponent(c.query);
+    res.json({
+      text: lang === "ur" ? `جی، "${c.query}" کی تصویریں ڈھونڈ رہا ہوں۔` : `Searching images for "${c.query}".`,
+      action: { type: "open_url", url: searchUrl, displayName: lang === "ur" ? "گوگل تصویریں" : "Google Images" },
+    });
+    return;
+  }
+
   if (intent === "news") {
     const r = await getNews(c.topic || "");
     if (r.ok) {
