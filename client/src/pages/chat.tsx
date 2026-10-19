@@ -247,6 +247,15 @@ export default function ChatPage() {
   }
 
   function startNewChat() {
+    // If we're already on an empty new chat, don't stack another duplicate —
+    // a second click on + should feel like a no-op, not spawn empty chats.
+    if (activeConversation && activeConversation.messages.length === 0) {
+      setDraft('');
+      setError('');
+      setShowHistory(false);
+      window.setTimeout(() => textareaRef.current?.focus(), 30);
+      return;
+    }
     const conversation: Conversation = {      id: createId(),
       title: 'نئی گفتگو',
       updatedAt: new Date().toISOString(),
