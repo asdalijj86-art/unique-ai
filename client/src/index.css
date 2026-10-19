@@ -171,7 +171,7 @@ body {
 .rail-btn[data-tip]::after {
   content: attr(data-tip);
   position: absolute;
-  left: calc(100% + 10px);
+  right: calc(100% + 10px);
   top: 50%;
   transform: translateY(-50%);
   background: #f1f5f9;

@@ -5,7 +5,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   classifyStaticGesture,
   createHands,
+  detectClap,
   loadMediaPipeHands,
+  twoPalmDistance,
   type GestureName,
   type HandLandmark,
 } from '@/lib/gestures';
@@ -42,6 +44,7 @@ export function useGestures({ enabled, onGesture }: UseGesturesOptions) {
     lastEmittedGesture: 'none' as GestureName,
     wristTrail: [] as { x: number; at: number }[],
     stopped: false,
+    prevPalmDist: null as number | null,
   });
 
   const stopAll = useCallback(() => {
@@ -118,7 +121,19 @@ export function useGestures({ enabled, onGesture }: UseGesturesOptions) {
       s.hands = hands;
       hands.onResults((results) => {
         if (s.stopped) return;
-        const landmarks = results.multiHandLandmarks?.[0];
+        const allHands = results.multiHandLandmarks;
+        // Clap is edge-triggered (apart → together): check before the
+        // single-hand classifier so a quick clap is never missed.
+        const currPalmDist = twoPalmDistance(allHands);
+        if (detectClap(s.prevPalmDist, currPalmDist)) {
+          s.prevPalmDist = currPalmDist;
+          s.stableCount = 0;
+          s.lastGesture = 'none';
+          emitGesture('clap');
+          return;
+        }
+        s.prevPalmDist = currPalmDist;
+        const landmarks = allHands?.[0];
         let gesture = classifyStaticGesture(landmarks);
         if (gesture === 'open_palm' && detectWave(landmarks, gesture)) {
           gesture = 'wave';

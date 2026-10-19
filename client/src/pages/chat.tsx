@@ -180,6 +180,10 @@ export default function ChatPage() {
         textareaRef.current?.focus();
       } else if (gesture === 'wave') {
         setGesturesEnabled(false);
+      } else if (gesture === 'clap') {
+        // 👏 Clap = wake up Unique AI (like the viral "Maya AI" hand-clap
+        // activation): start listening if the mic isn't already on.
+        if (!recording) toggleRecording();
       }
     },
   });
