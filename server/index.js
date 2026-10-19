@@ -1310,6 +1310,68 @@ app.post("/api/openai/speech", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/tts/google — Free fallback TTS via Google Translate.
+// Used when Gemini TTS quota is exhausted AND the device's browser TTS
+// doesn't work (e.g. old Chromebooks). No API key needed.
+// Returns MP3 audio as base64. Text is chunked (Google limits ~200 chars).
+// ---------------------------------------------------------------------------
+app.post("/api/tts/google", async (req, res) => {
+  const { text } = req.body ?? {};
+  if (typeof text !== "string" || text.trim().length === 0) {
+    res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
+    return;
+  }
+
+  // Detect language: Arabic script = Urdu, else English
+  const hasArabic = /[\u0600-\u06FF]/.test(text);
+  const lang = hasArabic ? "ur" : "en";
+
+  // Google Translate TTS handles ~200 chars per request; chunk by sentences.
+  const ttsText = text.slice(0, 1000);
+  const chunks: string[] = [];
+  const sentences = ttsText.match(/[^۔.!?\n]+[۔.!?\n]*/g) || [ttsText];
+  let current = "";
+  for (const s of sentences) {
+    if ((current + s).length > 180 && current.length > 0) {
+      chunks.push(current.trim());
+      current = s;
+    } else {
+      current += s;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+
+  try {
+    const audioParts: Buffer[] = [];
+    for (const chunk of chunks.slice(0, 6)) { // max 6 chunks = ~1000 chars
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+      const response = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+      if (!response.ok) {
+        throw new Error(`Google TTS HTTP ${response.status}`);
+      }
+      const buf = Buffer.from(await response.arrayBuffer());
+      if (buf.length < 100) {
+        throw new Error("Google TTS returned empty audio");
+      }
+      audioParts.push(buf);
+    }
+    // Concatenate MP3 chunks (MP3 frames concatenate cleanly enough for playback)
+    const combined = Buffer.concat(audioParts);
+    res.json({
+      audioBase64: combined.toString("base64"),
+      mimeType: "audio/mpeg",
+    });
+  } catch (err) {
+    console.error("Google TTS fallback failed", err);
+    res.status(502).json({
+      error: "آواز تیار نہیں ہو سکی۔ براہِ کرم دوبارہ کوشش کریں۔",
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
 app.get("/api/healthz", (_req, res) => {

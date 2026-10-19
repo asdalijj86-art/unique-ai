@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {
   synthesizeMairaSpeech,
+  synthesizeGoogleSpeech,
   useSendMairaChatMessage,
 } from '@/lib/api';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
@@ -615,26 +616,36 @@ export default function ChatPage() {
   }
 
   // Wrapper: synthesize with a timeout so a hung TTS request can't lock the UI.
-  // Tracks server TTS health: after 3 consecutive failures, marks server TTS
-  // as down for the session and returns null immediately (browser voice used).
+  // Fallback chain: Gemini TTS → Google TTS (free, no key) → browser voice.
+  // Tracks server TTS health: after 3 consecutive failures of BOTH server
+  // options, marks server TTS as down for the session (browser voice used).
   // Returns null on timeout or failure (caller falls back to browser voice).
   function synthesizeWithTimeout(text: string, timeoutMs = 20000): Promise<{ audioBase64: string; mimeType: string } | null> {
     if (serverTtsDownRef.current) {
       return Promise.resolve(null);
     }
-    return Promise.race([
-      synthesizeMairaSpeech({ text })
-        .then((result) => {
-          serverTtsFailsRef.current = 0; // success resets the counter
+    const tryBoth = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
+      try {
+        const result = await synthesizeMairaSpeech({ text });
+        serverTtsFailsRef.current = 0;
+        return result;
+      } catch {
+        // Gemini failed — try free Google TTS before giving up on server audio.
+        try {
+          const result = await synthesizeGoogleSpeech({ text });
+          serverTtsFailsRef.current = 0;
           return result;
-        })
-        .catch(() => {
+        } catch {
           serverTtsFailsRef.current += 1;
           if (serverTtsFailsRef.current >= 3) {
             serverTtsDownRef.current = true; // stop wasting time on dead TTS
           }
           return null;
-        }),
+        }
+      }
+    };
+    return Promise.race([
+      tryBoth(),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
     ]);
   }

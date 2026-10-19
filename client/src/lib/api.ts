@@ -99,6 +99,23 @@ export async function synthesizeMairaSpeech({ text }: { text: string }) {
 }
 
 /**
+ * Free fallback TTS via Google Translate (server-proxied, no API key).
+ * Used when Gemini TTS is down AND browser TTS doesn't work on the device.
+ */
+export async function synthesizeGoogleSpeech({ text }: { text: string }) {
+  const res = await fetch('/api/tts/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw { data: errData };
+  }
+  return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+}
+
+/**
  * Ask the server to generate a complete single-file website from a
  * description. Resolves with { html }.
  */
