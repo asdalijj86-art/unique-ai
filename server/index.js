@@ -1229,15 +1229,18 @@ app.post("/api/create-video", async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/openai/speech — Gemini TTS with the Charon male voice
+// Accepts optional `userApiKey` in body: if the user saved their own Gemini
+// API key in app settings, it takes priority over the server key. This lets
+// the user refresh quota themselves without a redeploy.
 // ---------------------------------------------------------------------------
 app.post("/api/openai/speech", async (req, res) => {
-  const { text } = req.body ?? {};
+  const { text, userApiKey } = req.body ?? {};
   if (typeof text !== "string" || text.trim().length === 0) {
     res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = (typeof userApiKey === "string" && userApiKey.trim()) || process.env.GEMINI_API_KEY;
   if (!apiKey) {
     res.status(503).json({
       error: "آواز میں جواب سنانے کے لیے ابھی API key ترتیب نہیں دی گئی۔ فی الحال چیٹ استعمال کریں۔",

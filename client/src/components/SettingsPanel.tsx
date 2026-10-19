@@ -47,6 +47,102 @@ function Toggle({
   );
 }
 
+/**
+ * ApiKeySetting — lets the user save their own free Gemini API key
+ * (from aistudio.google.com) for voice. Stored only in this browser's
+ * localStorage; sent with TTS requests so their personal quota is used.
+ */
+function ApiKeySetting() {
+  const [key, setKey] = useState(() => {
+    try { return localStorage.getItem('unique-ai-gemini-key') || ''; }
+    catch { return ''; }
+  });
+  const [saved, setSaved] = useState(() => {
+    try { return !!localStorage.getItem('unique-ai-gemini-key'); }
+    catch { return false; }
+  });
+
+  const save = () => {
+    try {
+      const trimmed = key.trim();
+      if (trimmed) {
+        localStorage.setItem('unique-ai-gemini-key', trimmed);
+        setSaved(true);
+      } else {
+        localStorage.removeItem('unique-ai-gemini-key');
+        setSaved(false);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const clear = () => {
+    try { localStorage.removeItem('unique-ai-gemini-key'); } catch { /* ignore */ }
+    setKey('');
+    setSaved(false);
+  };
+
+  return (
+    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+      <span className="setting-label">🔑 اپنی Gemini Key (آواز کے لیے)</span>
+      <input
+        type="password"
+        value={key}
+        onChange={(e) => { setKey(e.target.value); setSaved(false); }}
+        placeholder="aistudio.google.com سے free key"
+        dir="ltr"
+        style={{
+          background: 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 8,
+          padding: '6px 10px',
+          color: 'inherit',
+          fontSize: 13,
+          width: '100%',
+          boxSizing: 'border-box',
+        }}
+        aria-label="Gemini API key"
+      />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          type="button"
+          onClick={save}
+          style={{
+            background: 'rgba(255,255,255,0.12)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 8,
+            padding: '4px 12px',
+            color: 'inherit',
+            fontSize: 13,
+            cursor: 'pointer',
+          }}
+        >
+          {saved ? '✅ محفوظ ہے' : 'محفوظ کریں'}
+        </button>
+        {saved && (
+          <button
+            type="button"
+            onClick={clear}
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(255,100,100,0.3)',
+              borderRadius: 8,
+              padding: '4px 12px',
+              color: 'inherit',
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            ہٹائیں
+          </button>
+        )}
+      </div>
+      <span style={{ fontSize: 11, opacity: 0.6 }}>
+        Free key: aistudio.google.com → Get API Key
+      </span>
+    </div>
+  );
+}
+
 export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
 
@@ -109,6 +205,7 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
               <span className="setting-label">🔊 آواز ٹیسٹ کریں</span>
             </button>
           )}
+          <ApiKeySetting />
           <div className="settings-group">کنٹرول</div>
           <Toggle
             label="ہاتھ کے اشارے"

@@ -84,12 +84,18 @@ export function useSendMairaChatMessage() {
 /**
  * Replacement for @workspace/api-client-react's synthesizeMairaSpeech.
  * POSTs to /api/openai/speech and resolves with { audioBase64, mimeType }.
+ * If the user saved their own Gemini API key in settings, it's sent along
+ * so their personal quota is used instead of the server's.
  */
 export async function synthesizeMairaSpeech({ text }: { text: string }) {
+  const userApiKey = (() => {
+    try { return localStorage.getItem('unique-ai-gemini-key') || undefined; }
+    catch { return undefined; }
+  })();
   const res = await fetch('/api/openai/speech', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...(userApiKey ? { userApiKey } : {}) }),
   });
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
