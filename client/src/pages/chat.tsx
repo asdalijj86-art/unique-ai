@@ -304,7 +304,7 @@ export default function ChatPage() {
               if (firstSentence && firstSentence.length >= 20) {
                 const entry = {
                   text: firstSentence,
-                  promise: synthesizeMairaSpeech({ text: firstSentence }),
+                  promise: synthesizeWithTimeout(firstSentence),
                   eagerPlayed: false,
                   playPromise: null as Promise<void> | null,
                 };
@@ -477,6 +477,7 @@ export default function ChatPage() {
       setError(`آواز نہیں چل سکی (آوازیں: ${n})۔ آپ جواب پڑھ سکتے ہیں۔`);
     };
     setIsSpeaking(true);
+    setIsPreparingVoice(false);
     window.speechSynthesis.speak(utterance);
   }
 
@@ -558,6 +559,15 @@ export default function ChatPage() {
     });
   }
 
+  // Wrapper: synthesize with a timeout so a hung TTS request can't lock the UI.
+  // Returns null on timeout or failure (caller falls back to browser voice).
+  function synthesizeWithTimeout(text: string, timeoutMs = 20000): Promise<{ audioBase64: string; mimeType: string } | null> {
+    return Promise.race([
+      synthesizeMairaSpeech({ text }).catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+  }
+
   async function playAssistantMessage(text: string) {
     setError('');
     if (!appSettings.voiceEnabled) return;
@@ -593,7 +603,7 @@ export default function ChatPage() {
         const restText = text.slice(pf.text.length).trim().slice(0, 600);
         // Start synthesizing the rest immediately (in background).
         const restPromise = restText
-          ? synthesizeMairaSpeech({ text: restText }).catch(() => null)
+          ? synthesizeWithTimeout(restText)
           : Promise.resolve(null);
         if (hasEagerAudio && pf.playPromise) {
           // First chunk already playing via eager playback — wait for it to finish.
@@ -615,8 +625,12 @@ export default function ChatPage() {
         return;
       }
       // Fallback: synthesize a trimmed reply (shorter = faster).
-      const out = await synthesizeMairaSpeech({ text: text.slice(0, 800) });
-      await playAudioChunk(out.audioBase64, out.mimeType);
+      const out = await synthesizeWithTimeout(text.slice(0, 800));
+      if (out) {
+        await playAudioChunk(out.audioBase64, out.mimeType);
+      } else {
+        speakWithBrowser(text);
+      }
       resumeContinuousAfterTts();
       return;
     } catch {
