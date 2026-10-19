@@ -589,12 +589,12 @@ export default function ChatPage() {
         const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
-        // Google TTS fallback has a female voice — deepen it to sound more
-        // masculine: lower rate + disable pitch preservation drops the pitch.
+        // Google TTS fallback has a female voice — make it JARVIS-like:
+        // fast and confident pace, slightly deepened pitch.
         // Gemini Charon (audio/wav) keeps its natural masculine voice.
         const isGoogleTts = (mimeType || '').includes('mpeg');
         if (isGoogleTts) {
-          audio.playbackRate = 0.88;
+          audio.playbackRate = 1.08;
           (audio as any).preservesPitch = false;
         } else {
           audio.playbackRate = 1.3;
