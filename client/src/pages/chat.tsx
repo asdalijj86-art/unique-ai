@@ -144,7 +144,7 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // TTS prefetch: start synthesizing the first sentence while text still streams,
   // so voice begins almost immediately after the reply completes.
-  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string }> } | null>(null);
+  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string }>; eagerPlayed: boolean; playPromise: Promise<void> | null } | null>(null);
   const streamedTextRef = useRef('');
   // Attached image (base64 data URL) for vision — sent with the next message.
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
@@ -292,16 +292,30 @@ export default function ChatPage() {
                 m.id === assistantId ? { ...m, content: m.content + delta } : m
               ),
             }));
-            // TTS prefetch: once the first sentence streams in, start synthesizing
-            // it in the background so voice begins almost immediately.
+            // TTS prefetch: once the first chunk streams in, start synthesizing
+            // it in the background. EAGER: play the moment audio is ready —
+            // don't wait for the full response to finish streaming.
             streamedTextRef.current += delta;
             if (!ttsPrefetchRef.current && appSettings.voiceEnabled) {
               const firstSentence = extractFirstSentence(streamedTextRef.current);
-              if (firstSentence && firstSentence.length >= 30) {
-                ttsPrefetchRef.current = {
+              if (firstSentence && firstSentence.length >= 20) {
+                const entry = {
                   text: firstSentence,
                   promise: synthesizeMairaSpeech({ text: firstSentence }),
+                  eagerPlayed: false,
+                  playPromise: null as Promise<void> | null,
                 };
+                ttsPrefetchRef.current = entry;
+                setIsPreparingVoice(true);
+                entry.promise.then((audio) => {
+                  const pf = ttsPrefetchRef.current;
+                  // Only play if this is still the current message's prefetch
+                  // (a new message would have reset the ref).
+                  if (pf === entry && !pf.eagerPlayed && audio && appSettings.voiceEnabled) {
+                    pf.eagerPlayed = true;
+                    pf.playPromise = playAudioChunk(audio.audioBase64, audio.mimeType);
+                  }
+                }).catch(() => {});
               }
             }
           },
@@ -497,12 +511,13 @@ export default function ChatPage() {
     }
   }
 
-  // Extract the first complete sentence (ending with ۔ ! ? . or newline) for TTS prefetch.
-  // Falls back to first 200 chars if no sentence boundary found yet.
+  // Extract the first speakable chunk (ending with ۔ ! ? . or newline) for TTS prefetch.
+  // Triggers early (~20 chars + sentence boundary) so voice starts ASAP.
+  // Falls back to first 120 chars if no sentence boundary found yet.
   function extractFirstSentence(text: string): string {
-    const match = text.match(/^(.{30,}?[۔.!?\n])/);
+    const match = text.match(/^(.{20,}?[۔.!?\n])/);
     if (match) return match[1].trim();
-    if (text.length >= 200) return text.slice(0, 200).trim();
+    if (text.length >= 120) return text.slice(0, 120).trim();
     return '';
   }
 
@@ -551,31 +566,46 @@ export default function ChatPage() {
       return;
     }
     lastSpokenRef.current = { text, at: now };
-    stopSpeaking();
+    // Check for eager prefetch BEFORE stopping — don't kill our own eager audio
+    // that started playing during streaming (only if it matches this reply).
+    const prefetch = ttsPrefetchRef.current;
+    ttsPrefetchRef.current = null; // consume once
+    const prefetchMatches = !!(prefetch && text.startsWith(prefetch.text) && prefetch.text.length >= 20);
+    const hasEagerAudio = !!(prefetchMatches && prefetch!.eagerPlayed && prefetch!.playPromise);
+    if (!hasEagerAudio) {
+      stopSpeaking(); // also stops any stale/non-matching eager audio
+    }
     // Hands-free mode: pause the mic while the reply plays (no echo).
     pauseContinuousForTts();
     // Primary: server-side masculine Urdu voice (Gemini TTS) — same voice on every device.
     // Show "preparing" while the audio is fetched; isSpeaking flips on only
     // when playback actually begins (audio.onplaying below).
-    setIsPreparingVoice(true);
+    if (!hasEagerAudio) {
+      setIsPreparingVoice(true);
+    }
     try {
       // Fast path: use prefetched first-sentence audio if it matches this reply.
-      const prefetch = ttsPrefetchRef.current;
-      ttsPrefetchRef.current = null; // consume once
-      if (prefetch && text.startsWith(prefetch.text) && prefetch.text.length >= 30) {
-        const first = await prefetch.promise.catch(() => null);
-        const restText = text.slice(prefetch.text.length).trim().slice(0, 600);
-        // Start synthesizing the rest immediately while the first chunk plays.
+      if (prefetchMatches && prefetch) {
+        const pf = prefetch; // non-null here (prefetchMatches implies it)
+        const restText = text.slice(pf.text.length).trim().slice(0, 600);
+        // Start synthesizing the rest immediately (in background).
         const restPromise = restText
           ? synthesizeMairaSpeech({ text: restText }).catch(() => null)
           : Promise.resolve(null);
-        if (first) {
-          await playAudioChunk(first.audioBase64, first.mimeType);
+        if (hasEagerAudio && pf.playPromise) {
+          // First chunk already playing via eager playback — wait for it to finish.
+          await pf.playPromise.catch(() => {});
+        } else {
+          // Eager didn't trigger (audio wasn't ready in time) — play first chunk now.
+          const first = await pf.promise.catch(() => null);
+          if (first) {
+            await playAudioChunk(first.audioBase64, first.mimeType);
+          }
         }
         const rest = await restPromise;
         if (rest) {
           await playAudioChunk(rest.audioBase64, rest.mimeType);
-        } else if (!first) {
+        } else if (!hasEagerAudio) {
           speakWithBrowser(text);
         }
         resumeContinuousAfterTts();
