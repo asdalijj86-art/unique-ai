@@ -147,7 +147,7 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // TTS prefetch: start synthesizing the first sentence while text still streams,
   // so voice begins almost immediately after the reply completes.
-  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string }>; eagerPlayed: boolean; playPromise: Promise<void> | null } | null>(null);
+  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string } | null>; eagerPlayed: boolean; playPromise: Promise<void> | null } | null>(null);
   // TTS health: track consecutive server TTS failures. After 3 failures,
   // skip server TTS for the session and go straight to browser voice.
   const serverTtsFailsRef = useRef(0);
@@ -463,41 +463,77 @@ export default function ChatPage() {
   function pickUrduMaleVoice(): SpeechSynthesisVoice | undefined {
     const voices = window.speechSynthesis.getVoices();
     const urduVoices = voices.filter((voice) => voice.lang.toLowerCase().startsWith('ur'));
-    return urduVoices.find((voice) => {
+    const maleUrdu = urduVoices.find((voice) => {
       const name = voice.name.toLowerCase();
       return name.includes('male') || name.includes('asad');
-    }) ?? urduVoices.find((voice) => {
+    });
+    if (maleUrdu) return maleUrdu;
+    const anyUrdu = urduVoices.find((voice) => {
       const name = voice.name.toLowerCase();
       return !name.includes('female') && !name.includes('uzma') && !name.includes('woman');
     }) ?? urduVoices[0];
+    if (anyUrdu) return anyUrdu;
+    // Fallback: Hindi voices are very commonly installed on Pakistani devices
+    // and Hindi/Urdu are mutually intelligible when spoken.
+    const hindi = voices.filter((voice) => voice.lang.toLowerCase().startsWith('hi'));
+    if (hindi[0]) return hindi[0];
+    return voices.find((v) => v.default) ?? voices[0];
   }
 
-  function speakNow(text: string) {
+  async function speakNow(text: string) {
     if (!appSettings.voiceEnabled) return;
-    window.speechSynthesis.cancel();
-    setIsSpeaking(false);
-    const utterance = new SpeechSynthesisUtterance(text.slice(0, 4000));
-    utterance.lang = 'ur-PK';
-    utterance.rate = 1.25;
-    const maleVoice = pickUrduMaleVoice();
-    if (maleVoice) {
-      utterance.voice = maleVoice;
+    if (!('speechSynthesis' in window)) {
+      setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
+      return;
     }
-    // If no Urdu voice is installed, Chrome still attempts with its default
-    // voice instead of staying silent; onerror reports the failure plainly.
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      resumeContinuousAfterTts();
-    };
-    utterance.onerror = () => {
-      setIsSpeaking(false);
-      resumeContinuousAfterTts();
-      const n = window.speechSynthesis.getVoices().length;
-      setError(`آواز نہیں چل سکی (آوازیں: ${n})۔ آپ جواب پڑھ سکتے ہیں۔`);
-    };
-    setIsSpeaking(true);
+    const synth = window.speechSynthesis;
+    // Chrome bug workarounds:
+    // 1. cancel() then immediate speak() often fails silently — wait after cancel.
+    // 2. speechSynthesis can get stuck in "paused" state — resume it.
+    synth.cancel();
+    try { synth.resume(); } catch { /* ignore */ }
+    await new Promise((r) => setTimeout(r, 150));
+    setIsSpeaking(false);
     setIsPreparingVoice(false);
-    window.speechSynthesis.speak(utterance);
+
+    // Split into sentences — Chrome cuts off very long utterances.
+    const cleanText = text.slice(0, 4000).trim();
+    const sentences = cleanText.match(/[^۔.!?\n]+[۔.!?\n]*/g)?.map((s) => s.trim()).filter(Boolean) || [cleanText];
+    const voice = pickUrduMaleVoice();
+    let spokenAny = false;
+    let failedAll = true;
+
+    const speakSentence = (index: number) => {
+      if (index >= sentences.length) {
+        setIsSpeaking(false);
+        resumeContinuousAfterTts();
+        if (!spokenAny && failedAll) {
+          const n = synth.getVoices().length;
+          setError(`آواز نہیں چل سکی (آوازیں: ${n})۔ فون کی Settings میں Text-to-Speech میں اردو آواز انسٹال کریں۔`);
+        }
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(sentences[index]);
+      utterance.lang = voice ? voice.lang : 'ur-PK';
+      utterance.rate = 1.25;
+      utterance.volume = 1;
+      utterance.pitch = 0.9; // slightly deeper (masculine)
+      if (voice) utterance.voice = voice;
+      utterance.onend = () => {
+        spokenAny = true;
+        failedAll = false;
+        speakSentence(index + 1);
+      };
+      utterance.onerror = () => {
+        // Try next sentence — don't give up on one failure.
+        speakSentence(index + 1);
+      };
+      try { synth.resume(); } catch { /* ignore */ }
+      synth.speak(utterance);
+    };
+
+    setIsSpeaking(true);
+    speakSentence(0);
   }
 
   function stopSpeaking() {
