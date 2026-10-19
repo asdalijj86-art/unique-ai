@@ -664,27 +664,23 @@ export default function ChatPage() {
         const errorType = geminiErr?.data?.errorType || 'unknown';
         const reasonMsg =
           errorType === 'quota'
-            ? '⚠️ تمہاری key کی آج کی حد ختم ہو گئی ہے — backup آواز چل رہی ہے۔ کل پھر مردانہ آواز آئے گی۔'
+            ? '⚠️ تمہاری key کی آج کی حد ختم ہو گئی ہے — نئی key لگاؤ یا کل انتظار کرو۔'
             : errorType === 'auth'
-              ? '⚠️ تمہاری key میں مسئلہ ہے — Settings میں key دوبارہ چیک کرو۔ backup آواز چل رہی ہے۔'
+              ? '⚠️ تمہاری key میں مسئلہ ہے — Settings میں key دوبارہ چیک کرو۔'
               : errorType === 'network'
-                ? '⚠️ نیٹ سست ہے — مردانہ آواز بنانے میں دیر ہو رہی ہے، backup آواز چل رہی ہے۔'
-                : '⚠️ مردانہ آواز وقتی طور پر بند ہے — backup آواز چل رہی ہے۔';
-        // Show briefly (auto-clear after 6s so it doesn't block the chat).
+                ? '⚠️ نیٹ سست ہے — مردانہ آواز بنانے میں دیر ہو رہی ہے۔ دوبارہ کوشش کرو۔'
+                : '⚠️ مردانہ آواز وقتی طور پر بند ہے — دوبارہ کوشش کرو۔';
+        // Show the reason (stays visible so the user knows what to fix).
         setError(reasonMsg);
-        setTimeout(() => setError(''), 6000);
-        // Gemini failed — try free Google TTS before giving up on server audio.
-        try {
-          const result = await synthesizeGoogleSpeech({ text });
-          serverTtsFailsRef.current = 0;
-          return result;
-        } catch {
-          serverTtsFailsRef.current += 1;
-          if (serverTtsFailsRef.current >= 3) {
-            serverTtsDownRef.current = true; // stop wasting time on dead TTS
-          }
-          return null;
+        // Male voice selected (Charon/Fenrir): NEVER fall back to the female
+        // Google voice — user explicitly demanded male voice only.
+        // Count the failure and return null (browser TTS with male settings
+        // will be tried by the caller).
+        serverTtsFailsRef.current += 1;
+        if (serverTtsFailsRef.current >= 3) {
+          serverTtsDownRef.current = true; // stop wasting time on dead TTS
         }
+        return null;
       }
     };
     return Promise.race([
