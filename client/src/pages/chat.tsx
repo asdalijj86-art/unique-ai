@@ -626,14 +626,34 @@ export default function ChatPage() {
 
   // Wrapper: synthesize with a timeout so a hung TTS request can't lock the UI.
   // Fallback chain: Gemini TTS → Google TTS (free, no key) → browser voice.
-  // Tracks server TTS health: after 3 consecutive failures of BOTH server
-  // options, marks server TTS as down for the session (browser voice used).
+  // If user selected "Google" voice in settings, skips Gemini and goes
+  // straight to Google TTS. Tracks server TTS health: after 3 consecutive
+  // failures of BOTH server options, marks server TTS as down for the
+  // session (browser voice used).
   // Returns null on timeout or failure (caller falls back to browser voice).
   function synthesizeWithTimeout(text: string, timeoutMs = 20000): Promise<{ audioBase64: string; mimeType: string } | null> {
     if (serverTtsDownRef.current) {
       return Promise.resolve(null);
     }
+    const preferGoogle = (() => {
+      try { return localStorage.getItem('unique-ai-voice') === 'Google'; }
+      catch { return false; }
+    })();
     const tryBoth = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
+      // User prefers Google voice — skip Gemini entirely.
+      if (preferGoogle) {
+        try {
+          const result = await synthesizeGoogleSpeech({ text });
+          serverTtsFailsRef.current = 0;
+          return result;
+        } catch {
+          serverTtsFailsRef.current += 1;
+          if (serverTtsFailsRef.current >= 3) {
+            serverTtsDownRef.current = true;
+          }
+          return null;
+        }
+      }
       try {
         const result = await synthesizeMairaSpeech({ text });
         serverTtsFailsRef.current = 0;

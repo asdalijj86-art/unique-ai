@@ -49,6 +49,63 @@ function Toggle({
 }
 
 /**
+ * VoiceSelector — lets the user pick from 3 voices:
+ * 1. Charon — گہری مردانہ آواز (deep masculine, default)
+ * 2. Fenrir — دوسری مردانہ آواز (second masculine voice)
+ * 3. Google — free fallback آواز (no key needed)
+ * Stored in localStorage; sent with TTS requests.
+ */
+function VoiceSelector() {
+  const [voice, setVoice] = useState(() => {
+    try { return localStorage.getItem('unique-ai-voice') || 'Charon'; }
+    catch { return 'Charon'; }
+  });
+
+  const select = (v: string) => {
+    setVoice(v);
+    try { localStorage.setItem('unique-ai-voice', v); } catch { /* ignore */ }
+  };
+
+  const options = [
+    { id: 'Charon', label: '🎙️ گہری آواز', desc: 'پہلی مردانہ آواز' },
+    { id: 'Fenrir', label: '🎤 دوسری آواز', desc: 'دوسری مردانہ آواز' },
+    { id: 'Google', label: '🔊 فری آواز', desc: 'بغیر key کے' },
+  ];
+
+  return (
+    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+      <span className="setting-label">🎚️ آواز منتخب کریں</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => select(opt.id)}
+            style={{
+              background: voice === opt.id ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255,255,255,0.06)',
+              border: voice === opt.id ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 8,
+              padding: '6px 10px',
+              color: 'inherit',
+              fontSize: 13,
+              cursor: 'pointer',
+              textAlign: 'right',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <span>{opt.label}</span>
+            <span style={{ fontSize: 11, opacity: 0.6 }}>{opt.desc}</span>
+            {voice === opt.id && <span>✅</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * ApiKeySetting — lets the user save their own free Gemini API key
  * (from aistudio.google.com) for voice. Stored only in this browser's
  * localStorage; sent with TTS requests so their personal quota is used.
@@ -207,6 +264,7 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
             </button>
           )}
           <ApiKeySetting />
+          <VoiceSelector />
           <div className="settings-group">کنٹرول</div>
           <Toggle
             label="ہاتھ کے اشارے"

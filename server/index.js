@@ -1228,17 +1228,20 @@ app.post("/api/create-video", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/openai/speech — Gemini TTS with the Charon male voice
-// Accepts optional `userApiKey` in body: if the user saved their own Gemini
-// API key in app settings, it takes priority over the server key. This lets
-// the user refresh quota themselves without a redeploy.
+// POST /api/openai/speech — Gemini TTS with selectable male voice
+// Accepts optional `userApiKey` in body (user's own key takes priority).
+// Accepts optional `voiceName`: "Charon" (deep male, default) or "Fenrir"
+// (second male voice). Falls back to Charon for unknown values.
 // ---------------------------------------------------------------------------
 app.post("/api/openai/speech", async (req, res) => {
-  const { text, userApiKey } = req.body ?? {};
+  const { text, userApiKey, voiceName } = req.body ?? {};
   if (typeof text !== "string" || text.trim().length === 0) {
     res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
     return;
   }
+
+  // Only allow known masculine voices
+  const voice = voiceName === "Fenrir" ? "Fenrir" : "Charon";
 
   const apiKey = (typeof userApiKey === "string" && userApiKey.trim()) || process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -1272,7 +1275,7 @@ app.post("/api/openai/speech", async (req, res) => {
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
-                voiceConfig: { prebuiltVoiceConfig: { voiceName: "Charon" } },
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } },
               },
             },
           }),
