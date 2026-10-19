@@ -1133,7 +1133,7 @@ export default function ChatPage() {
           </button>
           <button
             className="rail-btn"
-            onClick={(e) => { hideTipOnClick(e); setToolsPanelOpen(true); }}
+            onClick={(e) => { hideTipOnClick(e); setToolsPanelOpen((v) => !v); }}
             onMouseLeave={restoreTipOnLeave}
             aria-label="ٹولز کھولیں"
             data-tip="ٹولز 🧰"
