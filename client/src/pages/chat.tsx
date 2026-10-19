@@ -10,6 +10,7 @@ import {
   Shield,
   Trash2,
   Volume2,
+  Wrench,
   X,
 } from 'lucide-react';
 import {
@@ -981,6 +982,15 @@ export default function ChatPage() {
           >
             <Hand size={18} />
           </button>
+          <button
+            className="rail-btn"
+            onClick={() => setToolsPanelOpen(true)}
+            aria-label="ٹولز کھولیں"
+            title="ٹولز 🧰"
+            data-testid="button-open-tools"
+          >
+            <Wrench size={18} />
+          </button>
         </nav>
 
         {/* LEFT: chat messages */}
@@ -1113,16 +1123,6 @@ export default function ChatPage() {
             >
               📎
             </button>
-            <button
-              className="hero-attach"
-              onClick={() => setToolsPanelOpen(true)}
-              disabled={busy}
-              aria-label="ٹولز کھولیں"
-              data-testid="button-open-tools"
-              title="ٹولز 🧰"
-            >
-              🧰
-            </button>
             <textarea
               ref={textareaRef}
               value={draft}
@@ -1206,7 +1206,10 @@ export default function ChatPage() {
             </button>
           </div>
           <div className="tool-results-body">
-            <ToolsPanel onSelect={(tool) => { setToolsPanelOpen(false); setMediaTool(tool); }} />
+            <ToolsPanel
+              onSelect={(tool) => { setToolsPanelOpen(false); setMediaTool(tool); }}
+              onBrainTool={(example) => { setToolsPanelOpen(false); setDraft(example); textareaRef.current?.focus(); }}
+            />
           </div>
         </div>
       )}
