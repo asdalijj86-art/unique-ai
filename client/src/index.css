@@ -98,6 +98,41 @@ body {
   border-bottom: 1px solid rgba(56, 189, 248, 0.12);
   background: rgba(4, 10, 22, 0.6);
   backdrop-filter: blur(10px);
+  gap: 10px;
+}
+/* Language selector chips in the top bar */
+.jarvis-lang-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lang-chip {
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  color: #7dd3fc;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.lang-chip:hover {
+  background: rgba(34, 211, 238, 0.18);
+  color: #e0f7ff;
+}
+.lang-chip.active {
+  background: rgba(34, 211, 238, 0.28);
+  color: #fff;
+  border-color: rgba(34, 211, 238, 0.6);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.4);
+}
+@media (max-width: 640px) {
+  .jarvis-lang-chips { gap: 4px; }
+  .lang-chip { padding: 4px 8px; font-size: 11px; }
 }
 .jarvis-brand { display: flex; align-items: center; gap: 10px; }
 .jarvis-brand-logo {

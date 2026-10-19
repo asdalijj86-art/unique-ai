@@ -113,7 +113,7 @@ function imageToGeminiPart(dataUrl) {
 // POST /api/openai/chat — chat with Gemini (+ smart-brain intent actions)
 // ---------------------------------------------------------------------------
 app.post("/api/openai/chat", async (req, res) => {
-  const { messages, stream } = req.body ?? {};
+  const { messages, stream, language } = req.body ?? {};
   if (!validMessages(messages)) {
     res.status(400).json({ error: "پیغام درست نہیں ہے۔ دوبارہ کوشش کریں۔" });
     return;
@@ -122,7 +122,8 @@ app.post("/api/openai/chat", async (req, res) => {
   // --- Smart brain: classify the latest user message BEFORE spending quota.
   const latestUserText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   const c = classifyIntent(latestUserText);
-  const lang = detectLanguage(latestUserText);
+  // Manual language selection (from the UI language chips) overrides auto-detection.
+  const lang = ['ur', 'roman', 'en', 'ar'].includes(language) ? language : detectLanguage(latestUserText);
   const { intent } = c;
 
   if (intent === "open_website" && c.website) {
@@ -438,9 +439,16 @@ app.post("/api/openai/chat", async (req, res) => {
     // Multi-step requests: ask for clearly numbered steps (the sacred prompt
     // above is untouched — this is a per-request task instruction only).
     const multiStep = isMultiStep(latestUserText);
+    // Manual language selection from the UI overrides everything.
+    const langOverride = {
+      ur: 'IMPORTANT: The user manually selected Urdu. Reply ONLY in Urdu (Perso-Arabic script, never Devanagari), no matter what language they typed in.',
+      roman: 'IMPORTANT: The user manually selected Roman Urdu. Reply ONLY in Roman Urdu (Latin script), no matter what language they typed in.',
+      en: 'IMPORTANT: The user manually selected English. Reply ONLY in English, no matter what language they typed in.',
+      ar: 'IMPORTANT: The user manually selected Arabic. Reply ONLY in Modern Standard Arabic (العربية), no matter what language they typed in.',
+    }[lang] || '';
     const systemText = multiStep
-      ? `${assistantInstructions} The user gave a multi-step request. Structure your answer with clear numbered steps (1. 2. 3.), one step per line, then a brief closing line.`
-      : assistantInstructions;
+      ? `${assistantInstructions} ${langOverride} The user gave a multi-step request. Structure your answer with clear numbered steps (1. 2. 3.), one step per line, then a brief closing line.`
+      : `${assistantInstructions} ${langOverride}`;
 
     const requestBody = {
       systemInstruction: { parts: [{ text: systemText }] },

@@ -38,7 +38,7 @@ export type ChatResponse = {
  */
 export function useSendMairaChatMessage() {
   return useMutation({
-    mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void } }) => {
+    mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void; language?: string } }) => {
       const { onDelta, ...body } = data;
       const res = await fetch('/api/openai/chat', {
         method: 'POST',

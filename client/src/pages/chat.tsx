@@ -111,6 +111,13 @@ export default function ChatPage() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [storageError, setStorageError] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // Chat language selector (top bar): 'auto' = detect from typed text.
+  const [chatLang, setChatLang] = useState(() => {
+    try { return localStorage.getItem('unique-ai-chat-lang') || 'auto'; }
+    catch { return 'auto'; }
+  });
+  // Remembers the conversation we came from, so + toggles back to it.
+  const prevChatIdRef = useRef<string | null>(null);
   // True while the server TTS reply is being fetched/buffered — the orb shows
   // "preparing" until audio actually starts playing (onplaying), so the UI
   // never claims to be speaking during the network wait.
@@ -247,15 +254,21 @@ export default function ChatPage() {
   }
 
   function startNewChat() {
-    // If we're already on an empty new chat, don't stack another duplicate —
-    // a second click on + should feel like a no-op, not spawn empty chats.
+    // Toggle: if we're already on an empty new chat, go BACK to the previous
+    // conversation instead of stacking duplicates.
     if (activeConversation && activeConversation.messages.length === 0) {
+      if (prevChatIdRef.current) {
+        setActiveId(prevChatIdRef.current);
+        prevChatIdRef.current = null;
+      }
       setDraft('');
       setError('');
       setShowHistory(false);
       window.setTimeout(() => textareaRef.current?.focus(), 30);
       return;
     }
+    // Remember where we came from so the next + click can go back.
+    if (activeId) prevChatIdRef.current = activeId;
     const conversation: Conversation = {      id: createId(),
       title: 'نئی گفتگو',
       updatedAt: new Date().toISOString(),
@@ -328,6 +341,7 @@ export default function ChatPage() {
         data: {
           messages: sentMessages.slice(-30).map(({ role, content, image }) => ({ role, content, ...(image ? { image } : {}) })),
           stream: true,
+          language: chatLang === 'auto' ? undefined : chatLang,
           onDelta: (delta: string) => {
             // Append streamed text to the placeholder message in real time
             updateConversation(id, (item) => ({
@@ -1096,6 +1110,28 @@ export default function ChatPage() {
         <div className="jarvis-brand" data-testid="brand-maira">
           <img src="/logo.png" alt="Unique AI" className="jarvis-brand-logo" />
           <span className="jarvis-brand-title">Unique AI</span>
+        </div>
+        <div className="jarvis-lang-chips" role="group" aria-label="زبان منتخب کریں">
+          {[
+            { v: 'auto', t: '🌐 Auto' },
+            { v: 'ur', t: 'اردو' },
+            { v: 'roman', t: 'Roman' },
+            { v: 'en', t: 'English' },
+            { v: 'ar', t: 'العربية' },
+          ].map((l) => (
+            <button
+              key={l.v}
+              type="button"
+              className={`lang-chip${chatLang === l.v ? ' active' : ''}`}
+              onClick={() => {
+                setChatLang(l.v);
+                try { localStorage.setItem('unique-ai-chat-lang', l.v); } catch { /* ignore */ }
+              }}
+              data-testid={`button-lang-${l.v}`}
+            >
+              {l.t}
+            </button>
+          ))}
         </div>
         <div className="jarvis-top-right">
           <span className={`jarvis-live-dot${busy || isSpeaking ? ' pulse' : ''}`} aria-hidden="true" />
