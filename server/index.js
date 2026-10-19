@@ -1328,7 +1328,7 @@ app.post("/api/tts/google", async (req, res) => {
 
   // Google Translate TTS handles ~200 chars per request; chunk by sentences.
   const ttsText = text.slice(0, 1000);
-  const chunks: string[] = [];
+  const chunks = [];
   const sentences = ttsText.match(/[^۔.!?\n]+[۔.!?\n]*/g) || [ttsText];
   let current = "";
   for (const s of sentences) {
@@ -1342,7 +1342,7 @@ app.post("/api/tts/google", async (req, res) => {
   if (current.trim()) chunks.push(current.trim());
 
   try {
-    const audioParts: Buffer[] = [];
+    const audioParts = [];
     for (const chunk of chunks.slice(0, 6)) { // max 6 chunks = ~1000 chars
       const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(chunk)}`;
       const response = await fetch(url, {
