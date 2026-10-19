@@ -61,6 +61,7 @@ const assistantInstructions = [
   "Be warm, respectful, encouraging, patient, and professional. Do not imply that you are human or have feelings.",
   "Guide the user step by step when explaining a task. Keep the first response focused and do not overwhelm them with a long list of instructions.",
   "Be honest about uncertainty and do not claim to have performed actions you cannot perform.",
+  "اسلامی سوالات کا جواب ہمیشہ احترام، درستگی اور محبت سے دو۔ قرآن و حدیث کے حوالے درست ہوں۔",
 ].join(" ");
 
 // ---------------------------------------------------------------------------
@@ -1007,6 +1008,110 @@ app.post('/api/whatsapp/send', async (req, res) => {
     res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message || 'بھیجنے میں مسئلہ ہوا۔' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Quran Pak — Holy Quran with Urdu translation (Fateh Muhammad Jalandhry).
+// Source: api.alquran.cloud (verbatim text, never generated or paraphrased).
+// Cached in memory to be fast and respectful of the free API.
+// ---------------------------------------------------------------------------
+const quranCache = {
+  surahs: null,          // { data, at }
+  surah: new Map(),      // number -> { data, at }
+};
+const QURAN_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
+function quranCacheValid(entry) {
+  return entry && (Date.now() - entry.at < QURAN_CACHE_TTL);
+}
+
+async function fetchQuranJson(url) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'UniqueAI/1.0' } });
+  if (!res.ok) throw new Error(`Quran API error: ${res.status}`);
+  const json = await res.json();
+  if (json.code !== 200) throw new Error('Quran API returned non-200 code');
+  return json.data;
+}
+
+// GET /api/quran/surahs → list of all 114 surahs
+app.get('/api/quran/surahs', async (req, res) => {
+  try {
+    if (quranCacheValid(quranCache.surahs)) {
+      res.json(quranCache.surahs.data);
+      return;
+    }
+    const data = await fetchQuranJson('https://api.alquran.cloud/v1/surah');
+    const simplified = data.map((s) => ({
+      number: s.number,
+      name: s.name,
+      englishName: s.englishName,
+      englishNameTranslation: s.englishNameTranslation,
+      numberOfAyahs: s.numberOfAyahs,
+      revelationType: s.revelationType,
+    }));
+    quranCache.surahs = { data: simplified, at: Date.now() };
+    res.json(simplified);
+  } catch (e) {
+    res.status(502).json({ error: 'قرآن کی فہرست نہیں مل سکی۔ دوبارہ کوشش کریں۔' });
+  }
+});
+
+// GET /api/quran/surah/:number → full surah, Arabic (Uthmani) + Urdu (Jalandhry)
+app.get('/api/quran/surah/:number', async (req, res) => {
+  const n = parseInt(req.params.number, 10);
+  if (!n || n < 1 || n > 114) {
+    res.status(400).json({ error: 'سورۃ نمبر 1 سے 114 کے درمیان ہونا چاہیے۔' });
+    return;
+  }
+  try {
+    const cached = quranCache.surah.get(n);
+    if (quranCacheValid(cached)) {
+      res.json(cached.data);
+      return;
+    }
+    const data = await fetchQuranJson(`https://api.alquran.cloud/v1/surah/${n}/editions/quran-uthmani,ur.jalandhry`);
+    const arabic = data[0];
+    const urdu = data[1];
+    const result = {
+      number: arabic.number,
+      name: arabic.name,
+      englishName: arabic.englishName,
+      englishNameTranslation: arabic.englishNameTranslation,
+      numberOfAyahs: arabic.numberOfAyahs,
+      revelationType: arabic.revelationType,
+      ayahs: arabic.ayahs.map((a, i) => ({
+        number: a.number,           // global ayah number
+        numberInSurah: a.numberInSurah,
+        arabic: a.text,             // verbatim Uthmani text
+        urdu: urdu.ayahs[i] ? urdu.ayahs[i].text : '', // verbatim Jalandhry translation
+      })),
+    };
+    quranCache.surah.set(n, { data: result, at: Date.now() });
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ error: 'سورۃ نہیں مل سکی۔ دوبارہ کوشش کریں۔' });
+  }
+});
+
+// GET /api/quran/ayah/:surah/:ayah → single ayah, Arabic + Urdu
+app.get('/api/quran/ayah/:surah/:ayah', async (req, res) => {
+  const s = parseInt(req.params.surah, 10);
+  const a = parseInt(req.params.ayah, 10);
+  if (!s || s < 1 || s > 114 || !a || a < 1) {
+    res.status(400).json({ error: 'درست سورۃ اور آیت نمبر لکھیں۔' });
+    return;
+  }
+  try {
+    const data = await fetchQuranJson(`https://api.alquran.cloud/v1/ayah/${s}:${a}/editions/quran-uthmani,ur.jalandhry`);
+    res.json({
+      surah: s,
+      ayah: a,
+      arabic: data[0].text,   // verbatim
+      urdu: data[1].text,     // verbatim
+    });
+  } catch (e) {
+    res.status(502).json({ error: 'آیت نہیں مل سکی۔ دوبارہ کوشش کریں۔' });
   }
 });
 

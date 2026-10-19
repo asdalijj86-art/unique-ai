@@ -23,6 +23,7 @@ import ProjectBuilder from '@/components/ProjectBuilder';
 import AppBuilder from '@/components/AppBuilder';
 import ToolResults from '@/components/ToolResults';
 import MediaTools, { type MediaToolName } from '@/components/MediaTools';
+import ToolsPanel from '@/components/ToolsPanel';
 import VideoCreator from '@/components/VideoCreator';
 import AiOrb from '@/components/AiOrb';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
@@ -125,6 +126,7 @@ export default function ChatPage() {
   const [appBuild, setAppBuild] = useState<{ description: string } | null>(null);
   const [toolAction, setToolAction] = useState<ChatAction | null>(null);
   const [mediaTool, setMediaTool] = useState<MediaToolName | null>(null);
+  const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
   const [toolPrefill, setToolPrefill] = useState<{ phone?: string } | null>(null);
   // Continuous voice mode (hands-free): listen -> auto-send on silence -> auto-speak reply.
   const [continuousVoice, setContinuousVoice] = useState(false);
@@ -1111,6 +1113,16 @@ export default function ChatPage() {
             >
               📎
             </button>
+            <button
+              className="hero-attach"
+              onClick={() => setToolsPanelOpen(true)}
+              disabled={busy}
+              aria-label="ٹولز کھولیں"
+              data-testid="button-open-tools"
+              title="ٹولز 🧰"
+            >
+              🧰
+            </button>
             <textarea
               ref={textareaRef}
               value={draft}
@@ -1184,6 +1196,19 @@ export default function ChatPage() {
       )}
       {mediaTool === 'video_creator' && (
         <VideoCreator onClose={() => setMediaTool(null)} />
+      )}
+      {toolsPanelOpen && (
+        <div className="tool-results" dir="rtl" data-testid="panel-tools" role="region" aria-label="ٹولز">
+          <div className="tool-results-head">
+            <span className="tool-results-title">🧰 ٹولز</span>
+            <button type="button" className="tool-results-close" onClick={() => setToolsPanelOpen(false)} aria-label="بند کریں">
+              ✕
+            </button>
+          </div>
+          <div className="tool-results-body">
+            <ToolsPanel onSelect={(tool) => { setToolsPanelOpen(false); setMediaTool(tool); }} />
+          </div>
+        </div>
       )}
 
       {gesturesEnabled && (

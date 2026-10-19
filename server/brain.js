@@ -326,6 +326,12 @@ export function classifyIntent(text) {
   const message = String(text || '').trim();
   if (!message) return { intent: 'chat' };
 
+  // Quran Pak wins over website commands — "قرآن کھولو" opens our in-app
+  // Quran panel (with Urdu translation + voice), not an external site.
+  if (/(قرآن|قران|quran|سورۃ|سورت|surah|سورة|آیت|آیت الکرسی|ayat|ayah|پارہ|para|juz|تلاوت|tilawat|سورہ یٰسین|سورہ رحمٰن|سورہ ملک|سورہ واقعہ|سورہ کہف|سورہ بقرہ|سورہ فاتحہ|سورہ اخلاص|سورہ فلق|سورہ ناس|سورہ کوثر|یٰسین|رحمٰن|ملک|واقعہ|کہف|بقرہ|آل عمران|نساء|مائدہ|انعام|اعراف|انفال|توبہ|یونس|ہود|یوسف|رعد|ابراہیم|حجر|نحل|بنی اسرائیل|مریم|طٰہٰ|انبیاء|حج|مومنون|نور|فرقان|شعراء|نمل|قصص|عنکبوت|روم|لقمان|سجدہ|احزاب|سبا|فاطر|صٰفٰت|زمر|مومن|حم سجدہ|شوریٰ|زخرف|دخان|جاثیہ|احقاف|محمد|فتح|حجرات|ذاریات|طور|نجم|قمر|حدید|مجادلہ|حشر|ممتحنہ|صف|جمعہ|منافقون|تغابن|طلاق|تحریم|قلم|حاقہ|معارج|نوح|جن|مزمل|مدثر|قیامت|دہر|مرسلات|نبأ|نازعات|عبس|تکویر|انفطار|مطففین|انشقاق|بروج|طارق|اعلیٰ|غاشیہ|فجر|بلد|شمس|لیل|ضحیٰ|شرح|تین|علق|قدر|بینہ|زلزال|عادیات|قارعہ|تکاثر|عصر|ہمزہ|فیل|قریش|ماعون|کافرون|نصر|لہب)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'quran' };
+  }
+
   // Website commands win over everything ("youtube kholo" is not a build).
   const website = parseWebsiteCommand(message);
   if (website) {
@@ -655,6 +661,7 @@ const MEDIA_TOOL_NAMES = {
   invoice_gen: { ur: 'انوائس بنانے والا', roman: 'Invoice generator', en: 'Invoice generator' },
   phone_lookup: { ur: 'نمبر سے شہر', roman: 'Phone number lookup', en: 'Phone number lookup' },
   whatsapp_send: { ur: 'واٹس ایپ پیغام', roman: 'WhatsApp sender', en: 'WhatsApp sender' },
+  quran: { ur: 'قرآن پاک', roman: 'Quran Pak', en: 'Holy Quran' },
 };
 
 export function mediaToolConfirmation(tool, lang) {

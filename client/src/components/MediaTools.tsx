@@ -11,14 +11,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import VideoUpload from './VideoUpload';
 import WhatsAppSender from './WhatsAppSender';
+import QuranReader from './QuranReader';
 
 export type MediaToolName =
   | 'background_remover' | 'ocr' | 'upscaler' | 'pdf'
   | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload'
   | 'password_gen' | 'emi_calc' | 'image_compress' | 'resume_builder' | 'invoice_gen'
-  | 'phone_lookup' | 'whatsapp_send';
+  | 'phone_lookup' | 'whatsapp_send' | 'quran';
 
-const TOOL_TITLES: Record<MediaToolName, string> = {
+export const TOOL_TITLES: Record<MediaToolName, string> = {
   background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
   ocr: '📝 تصویر سے متن نکالیں',
   upscaler: '🔍 تصویر صاف کریں (HD)',
@@ -34,6 +35,8 @@ const TOOL_TITLES: Record<MediaToolName, string> = {
   invoice_gen: '🧾 انوائس بنائیں',
   phone_lookup: '📞 نمبر سے شہر معلوم کریں',
   whatsapp_send: '💬 WhatsApp پیغام بھیجیں',
+  video_creator: '🎬 ویڈیو پیکج بنائیں',
+  quran: '📖 قرآن پاک (ترجمے کے ساتھ)',
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -1159,6 +1162,7 @@ export default function MediaTools({ tool, onClose, initialPhone }: { tool: Medi
         {tool === 'invoice_gen' && <InvoiceGenerator />}
         {tool === 'phone_lookup' && <PhoneLookup initialNumber={initialPhone} />}
         {tool === 'whatsapp_send' && <WhatsAppSender />}
+        {tool === 'quran' && <QuranReader />}
       </div>
     </div>
   );
