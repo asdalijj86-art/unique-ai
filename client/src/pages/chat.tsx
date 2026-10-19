@@ -148,6 +148,10 @@ export default function ChatPage() {
   // TTS prefetch: start synthesizing the first sentence while text still streams,
   // so voice begins almost immediately after the reply completes.
   const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string }>; eagerPlayed: boolean; playPromise: Promise<void> | null } | null>(null);
+  // TTS health: track consecutive server TTS failures. After 3 failures,
+  // skip server TTS for the session and go straight to browser voice.
+  const serverTtsFailsRef = useRef(0);
+  const serverTtsDownRef = useRef(false);
   const streamedTextRef = useRef('');
   // Attached image (base64 data URL) for vision — sent with the next message.
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
@@ -187,6 +191,21 @@ export default function ChatPage() {
       setStorageError(true);
     }
   }, [conversations]);
+
+  // Pre-warm browser TTS voices on app load so the fallback voice is ready
+  // instantly when server TTS is down. Also "unlocks" speechSynthesis on
+  // browsers that require a user gesture (silent utterance).
+  useEffect(() => {
+    if (!('speechSynthesis' in window)) return;
+    const warmUp = () => {
+      try {
+        window.speechSynthesis.getVoices();
+      } catch { /* ignore */ }
+    };
+    warmUp();
+    window.speechSynthesis.addEventListener('voiceschanged', warmUp);
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', warmUp);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -560,10 +579,26 @@ export default function ChatPage() {
   }
 
   // Wrapper: synthesize with a timeout so a hung TTS request can't lock the UI.
+  // Tracks server TTS health: after 3 consecutive failures, marks server TTS
+  // as down for the session and returns null immediately (browser voice used).
   // Returns null on timeout or failure (caller falls back to browser voice).
   function synthesizeWithTimeout(text: string, timeoutMs = 20000): Promise<{ audioBase64: string; mimeType: string } | null> {
+    if (serverTtsDownRef.current) {
+      return Promise.resolve(null);
+    }
     return Promise.race([
-      synthesizeMairaSpeech({ text }).catch(() => null),
+      synthesizeMairaSpeech({ text })
+        .then((result) => {
+          serverTtsFailsRef.current = 0; // success resets the counter
+          return result;
+        })
+        .catch(() => {
+          serverTtsFailsRef.current += 1;
+          if (serverTtsFailsRef.current >= 3) {
+            serverTtsDownRef.current = true; // stop wasting time on dead TTS
+          }
+          return null;
+        }),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
     ]);
   }
