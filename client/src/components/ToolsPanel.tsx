@@ -24,6 +24,7 @@ const MEDIA_TOOL_ORDER: MediaToolName[] = [
   'emi_calc',
   'resume_builder',
   'invoice_gen',
+  'assignment_maker',
 ];
 
 // Brain tools — triggered via chat. Clicking inserts an example query.
@@ -43,6 +44,8 @@ const BRAIN_TOOLS: { id: string; icon: string; title: string; example: string }[
   { id: 'timer', icon: '⏲️', title: 'ٹائمر', example: '5 منٹ کا ٹائمر لگاؤ' },
   { id: 'qr_code', icon: '📱', title: 'QR کوڈ بنائیں', example: 'میرے نمبر کا QR کوڈ بناؤ' },
   { id: 'android_app', icon: '🤖', title: 'ایپ تجویز', example: 'اچھی قرآن ایپ بتاؤ' },
+  { id: 'study', icon: '📚', title: 'پڑھائی مدد', example: 'فوٹو سنتھیسز کیا ہے؟ آسان الفاظ میں سمجھاؤ' },
+  { id: 'image_search', icon: '🖼️', title: 'تصویر تلاش', example: 'بلی کی تصویر دکھاؤ' },
 ];
 
 export default function ToolsPanel({ onSelect, onBrainTool }: {
@@ -59,7 +62,7 @@ export default function ToolsPanel({ onSelect, onBrainTool }: {
   return (
     <div dir="rtl" className="tools-panel">
       <div style={{ textAlign: 'center', marginBottom: 14 }}>
-        <div style={{ fontSize: 19, fontWeight: 800, color: '#e9d5ff' }}>🧰 ٹولز (32)</div>
+        <div style={{ fontSize: 19, fontWeight: 800, color: '#e9d5ff' }}>🧰 ٹولز (35)</div>
         <div className="tool-small-note">کوئی ٹول چنیں</div>
       </div>
       <div style={{

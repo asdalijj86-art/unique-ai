@@ -112,6 +112,29 @@ export async function synthesizeMairaSpeech({ text }: { text: string }) {
 }
 
 /**
+ * Professional assignment maker — POSTs to /api/assignment/generate.
+ * Sends the user's own Gemini key if saved (BYOK), else server key is used.
+ */
+export async function generateAssignment(params: {
+  name: string; rollNo: string; classLevel: string; subject: string;
+  topic: string; language: string; length: string;
+}) {
+  const getSetting = (k: string) => {
+    try { return localStorage.getItem(k) || undefined; }
+    catch { return undefined; }
+  };
+  const userApiKey = getSetting('unique-ai-gemini-key');
+  const res = await fetch('/api/assignment/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...params, ...(userApiKey ? { userApiKey } : {}) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw { data };
+  return data as { ok: boolean; content: string; meta: Record<string, string> };
+}
+
+/**
  * Free fallback TTS via Google Translate (server-proxied, no API key).
  * Used when Gemini TTS is down AND browser TTS doesn't work on the device.
  */

@@ -494,6 +494,9 @@ export function classifyIntent(text) {
   if (/(resume banao|ریزیومے بناؤ|cv banao|سی وی بناؤ|resume builder|نوکری.*cv)/i.test(message)) {
     return { intent: 'media_tool', tool: 'resume_builder' };
   }
+  if (/(assignment banao|اسائنمنٹ بناؤ|assignment bana|اسائنمنٹ بنا|assignment maker|ہوم ورک بناؤ|homework banao)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'assignment_maker' };
+  }
   if (/(invoice banao|انوائس بناؤ|bill banao|بل بناؤ|invoice generator)/i.test(message)) {
     return { intent: 'media_tool', tool: 'invoice_gen' };
   }

@@ -17,7 +17,7 @@ export type MediaToolName =
   | 'background_remover' | 'ocr' | 'upscaler' | 'pdf'
   | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload'
   | 'password_gen' | 'emi_calc' | 'image_compress' | 'resume_builder' | 'invoice_gen'
-  | 'phone_lookup' | 'whatsapp_send' | 'quran';
+  | 'phone_lookup' | 'whatsapp_send' | 'quran' | 'assignment_maker';
 
 export const TOOL_TITLES: Record<MediaToolName, string> = {
   background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
@@ -37,6 +37,7 @@ export const TOOL_TITLES: Record<MediaToolName, string> = {
   whatsapp_send: '💬 WhatsApp پیغام بھیجیں',
   video_creator: '🎬 ویڈیو پیکج بنائیں',
   quran: '📖 قرآن پاک (ترجمے کے ساتھ)',
+  assignment_maker: '📚 اسائنمنٹ بنائیں',
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -846,6 +847,112 @@ th,td{border:1px solid #ccc;padding:8px;text-align:right}th{background:#f5f5f5}
   );
 }
 
+// --- assignment maker: professional study assignments (Class 1 → University) ---
+function AssignmentMaker() {
+  const [name, setName] = useState('');
+  const [rollNo, setRollNo] = useState('');
+  const [classLevel, setClassLevel] = useState('matric');
+  const [subject, setSubject] = useState('');
+  const [topic, setTopic] = useState('');
+  const [language, setLanguage] = useState('ur');
+  const [length, setLength] = useState('medium');
+  const [loading, setLoading] = useState(false);
+  const [content, setContent] = useState('');
+  const [error, setError] = useState('');
+
+  const CLASS_LEVELS = [
+    { v: 'primary', t: 'پرائمری (کلاس 1-5)' },
+    { v: 'middle', t: 'مڈل (کلاس 6-8)' },
+    { v: 'matric', t: 'میٹرک (کلاس 9-10)' },
+    { v: 'college', t: 'کالج (FA/FSc)' },
+    { v: 'university', t: 'یونیورسٹی' },
+  ];
+  const LENGTHS = [
+    { v: 'short', t: 'مختصر' },
+    { v: 'medium', t: 'درمیانی' },
+    { v: 'long', t: 'تفصیلی' },
+  ];
+
+  async function generate() {
+    if (!topic.trim() || loading) return;
+    setLoading(true); setError(''); setContent('');
+    try {
+      const { generateAssignment } = await import('../lib/api');
+      const data = await generateAssignment({ name, rollNo, classLevel, subject, topic, language, length });
+      setContent(data.content);
+    } catch (e: any) {
+      setError(e?.data?.error || 'اسائنمنٹ بنانے میں مسئلہ ہوا۔ دوبارہ کوشش کریں۔');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function buildHtml(): string {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const body = esc(content).replace(/\n/g, '<br>');
+    const levelT = CLASS_LEVELS.find((c) => c.v === classLevel)?.t || '';
+    const dirAttr = language === 'ur' ? 'dir="rtl" lang="ur"' : 'dir="ltr" lang="en"';
+    return `<!DOCTYPE html><html ${dirAttr}><head><meta charset="utf-8"><title>Assignment - ${esc(topic)}</title>
+<style>body{font-family:'Jameel Noori Nastaleeq',Arial,sans-serif;max-width:750px;margin:40px auto;padding:0 24px;color:#1a1a1a;line-height:2}
+h1{text-align:center;font-size:26px;border-bottom:3px double #333;padding-bottom:12px}
+.meta{text-align:center;color:#444;margin:16px 0 28px;font-size:15px}
+.assign-body{font-size:17px;white-space:pre-wrap}
+@media print{body{margin:20px}}</style></head><body>
+<h1>📚 ${esc(topic)}</h1>
+<div class="meta">${name ? `نام: <b>${esc(name)}</b> &nbsp;|&nbsp; ` : ''}${rollNo ? `رول نمبر: <b>${esc(rollNo)}</b> &nbsp;|&nbsp; ` : ''}جماعت: <b>${esc(levelT)}</b>${subject ? ` &nbsp;|&nbsp; مضمون: <b>${esc(subject)}</b>` : ''}</div>
+<div class="assign-body">${body}</div>
+</body></html>`;
+  }
+
+  function download() {
+    if (!content) return;
+    const blob = new Blob([buildHtml()], { type: 'text/html;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `assignment-${topic.trim().slice(0, 30).replace(/\s+/g, '-')}.html`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+
+  const field = (label: string, value: string, set: (v: string) => void) => (
+    <div className="tool-row">
+      <label style={{ minWidth: 90 }}>{label}: </label>
+      <input value={value} onChange={(e) => set(e.target.value)} className="tool-input" dir="auto" style={{ flex: 1 }} />
+    </div>
+  );
+  const select = (label: string, value: string, set: (v: string) => void, opts: { v: string; t: string }[]) => (
+    <div className="tool-row">
+      <label style={{ minWidth: 90 }}>{label}: </label>
+      <select value={value} onChange={(e) => set(e.target.value)} className="tool-input" style={{ flex: 1 }}>
+        {opts.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+      </select>
+    </div>
+  );
+
+  return (
+    <div>
+      {field('نام', name, setName)}
+      {field('رول نمبر', rollNo, setRollNo)}
+      {select('جماعت', classLevel, setClassLevel, CLASS_LEVELS)}
+      {field('مضمون', subject, setSubject)}
+      {field('موضوع *', topic, setTopic)}
+      {select('زبان', language, setLanguage, [{ v: 'ur', t: 'اردو' }, { v: 'en', t: 'English' }])}
+      {select('لمبائی', length, setLength, LENGTHS)}
+      <button type="button" className="tool-action-button" onClick={generate} disabled={!topic.trim() || loading}>
+        {loading ? <><Loader2 size={16} className="spin" /> اسائنمنٹ بن رہی ہے…</> : '📚 پروفیشنل اسائنمنٹ بنائیں'}
+      </button>
+      {error && <div className="tool-error">{error}</div>}
+      {content && (
+        <div>
+          <div className="tool-text-block" dir={language === 'ur' ? 'rtl' : 'ltr'} style={{ whiteSpace: 'pre-wrap', maxHeight: 320, overflowY: 'auto' }}>{content}</div>
+          <button type="button" className="tool-action-button" onClick={download}>📥 ڈاؤن لوڈ کریں (پرنٹ کر کے PDF بنائیں)</button>
+          <div className="tool-small-note">ٹپ: ڈاؤن لوڈ شدہ فائل کھولیں، Ctrl+P دبائیں اور "Save as PDF" چنیں۔</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- phone number lookup: area code → city, mobile prefix → network -------------
 // International country codes
 const COUNTRY_CODES: Record<string, string> = {
@@ -1160,6 +1267,7 @@ export default function MediaTools({ tool, onClose, initialPhone }: { tool: Medi
         {tool === 'image_compress' && <ImageCompressor />}
         {tool === 'resume_builder' && <ResumeBuilder />}
         {tool === 'invoice_gen' && <InvoiceGenerator />}
+        {tool === 'assignment_maker' && <AssignmentMaker />}
         {tool === 'phone_lookup' && <PhoneLookup initialNumber={initialPhone} />}
         {tool === 'whatsapp_send' && <WhatsAppSender />}
         {tool === 'quran' && <QuranReader />}

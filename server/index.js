@@ -1237,6 +1237,92 @@ app.post("/api/create-video", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/assignment/generate — Professional assignment maker (study tool)
+// Accepts optional `userApiKey` in body (user's own key takes priority).
+// Body: { name, rollNo, classLevel, subject, topic, language: "ur"|"en",
+//         length: "short"|"medium"|"long", userApiKey }
+// Returns: { ok: true, content } where content is the full assignment text.
+// ---------------------------------------------------------------------------
+app.post("/api/assignment/generate", async (req, res) => {
+  const { name, rollNo, classLevel, subject, topic, language, length, userApiKey } = req.body ?? {};
+  if (typeof topic !== "string" || topic.trim().length < 2) {
+    res.status(400).json({ error: "براہ کرم اسائنمنٹ کا موضوع لکھیں۔" });
+    return;
+  }
+  const apiKey = (typeof userApiKey === "string" && userApiKey.trim()) || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "اسائنمنٹ بنانے کے لیے API key درکار ہے۔ Settings میں اپنی Gemini key لگائیں۔" });
+    return;
+  }
+
+  const lang = language === "en" ? "en" : "ur";
+  const lenGuide = length === "long"
+    ? (lang === "ur" ? "تفصیلی (تقریباً 800-1000 الفاظ)" : "detailed (about 800-1000 words)")
+    : length === "short"
+      ? (lang === "ur" ? "مختصر (تقریباً 250-350 الفاظ)" : "brief (about 250-350 words)")
+      : (lang === "ur" ? "درمیانی (تقریباً 500-600 الفاظ)" : "medium (about 500-600 words)");
+
+  const scriptNote = lang === "ur"
+    ? "Write in Urdu using PERSO-ARABIC script only. NEVER use Devanagari/Hindi script."
+    : "Write in clear, simple English suitable for a student.";
+  const levelNote = {
+    primary: lang === "ur" ? "پرائمری سطح (کلاس 1-5): بہت آسان الفاظ، چھوٹے جملے" : "primary level (class 1-5): very simple words, short sentences",
+    middle: lang === "ur" ? "مڈل سطح (کلاس 6-8): آسان مگر مکمل وضاحت" : "middle level (class 6-8): simple but complete explanation",
+    matric: lang === "ur" ? "میٹرک سطح (کلاس 9-10): نصابی انداز، اہم نکات" : "matric level (class 9-10): textbook style, key points",
+    college: lang === "ur" ? "کالج سطح: تجزیاتی انداز، حوالے" : "college level: analytical style with references",
+    university: lang === "ur" ? "یونیورسٹی سطح: تحقیقی انداز، گہرا تجزیہ" : "university level: research style, deep analysis",
+  }[classLevel] || (lang === "ur" ? "اسکول سطح" : "school level");
+
+  const prompt = `Write a professional student assignment.
+Topic: ${topic.trim()}
+Subject: ${(subject || "").trim() || (lang === "ur" ? "عام" : "General")}
+Level: ${levelNote}
+Length: ${lenGuide}
+${scriptNote}
+
+Structure it EXACTLY like this with these headings:
+1. تعارف / Introduction — موضوع کا تعارف (2-3 جملے)
+2. بنیادی نکات / Main Points — اہم باتیں نمبر وار یا ہیڈنگز کے ساتھ
+3. تفصیل / Details — ہر نکتے کی وضاحت
+4. نتیجہ / Conclusion — خلاصہ (2-3 جملے)
+5. حوالہ جات / References — اگر مناسب ہو
+
+Rules:
+- Language must match the student's level — not too hard, not too childish.
+- No fluff, no greetings, no meta-talk. Start directly with the assignment.
+- Use clear headings. Keep it neat and submission-ready.`;
+
+  try {
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: "You are a professional academic writer for Pakistani students. You write clean, well-structured assignments." }] },
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 2048, temperature: 0.7 },
+        }),
+      }
+    );
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      res.status(502).json({ error: "اسائنمنٹ بنانے میں مسئلہ ہوا۔ دوبارہ کوشش کریں۔", detail: errText.slice(0, 200) });
+      return;
+    }
+    const result = await response.json();
+    const content = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+    if (!content) {
+      res.status(502).json({ error: "اسائنمنٹ کا مواد خالی آیا۔ دوبارہ کوشش کریں۔" });
+      return;
+    }
+    res.json({ ok: true, content, meta: { name: name || "", rollNo: rollNo || "", classLevel: classLevel || "", subject: subject || "", topic: topic.trim(), language: lang } });
+  } catch (e) {
+    res.status(502).json({ error: "اسائنمنٹ بنانے میں مسئلہ ہوا۔ دوبارہ کوشش کریں۔" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/openai/speech — Gemini TTS with selectable male voice
 // Accepts optional `userApiKey` in body (user's own key takes priority).
 // Accepts optional `voiceName`: "Charon" (deep male, default) or "Fenrir"
