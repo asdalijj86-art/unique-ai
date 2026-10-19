@@ -237,7 +237,8 @@ export function extractYoutubeQuery(text) {
 export function extractImageQuery(text) {
   let t = String(text || '').trim();
   t = t
-    .replace(/(تصویر|تصویریں|tasveer|image|photo|picture)s?\s*(کی|ka|ke|of)?\s*/gi, ' ')
+    .replace(/(تصویر|تصویریں|tasveer|image|photo|picture)s?\s*(کی|کا|کے|ki|ka|ke|of)?\s*/gi, ' ')
+    .replace(/\s*(کی|کا|کے)\s*$/gi, '')
     .replace(/\s*(دکھاؤ|dikhao|dekho|دیکھو|search|تلاش|کرو|karo|karen|کریں)\s*/gi, ' ')
     .replace(/\s+/g, ' ').trim();
   return t || null;
