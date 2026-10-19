@@ -135,6 +135,19 @@ export async function generateAssignment(params: {
 }
 
 /**
+ * Test a user's Gemini key via the server. Returns { ok, errorType?, message }.
+ * Used by Settings to validate the key immediately on save.
+ */
+export async function testGeminiKey(userApiKey: string): Promise<{ ok: boolean; errorType?: string; message: string }> {
+  const res = await fetch('/api/tts/test-key', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userApiKey }),
+  });
+  return res.json();
+}
+
+/**
  * Free fallback TTS via Google Translate (server-proxied, no API key).
  * Used when Gemini TTS is down AND browser TTS doesn't work on the device.
  */

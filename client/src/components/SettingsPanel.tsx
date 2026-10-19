@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, MapPin, Mic, Hand, Volume2, Trash2 } from 'lucide-react';
+import { testGeminiKey } from '../lib/api';
 
 export type AppSettings = {
   locationEnabled: boolean;
@@ -52,7 +53,7 @@ function Toggle({
  * VoiceSelector — lets the user pick from 3 voices:
  * 1. Charon — گہری مردانہ آواز (deep masculine, default)
  * 2. Fenrir — دوسری مردانہ آواز (second masculine voice)
- * 3. Google — free fallback آواز (no key needed)
+ * (Google female voice REMOVED per user demand 2026-10-19 — no female voice.)
  * Stored in localStorage; sent with TTS requests.
  */
 function VoiceSelector() {
@@ -69,7 +70,6 @@ function VoiceSelector() {
   const options = [
     { id: 'Charon', label: '🎙️ گہری آواز', desc: 'پہلی مردانہ آواز' },
     { id: 'Fenrir', label: '🎤 دوسری آواز', desc: 'دوسری مردانہ آواز' },
-    { id: 'Google', label: '🔊 فری آواز', desc: 'بغیر key کے' },
   ];
 
   return (
@@ -119,18 +119,32 @@ function ApiKeySetting() {
     try { return !!localStorage.getItem('unique-ai-gemini-key'); }
     catch { return false; }
   });
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState('');
 
-  const save = () => {
+  const save = async () => {
     try {
       const trimmed = key.trim();
-      if (trimmed) {
-        localStorage.setItem('unique-ai-gemini-key', trimmed);
-        setSaved(true);
-      } else {
+      if (!trimmed) {
         localStorage.removeItem('unique-ai-gemini-key');
         setSaved(false);
+        setTestMsg('');
+        return;
       }
-    } catch { /* ignore */ }
+      // Validate the key immediately — a bad key is the #1 cause of broken voice.
+      setTesting(true);
+      setTestMsg('Key چیک ہو رہی ہے…');
+      const result = await testGeminiKey(trimmed).catch(() => null);
+      setTesting(false);
+      if (result?.ok) {
+        localStorage.setItem('unique-ai-gemini-key', trimmed);
+        setSaved(true);
+        setTestMsg('✅ ' + result.message);
+      } else {
+        setSaved(false);
+        setTestMsg('❌ ' + (result?.message || 'Key چیک نہیں ہو سکی۔'));
+      }
+    } catch { setTesting(false); }
   };
 
   const clear = () => {
@@ -164,6 +178,7 @@ function ApiKeySetting() {
         <button
           type="button"
           onClick={save}
+          disabled={testing}
           style={{
             background: 'rgba(255,255,255,0.12)',
             border: '1px solid rgba(255,255,255,0.15)',
@@ -171,10 +186,11 @@ function ApiKeySetting() {
             padding: '4px 12px',
             color: 'inherit',
             fontSize: 13,
-            cursor: 'pointer',
+            cursor: testing ? 'wait' : 'pointer',
+            opacity: testing ? 0.6 : 1,
           }}
         >
-          {saved ? '✅ محفوظ ہے' : 'محفوظ کریں'}
+          {testing ? '⏳ چیک ہو رہی…' : saved ? '✅ محفوظ ہے' : 'محفوظ کریں'}
         </button>
         {saved && (
           <button
@@ -197,6 +213,9 @@ function ApiKeySetting() {
       <span style={{ fontSize: 11, opacity: 0.6 }}>
         Free key: aistudio.google.com → Get API Key
       </span>
+      {testMsg && (
+        <span style={{ fontSize: 12, opacity: 0.9 }} dir="rtl">{testMsg}</span>
+      )}
     </div>
   );
 }

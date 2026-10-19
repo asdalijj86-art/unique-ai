@@ -1337,6 +1337,47 @@ Rules:
 // (second male voice). Falls back to Charon for unknown values.
 // ---------------------------------------------------------------------------
 app.post("/api/openai/speech", async (req, res) => {
+// Test a user's Gemini key with a tiny TTS request. Returns { ok: true } or
+// { ok: false, errorType, message } — used by Settings to validate the key
+// immediately on save, so a bad key is caught before it causes silent failures.
+// ---------------------------------------------------------------------------
+app.post("/api/tts/test-key", async (req, res) => {
+  const { userApiKey } = req.body ?? {};
+  const apiKey = (typeof userApiKey === "string" && userApiKey.trim()) || "";
+  if (!apiKey) {
+    res.status(400).json({ ok: false, errorType: "missing", message: "Key خالی ہے۔" });
+    return;
+  }
+  try {
+    const testRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: "test" }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Charon" } } },
+          },
+        }),
+      }
+    );
+    if (!testRes.ok) {
+      const errText = await testRes.text().catch(() => "");
+      const errorType = testRes.status === 400 ? "auth" : testRes.status === 429 ? "quota" : "network";
+      const message =
+        errorType === "auth" ? "Key غلط ہے یا اس API کے لیے اجازت نہیں۔"
+        : errorType === "quota" ? "Key کا کوٹہ ختم ہے۔"
+        : `Server error (${testRes.status})۔`;
+      res.status(200).json({ ok: false, errorType, message, detail: errText.slice(0, 200) });
+      return;
+    }
+    res.json({ ok: true, message: "Key ٹھیک ہے ✅ مردانہ آواز تیار ہے۔" });
+  } catch (e) {
+    res.status(200).json({ ok: false, errorType: "network", message: "نیٹ ورک مسئلہ — دوبارہ کوشش کریں۔" });
+  }
+});
   const { text, userApiKey, voiceName } = req.body ?? {};
   if (typeof text !== "string" || text.trim().length === 0) {
     res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });

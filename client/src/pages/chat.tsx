@@ -588,6 +588,20 @@ export default function ChatPage() {
       setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
       return;
     }
+    // Don't play garbage: only use browser TTS if there's a usable
+    // Urdu/Hindi voice. Otherwise show a clear error instead of
+    // buzzing/distorted audio.
+    const voices = window.speechSynthesis.getVoices();
+    const usable = voices.some((v) => {
+      const lang = v.lang.toLowerCase();
+      return lang.startsWith('ur') || lang.startsWith('hi');
+    });
+    if (voices.length > 0 && !usable) {
+      setError('مردانہ آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اردو آواز انسٹال نہیں۔ Settings میں key دوبارہ چیک کریں۔');
+      setIsPreparingVoice(false);
+      setIsSpeaking(false);
+      return;
+    }
     // Chrome loads voices asynchronously; the list is often empty on the
     // first call. Wait for it (once) instead of speaking into silence.
     if (window.speechSynthesis.getVoices().length === 0) {
@@ -625,13 +639,14 @@ export default function ChatPage() {
         const audio = new Audio(url);
         // Google TTS fallback has a female voice — make it JARVIS-like:
         // fast and confident pace, slightly deepened pitch.
-        // Gemini Charon (audio/wav) keeps its natural masculine voice.
+        // Gemini Charon/Fenrir (audio/wav) play at natural speed for
+        // clean, undistorted masculine voice.
         const isGoogleTts = (mimeType || '').includes('mpeg');
         if (isGoogleTts) {
           audio.playbackRate = 1.08;
           (audio as any).preservesPitch = false;
         } else {
-          audio.playbackRate = 1.3;
+          audio.playbackRate = 1.0;
         }
         serverAudioRef.current = audio;
         audio.onplaying = () => {
@@ -669,25 +684,14 @@ export default function ChatPage() {
     if (serverTtsDownRef.current) {
       return Promise.resolve(null);
     }
-    const preferGoogle = (() => {
-      try { return localStorage.getItem('unique-ai-voice') === 'Google'; }
-      catch { return false; }
-    })();
-    const tryBoth = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
-      // User prefers Google voice — skip Gemini entirely.
-      if (preferGoogle) {
-        try {
-          const result = await synthesizeGoogleSpeech({ text });
-          serverTtsFailsRef.current = 0;
-          return result;
-        } catch {
-          serverTtsFailsRef.current += 1;
-          if (serverTtsFailsRef.current >= 3) {
-            serverTtsDownRef.current = true;
-          }
-          return null;
-        }
+    // Note: Google (female) voice option removed per user demand 2026-10-19.
+    // If a stale 'Google' selection exists in localStorage, treat as Charon.
+    try {
+      if (localStorage.getItem('unique-ai-voice') === 'Google') {
+        localStorage.setItem('unique-ai-voice', 'Charon');
       }
+    } catch { /* ignore */ }
+    const tryBoth = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
       try {
         const result = await synthesizeMairaSpeech({ text });
         serverTtsFailsRef.current = 0;
