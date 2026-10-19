@@ -1106,7 +1106,7 @@ export default function ChatPage() {
           <button className="rail-btn" onClick={(e) => { hideTipOnClick(e); startNewChat(); }} onMouseLeave={restoreTipOnLeave} aria-label="نئی گفتگو" data-tip="نئی گفتگو" data-testid="button-new-chat">
             <Plus size={18} />
           </button>
-          <button className="rail-btn" onClick={(e) => { hideTipOnClick(e); setShowHistory(true); }} onMouseLeave={restoreTipOnLeave} aria-label="گفتگوؤں کی فہرست" data-tip="گفتگوؤں کی فہرست" data-testid="button-mobile-history">
+          <button className="rail-btn" onClick={(e) => { hideTipOnClick(e); setShowHistory((v) => !v); }} onMouseLeave={restoreTipOnLeave} aria-label="گفتگوؤں کی فہرست" data-tip="گفتگوؤں کی فہرست" data-testid="button-mobile-history">
             <Clock3 size={18} />
           </button>
           <button
