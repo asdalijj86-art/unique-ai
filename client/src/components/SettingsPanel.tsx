@@ -3,6 +3,7 @@
  * Toggles wired to chat.tsx state via props.
  */
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, MapPin, Mic, Hand, Volume2, Trash2 } from 'lucide-react';
 
 export type AppSettings = {
@@ -160,7 +161,7 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
       >
         <SettingsIcon size={18} />
       </button>
-      {open && (
+      {open && createPortal(
         <div className="settings-dropdown" dir="rtl" role="dialog" aria-label="سیٹنگز">
           <div className="settings-head">
             <span>سیٹنگز</span>
@@ -228,7 +229,8 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
             <span className="setting-icon"><Trash2 size={16} /></span>
             <span className="setting-label">چیٹ صاف کریں</span>
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
