@@ -589,7 +589,16 @@ export default function ChatPage() {
         const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
-        audio.playbackRate = 1.3;
+        // Google TTS fallback has a female voice — deepen it to sound more
+        // masculine: lower rate + disable pitch preservation drops the pitch.
+        // Gemini Charon (audio/wav) keeps its natural masculine voice.
+        const isGoogleTts = (mimeType || '').includes('mpeg');
+        if (isGoogleTts) {
+          audio.playbackRate = 0.88;
+          (audio as any).preservesPitch = false;
+        } else {
+          audio.playbackRate = 1.3;
+        }
         serverAudioRef.current = audio;
         audio.onplaying = () => {
           setIsPreparingVoice(false);
