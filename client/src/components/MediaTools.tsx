@@ -17,7 +17,7 @@ export type MediaToolName =
   | 'background_remover' | 'ocr' | 'upscaler' | 'pdf'
   | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload'
   | 'password_gen' | 'emi_calc' | 'image_compress' | 'resume_builder' | 'invoice_gen'
-  | 'phone_lookup' | 'whatsapp_send' | 'quran' | 'assignment_maker';
+  | 'phone_lookup' | 'whatsapp_send' | 'quran' | 'assignment_maker' | 'text_on_image';
 
 export const TOOL_TITLES: Record<MediaToolName, string> = {
   background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
@@ -38,6 +38,7 @@ export const TOOL_TITLES: Record<MediaToolName, string> = {
   video_creator: '🎬 ویڈیو پیکج بنائیں',
   quran: '📖 قرآن پاک (ترجمے کے ساتھ)',
   assignment_maker: '📚 اسائنمنٹ بنائیں',
+  text_on_image: '✍️ تصویر پر متن لکھیں',
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -194,6 +195,108 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode-failed'))), 'image/png');
   });
+}
+
+// --- text on image -------------------------------------------------------------
+function TextOnImage() {
+  const [src, setSrc] = useState<string | null>(null);
+  const [out, setOut] = useState<string | null>(null);
+  const [text, setText] = useState('');
+  const [fontSize, setFontSize] = useState(48);
+  const [color, setColor] = useState('#ffffff');
+  const [position, setPosition] = useState<'top' | 'center' | 'bottom'>('bottom');
+  const [bg, setBg] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function render() {
+    if (!src || !text.trim()) return;
+    setBusy(true);
+    try {
+      const img = await loadImage(src);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const fs = Math.round((fontSize / 400) * canvas.width);
+      ctx.font = `bold ${fs}px sans-serif`;
+      ctx.textAlign = 'center';
+      const lines = text.split('\n');
+      const lineHeight = fs * 1.5;
+      const totalH = lineHeight * lines.length;
+      let startY: number;
+      if (position === 'top') startY = fs + 20;
+      else if (position === 'center') startY = (canvas.height - totalH) / 2 + fs;
+      else startY = canvas.height - totalH + fs - 10;
+      // Semi-transparent band behind text for readability.
+      if (bg) {
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        const bandY = startY - fs - 12;
+        ctx.fillRect(0, bandY, canvas.width, totalH + 24);
+      }
+      ctx.fillStyle = color;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = Math.max(2, fs / 12);
+      lines.forEach((line, i) => {
+        const y = startY + i * lineHeight;
+        ctx.strokeText(line, canvas.width / 2, y);
+        ctx.fillText(line, canvas.width / 2, y);
+      });
+      canvas.toBlob((b) => {
+        if (b) setOut(URL.createObjectURL(b));
+        setBusy(false);
+      }, 'image/png');
+    } catch {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <FilePicker accept="image/*" onFile={(f) => { setSrc(URL.createObjectURL(f)); setOut(null); }} label="📷 تصویر چنیں" />
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="تصویر پر لکھنے والا متن یہاں لکھیں (شعر، قول، نام…)"
+        dir="auto"
+        rows={3}
+        style={{ width: '100%', marginTop: 10, borderRadius: 10, padding: '8px 10px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', color: 'inherit', boxSizing: 'border-box' }}
+        aria-label="تصویر پر متن"
+      />
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }} dir="rtl">
+        <label style={{ fontSize: 13 }}>سائز:
+          <input type="range" min={20} max={100} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} style={{ marginInlineStart: 6 }} />
+        </label>
+        <label style={{ fontSize: 13 }}>رنگ:
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ marginInlineStart: 6 }} />
+        </label>
+        <label style={{ fontSize: 13 }}>جگہ:
+          <select value={position} onChange={(e) => setPosition(e.target.value as any)} style={{ marginInlineStart: 6 }}>
+            <option value="top">اوپر</option>
+            <option value="center">درمیان</option>
+            <option value="bottom">نیچے</option>
+          </select>
+        </label>
+        <label style={{ fontSize: 13 }}>
+          <input type="checkbox" checked={bg} onChange={(e) => setBg(e.target.checked)} /> پس منظر سایہ
+        </label>
+      </div>
+      <button type="button" className="tool-action-button" onClick={render} disabled={!src || !text.trim() || busy} style={{ marginTop: 10 }}>
+        {busy ? 'بن رہا ہے…' : '✍️ متن لگائیں'}
+      </button>
+      {src && (
+        <div className="tool-before-after">
+          <div><div className="tool-label">پہلے</div><img src={src} alt="اصل" className="tool-preview-img" /></div>
+          {out && <div><div className="tool-label">بعد میں</div><img src={out} alt="نتیجہ" className="tool-preview-img" /></div>}
+        </div>
+      )}
+      {out && (
+        <a href={out} download="unique-ai-text-image.png" className="tool-action-button" style={{ display: 'inline-block', marginTop: 10, textDecoration: 'none' }}>
+          ⬇️ تصویر ڈاؤن لوڈ کریں
+        </a>
+      )}
+    </div>
+  );
 }
 
 // --- upscaler ------------------------------------------------------------------
@@ -1285,6 +1388,7 @@ export default function MediaTools({ tool, onClose, initialPhone }: { tool: Medi
         {tool === 'phone_lookup' && <PhoneLookup initialNumber={initialPhone} />}
         {tool === 'whatsapp_send' && <WhatsAppSender />}
         {tool === 'quran' && <QuranReader />}
+        {tool === 'text_on_image' && <TextOnImage />}
       </div>
     </div>
   );

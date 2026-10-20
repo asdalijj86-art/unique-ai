@@ -23,7 +23,7 @@ type StatusPanelProps = {
   onTestVoice?: () => void;
 };
 
-const TOOLS_COUNT = 30;
+const TOOLS_COUNT = 31;
 
 function StatusRow({
   label,

@@ -497,22 +497,31 @@ export default function ChatPage() {
 
   function pickUrduMaleVoice(): SpeechSynthesisVoice | undefined {
     const voices = window.speechSynthesis.getVoices();
-    const urduVoices = voices.filter((voice) => voice.lang.toLowerCase().startsWith('ur'));
-    const maleUrdu = urduVoices.find((voice) => {
-      const name = voice.name.toLowerCase();
+    // STRICT rule (user demand): NEVER a female voice. Any voice whose name
+    // suggests female is excluded at every step — better silence + error
+    // than a female voice.
+    const isFemaleName = (name: string) => {
+      const n = name.toLowerCase();
+      return n.includes('female') || n.includes('uzma') || n.includes('woman') || n.includes('girl') || n.includes('zira') || n.includes('samantha') || n.includes('veena');
+    };
+    const notFemale = (v: SpeechSynthesisVoice) => !isFemaleName(v.name);
+    const urduVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('ur') && notFemale(v));
+    const maleUrdu = urduVoices.find((v) => {
+      const name = v.name.toLowerCase();
       return name.includes('male') || name.includes('asad');
     });
     if (maleUrdu) return maleUrdu;
-    const anyUrdu = urduVoices.find((voice) => {
-      const name = voice.name.toLowerCase();
-      return !name.includes('female') && !name.includes('uzma') && !name.includes('woman');
-    }) ?? urduVoices[0];
-    if (anyUrdu) return anyUrdu;
+    if (urduVoices[0]) return urduVoices[0];
     // Fallback: Hindi voices are very commonly installed on Pakistani devices
-    // and Hindi/Urdu are mutually intelligible when spoken.
-    const hindi = voices.filter((voice) => voice.lang.toLowerCase().startsWith('hi'));
+    // and Hindi/Urdu are mutually intelligible when spoken — still no female.
+    const hindi = voices.filter((v) => v.lang.toLowerCase().startsWith('hi') && notFemale(v));
     if (hindi[0]) return hindi[0];
-    return voices.find((v) => v.default) ?? voices[0];
+    // Last resort: any non-female voice (deepened pitch below).
+    const anyNonFemale = voices.filter(notFemale);
+    if (anyNonFemale[0]) return anyNonFemale[0];
+    // No usable male/neutral voice — return undefined so caller errors out
+    // instead of playing a female voice.
+    return undefined;
   }
 
   async function speakNow(text: string) {
@@ -535,6 +544,15 @@ export default function ChatPage() {
     const cleanText = text.slice(0, 4000).trim();
     const sentences = cleanText.match(/[^۔.!?\n]+[۔.!?\n]*/g)?.map((s) => s.trim()).filter(Boolean) || [cleanText];
     const voice = pickUrduMaleVoice();
+    // STRICT: if no non-female voice exists, do NOT speak — a female voice
+    // is worse than silence. Tell the user to fix their Gemini key.
+    if (!voice) {
+      setIsSpeaking(false);
+      setIsPreparingVoice(false);
+      setError('اس ڈیوائس میں کوئی مردانہ آواز نہیں ملی۔ Settings میں اپنی Gemini key دوبارہ چیک کرو — وہی اصل مردانہ آواز دیتی ہے۔');
+      resumeContinuousAfterTts();
+      return;
+    }
     let spokenAny = false;
     let failedAll = true;
 

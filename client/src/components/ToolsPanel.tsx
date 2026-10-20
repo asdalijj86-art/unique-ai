@@ -25,6 +25,7 @@ const MEDIA_TOOL_ORDER: MediaToolName[] = [
   'resume_builder',
   'invoice_gen',
   'assignment_maker',
+  'text_on_image',
 ];
 
 // Brain tools — triggered via chat. Clicking inserts an example query.
