@@ -931,6 +931,10 @@ body {
   border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 14px;
   padding: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(14px);
+  /* Panel must scroll internally — its full content never fits shorter screens. */
+  max-height: calc(100dvh - 84px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .settings-head {
   display: flex; align-items: center; justify-content: space-between;

@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, MapPin, Mic, Hand, Volume2, Trash2 } from 'lucide-react';
-import { testGeminiKey } from '../lib/api';
+import { testGeminiKey, parseGeminiKeys } from '../lib/api';
 
 export type AppSettings = {
   locationEnabled: boolean;
@@ -133,26 +133,40 @@ function ApiKeySetting() {
       }
       // User may paste SEVERAL keys (one per line) — validate each, keep all.
       // The app rotates between them when one's quota runs out.
-      const keys = trimmed.split(/[\n,]+/).map((k) => k.trim()).filter((k) => k.length > 10);
+      // parseGeminiKeys also repairs keys that got line-wrapped while copying.
+      const keys = parseGeminiKeys(trimmed);
       if (!keys.length) {
         setTestMsg('❌ درست key نہیں ملی۔');
         return;
       }
       setTesting(true);
       let okCount = 0;
+      const perKey: string[] = [];
       for (let i = 0; i < keys.length; i++) {
         setTestMsg(`Key ${i + 1}/${keys.length} چیک ہو رہی ہے…`);
         const result = await testGeminiKey(keys[i]).catch(() => null);
-        if (result?.ok) okCount++;
+        if (result?.ok) {
+          okCount++;
+          perKey.push(`Key ${i + 1}: ✅ ٹھیک`);
+        } else if (result?.errorType === 'quota') {
+          perKey.push(`Key ${i + 1}: ⚠️ کوٹہ ختم`);
+        } else if (result?.errorType === 'auth') {
+          perKey.push(`Key ${i + 1}: ❌ غلط/نامکمل`);
+        } else {
+          perKey.push(`Key ${i + 1}: ❓ چیک نہ ہو سکی`);
+        }
       }
       setTesting(false);
       localStorage.setItem('unique-ai-gemini-key', keys.join('\n'));
       localStorage.setItem('unique-ai-gemini-key-index', '0');
       setKey(keys.join('\n'));
       setSaved(true);
-      setTestMsg(okCount > 0
-        ? `✅ ${keys.length} keys محفوظ — ${okCount} کام کر رہی ہیں۔ ایک ختم ہو تو app خود دوسری پر چلی جائے گی۔`
-        : '⚠️ Keys محفوظ ہیں مگر ابھی کوئی کام نہیں کر رہی — کوٹہ ختم ہو سکتا ہے، کل دوبارہ کوشش کریں۔');
+      setTestMsg(
+        (okCount > 0
+          ? `✅ ${keys.length} keys محفوظ — ${okCount} کام کر رہی ہیں۔ ایک ختم ہو تو app خود دوسری پر چلی جائے گی۔`
+          : '⚠️ Keys محفوظ ہیں مگر ابھی کوئی کام نہیں کر رہی۔')
+        + '\n' + perKey.join(' | ')
+      );
     } catch { setTesting(false); }
   };
 
@@ -224,7 +238,7 @@ function ApiKeySetting() {
         Free key: aistudio.google.com → Get API Key
       </span>
       {testMsg && (
-        <span style={{ fontSize: 12, opacity: 0.9 }} dir="rtl">{testMsg}</span>
+        <span style={{ fontSize: 12, opacity: 0.9, whiteSpace: 'pre-line' }} dir="rtl">{testMsg}</span>
       )}
     </div>
   );

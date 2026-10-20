@@ -86,10 +86,28 @@ export function useSendMairaChatMessage() {
  * comma-separated) in one field. Keys are tried in order; on quota/auth
  * failure the app rotates to the next key automatically.
  */
+/**
+ * Parse the keys field into individual Gemini keys.
+ * Normal case: one key per line (or comma-separated).
+ * Repair case: a copied key got line-wrapped mid-key (fragments that don't
+ * start with a key prefix) — then strip ALL whitespace and re-split on the
+ * known key prefixes ("AIza…" classic, "AQ.…" new).
+ */
+export function parseGeminiKeys(raw: string): string[] {
+  if (!raw) return [];
+  const byLine = raw.split(/[\n,]+/).map((k) => k.trim()).filter((k) => k.length > 10);
+  const looksBroken = byLine.some((k) => !/^(AIza|AQ\.)/.test(k));
+  if (looksBroken) {
+    const clean = raw.replace(/\s+/g, '');
+    const byPrefix = clean.split(/(?=AIza)|(?=AQ\.)/).filter((k) => k.length > 10);
+    if (byPrefix.length) return byPrefix;
+  }
+  return byLine;
+}
+
 export function getGeminiKeys(): string[] {
   try {
-    const raw = localStorage.getItem('unique-ai-gemini-key') || '';
-    return raw.split(/[\n,]+/).map((k) => k.trim()).filter((k) => k.length > 10);
+    return parseGeminiKeys(localStorage.getItem('unique-ai-gemini-key') || '');
   } catch { return []; }
 }
 export function getActiveKeyIndex(): number {

@@ -1350,20 +1350,29 @@ app.post("/api/tts/test-key", async (req, res) => {
     return;
   }
   try {
-    const testRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: "test" }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Charon" } } },
-          },
-        }),
-      }
-    );
+    // Hard timeout: a hung upstream must fail fast, never spin forever.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    let testRes;
+    try {
+      testRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: "test" }] }],
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Charon" } } },
+            },
+          }),
+        }
+      );
+    } finally {
+      clearTimeout(timer);
+    }
     if (!testRes.ok) {
       const errText = await testRes.text().catch(() => "");
       const errorType = testRes.status === 400 ? "auth" : testRes.status === 429 ? "quota" : "network";
