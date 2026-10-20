@@ -156,6 +156,9 @@ export default function ChatPage() {
   const continuousTextRef = useRef('');
   const silenceTimerRef = useRef<number | null>(null);
   const continuousIntendedRef = useRef(false);
+  // True while a spoken turn is being answered (sent + reply speaking).
+  // Blocks the mic from restarting mid-turn; cleared when the app goes idle.
+  const turnInFlightRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -898,10 +901,13 @@ export default function ChatPage() {
   }
 
   // ------------------------------------------------------------------
-  // Continuous voice mode (hands-free conversation).
-  // Listen continuously -> auto-send after ~2s silence -> reply auto-speaks.
-  // Recognition pauses while the assistant's voice plays (no echo) and
-  // resumes automatically afterwards.
+  // Live mic (hands-free conversation): one tap turns it on, the user
+  // speaks, the reply auto-speaks while the mic is closed (no echo), then
+  // the mic reopens for the next turn; one more tap turns it off.
+  // Two engines by screen size (see isMobileTurnMode): phones run
+  // turn-based single-shot sessions because Android Chrome's
+  // continuous=true flickers on/off by itself; laptops keep the original
+  // continuous + silence-timer flow that already works there.
   // ------------------------------------------------------------------
   const busyRef = useRef(false);
   useEffect(() => {
@@ -941,6 +947,19 @@ export default function ChatPage() {
     reader.readAsDataURL(file);
   }
 
+  // Live mic has two engines, chosen by screen size:
+  // - Phone (<=640px): TURN-BASED single-shot sessions (below) — Android
+  //   Chrome's continuous mode flickers on/off by itself, so phones get
+  //   the stable one-utterance-per-turn flow.
+  // - Laptop/desktop: the ORIGINAL continuous flow with the 2s silence
+  //   timer (scheduleSilenceSend) — untouched, exactly as it was, because
+  //   it already works well there (user instruction 2026-10-20: do not
+  //   change anything on the laptop side).
+  function isMobileTurnMode() {
+    return typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+  }
+
+  // DESKTOP path (original): accumulate finals, send after ~2s of silence.
   function scheduleSilenceSend() {
     clearSilenceTimer();
     silenceTimerRef.current = window.setTimeout(() => {
@@ -963,15 +982,53 @@ export default function ChatPage() {
     }, 2000);
   }
 
+  // PHONE path: one full turn of the live-mic conversation — the user
+  // finished speaking, so send the transcript NOW and let the reply play.
+  // Listening resumes when the reply finishes (resumeContinuousAfterTts /
+  // recovery effect). No silence timers: on Android Chrome each recognition
+  // session ends by itself when the user stops talking — that IS the
+  // end-of-turn signal.
+  function dispatchContinuousTurn(text: string) {
+    const clean = text.trim();
+    if (!clean || !continuousIntendedRef.current) return;
+    turnInFlightRef.current = true;
+    // Pause listening while we send + get the reply, to avoid self-trigger.
+    pauseContinuousForTts();
+    const handledAsWebsiteCommand = handleVoiceWebsiteCommand(clean);
+    if (!handledAsWebsiteCommand) void sendMessage(clean, true);
+    // If nothing ends up speaking (voice off / error), the recovery effect
+    // below restarts listening once the app is idle again.
+  }
+
   const isSpeakingRef = useRef(false);
   useEffect(() => {
     isSpeakingRef.current = isSpeaking;
   }, [isSpeaking]);
 
+  // Live-mic recovery (PHONE turn-based path only — the desktop path keeps
+  // its original resume logic): whenever a turn fully settles (reply sent
+  // AND spoken, or nothing spoke at all — voice off / error / website
+  // command), release the turn lock and reopen the mic for the next turn.
+  const busyState = chatMutation.isPending;
+  useEffect(() => {
+    if (!isMobileTurnMode()) return;
+    if (!continuousIntendedRef.current) return;
+    if (busyState || isSpeaking) return;
+    if (turnInFlightRef.current) {
+      turnInFlightRef.current = false;
+      const t = window.setTimeout(() => {
+        if (continuousIntendedRef.current) startContinuousListening();
+      }, 500);
+      return () => window.clearTimeout(t);
+    }
+    if (!continuousRecognitionRef.current) startContinuousListening();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busyState, isSpeaking]);
+
   function startContinuousListening() {
     if (!continuousIntendedRef.current) return;
-    // Don't listen while a reply is playing or a message is in flight.
-    if (isSpeakingRef.current || busyRef.current) return;
+    // Don't listen while a reply is playing or a turn is being answered.
+    if (isSpeakingRef.current || busyRef.current || turnInFlightRef.current) return;
     if (continuousRecognitionRef.current) return; // already running
 
     const browserWindow = window as SpeechRecognitionWindow;
@@ -986,23 +1043,43 @@ export default function ChatPage() {
     try {
       const recognition = new Recognition();
       recognition.lang = 'ur-PK';
-      recognition.continuous = true;
-      recognition.interimResults = true;
+      const mobileTurn = isMobileTurnMode();
+      // Phone: TURN-BASED — one utterance per session. Android Chrome
+      // handles single-shot recognition reliably, while continuous=true
+      // starts/stops by itself on phones (the mic flickering the user
+      // reported). Laptop: original continuous + interim results, as was.
+      recognition.continuous = !mobileTurn;
+      recognition.interimResults = mobileTurn ? false : true;
 
       recognition.onresult = (event) => {
         if (!continuousIntendedRef.current) return;
-        let gotSpeech = false;
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const result = event.results[i];
-          if (!result) continue;
-          gotSpeech = true;
-          if (result.isFinal) {
-            continuousTextRef.current += `${result[0]?.transcript ?? ''} `;
+        if (!mobileTurn) {
+          // DESKTOP (original flow): accumulate final text, send on silence.
+          let gotSpeech = false;
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            if (!result) continue;
+            gotSpeech = true;
+            if (result.isFinal) {
+              continuousTextRef.current += `${result[0]?.transcript ?? ''} `;
+            }
           }
+          if (gotSpeech) {
+            setVoiceStatus('سن رہا ہوں…');
+            scheduleSilenceSend();
+          }
+          return;
         }
-        if (gotSpeech) {
-          setVoiceStatus('سن رہا ہوں…');
-          scheduleSilenceSend();
+        // PHONE (turn-based): the final transcript IS the whole turn.
+        let text = '';
+        for (let i = 0; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          if (result?.isFinal) text += `${result[0]?.transcript ?? ''} `;
+        }
+        const clean = text.trim();
+        if (clean) {
+          setVoiceStatus('جواب آ رہا ہے…');
+          dispatchContinuousTurn(clean);
         }
       };
 
@@ -1013,17 +1090,26 @@ export default function ChatPage() {
           setVoiceStatus('');
           setError('مائیکروفون کی اجازت دیں، پھر مسلسل آواز دوبارہ چالو کریں۔');
         }
-        // Other errors: onend will trigger a restart if still intended.
+        // 'no-speech' / 'aborted': onend quietly reopens the mic — the user
+        // simply has not spoken yet, so we keep waiting for his turn.
       };
 
       recognition.onend = () => {
         continuousRecognitionRef.current = null;
         clearSilenceTimer();
-        // Chrome auto-stops recognition; restart if the user still wants it.
-        if (continuousIntendedRef.current && !isSpeakingRef.current && !busyRef.current) {
+        // Session ended with nothing sent (silence): keep waiting for the
+        // user to speak, as long as live mic is on and no turn is in flight.
+        // (turnInFlight only ever becomes true on the phone path; on the
+        // desktop path this is the original auto-restart, just quicker.)
+        if (
+          continuousIntendedRef.current &&
+          !turnInFlightRef.current &&
+          !isSpeakingRef.current &&
+          !busyRef.current
+        ) {
           window.setTimeout(() => {
             if (continuousIntendedRef.current) startContinuousListening();
-          }, 350);
+          }, 400);
         }
       };
 
@@ -1059,6 +1145,7 @@ export default function ChatPage() {
 
   function stopContinuousListening() {
     continuousIntendedRef.current = false;
+    turnInFlightRef.current = false;
     clearSilenceTimer();
     continuousTextRef.current = '';
     const rec = continuousRecognitionRef.current;

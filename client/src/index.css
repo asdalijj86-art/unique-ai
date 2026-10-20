@@ -1081,6 +1081,14 @@ body {
   .setting-row { flex-wrap: wrap; }
   /* === Mobile page scrolls — nothing clipped, map fully visible === */
   body { overflow: auto; }
+  /* Rail tooltips are hover-only UI — phones have no hover. Their long
+     nowrap labels stick out past the rail's left edge and were widening
+     the whole page (435px on a 360px screen, measured 2026-10-20): the
+     page could then pan sideways, so fixed panels looked off-center and
+     their close buttons slid off-screen. Kill tooltips on phones, and
+     clip any other sideways overflow at the shell level as a guard. */
+  .rail-btn[data-tip]::after { display: none; }
+  body { overflow-x: clip; }
   html, body, #root { height: auto; min-height: 100%; }
   .jarvis { height: auto; min-height: 100dvh; overflow: visible; }
   .jarvis-body {
