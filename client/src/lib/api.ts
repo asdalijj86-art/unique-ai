@@ -82,33 +82,86 @@ export function useSendMairaChatMessage() {
 }
 
 /**
+ * Multi-key rotation: user can paste several Gemini keys (one per line or
+ * comma-separated) in one field. Keys are tried in order; on quota/auth
+ * failure the app rotates to the next key automatically.
+ */
+export function getGeminiKeys(): string[] {
+  try {
+    const raw = localStorage.getItem('unique-ai-gemini-key') || '';
+    return raw.split(/[\n,]+/).map((k) => k.trim()).filter((k) => k.length > 10);
+  } catch { return []; }
+}
+export function getActiveKeyIndex(): number {
+  try { return Math.max(0, parseInt(localStorage.getItem('unique-ai-gemini-key-index') || '0', 10) || 0); }
+  catch { return 0; }
+}
+export function setActiveKeyIndex(i: number) {
+  try { localStorage.setItem('unique-ai-gemini-key-index', String(i)); } catch { /* ignore */ }
+}
+export function rotateGeminiKey() {
+  const keys = getGeminiKeys();
+  if (keys.length < 2) return;
+  setActiveKeyIndex((getActiveKeyIndex() + 1) % keys.length);
+}
+export function getActiveGeminiKey(): string | undefined {
+  const keys = getGeminiKeys();
+  if (!keys.length) return undefined;
+  return keys[getActiveKeyIndex() % keys.length];
+}
+
+/**
  * Replacement for @workspace/api-client-react's synthesizeMairaSpeech.
  * POSTs to /api/openai/speech and resolves with { audioBase64, mimeType }.
- * If the user saved their own Gemini API key in settings, it's sent along
- * so their personal quota is used instead of the server's.
+ * If the user saved their own Gemini API key(s) in settings, they're sent along
+ * so their personal quota is used instead of the server's — with automatic
+ * rotation to the next key when one hits quota.
  * Sends the user's selected voice (Charon/Fenrir) from settings.
  */
 export async function synthesizeMairaSpeech({ text }: { text: string }) {
-  const getSetting = (k: string) => {
-    try { return localStorage.getItem(k) || undefined; }
-    catch { return undefined; }
-  };
-  const userApiKey = getSetting('unique-ai-gemini-key');
-  const voiceName = getSetting('unique-ai-voice') || 'Charon';
-  const res = await fetch('/api/openai/speech', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text,
-      voiceName,
-      ...(userApiKey ? { userApiKey } : {}),
-    }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw { data: errData };
+  const voiceName = (() => {
+    try { return localStorage.getItem('unique-ai-voice') || 'Charon'; }
+    catch { return 'Charon'; }
+  })();
+  const keys = getGeminiKeys();
+  const attempts = keys.length > 0 ? keys : [undefined];
+  let lastErr: any = null;
+  const startIdx = keys.length > 0 ? getActiveKeyIndex() % keys.length : 0;
+  for (let a = 0; a < attempts.length; a++) {
+    const keyIdx = keys.length > 0 ? (startIdx + a) % keys.length : 0;
+    const userApiKey = keys.length > 0 ? keys[keyIdx] : undefined;
+    try {
+      const res = await fetch('/api/openai/speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          voiceName,
+          ...(userApiKey ? { userApiKey } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        // Quota/auth failure → rotate to the next key and retry.
+        if (keys.length > 1 && (errData?.errorType === 'quota' || errData?.errorType === 'auth')) {
+          setActiveKeyIndex(keyIdx);
+          lastErr = { data: errData };
+          continue;
+        }
+        throw { data: errData };
+      }
+      // Success — remember this key as the active one.
+      if (keys.length > 0) setActiveKeyIndex(keyIdx);
+      return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+    } catch (e: any) {
+      if (e?.data) {
+        lastErr = e;
+        if (keys.length > 1) continue;
+      }
+      throw e;
+    }
   }
-  return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+  throw lastErr || { data: { errorType: 'quota' } };
 }
 
 /**

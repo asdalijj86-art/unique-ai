@@ -131,19 +131,28 @@ function ApiKeySetting() {
         setTestMsg('');
         return;
       }
-      // Validate the key immediately — a bad key is the #1 cause of broken voice.
-      setTesting(true);
-      setTestMsg('Key چیک ہو رہی ہے…');
-      const result = await testGeminiKey(trimmed).catch(() => null);
-      setTesting(false);
-      if (result?.ok) {
-        localStorage.setItem('unique-ai-gemini-key', trimmed);
-        setSaved(true);
-        setTestMsg('✅ ' + result.message);
-      } else {
-        setSaved(false);
-        setTestMsg('❌ ' + (result?.message || 'Key چیک نہیں ہو سکی۔'));
+      // User may paste SEVERAL keys (one per line) — validate each, keep all.
+      // The app rotates between them when one's quota runs out.
+      const keys = trimmed.split(/[\n,]+/).map((k) => k.trim()).filter((k) => k.length > 10);
+      if (!keys.length) {
+        setTestMsg('❌ درست key نہیں ملی۔');
+        return;
       }
+      setTesting(true);
+      let okCount = 0;
+      for (let i = 0; i < keys.length; i++) {
+        setTestMsg(`Key ${i + 1}/${keys.length} چیک ہو رہی ہے…`);
+        const result = await testGeminiKey(keys[i]).catch(() => null);
+        if (result?.ok) okCount++;
+      }
+      setTesting(false);
+      localStorage.setItem('unique-ai-gemini-key', keys.join('\n'));
+      localStorage.setItem('unique-ai-gemini-key-index', '0');
+      setKey(keys.join('\n'));
+      setSaved(true);
+      setTestMsg(okCount > 0
+        ? `✅ ${keys.length} keys محفوظ — ${okCount} کام کر رہی ہیں۔ ایک ختم ہو تو app خود دوسری پر چلی جائے گی۔`
+        : '⚠️ Keys محفوظ ہیں مگر ابھی کوئی کام نہیں کر رہی — کوٹہ ختم ہو سکتا ہے، کل دوبارہ کوشش کریں۔');
     } catch { setTesting(false); }
   };
 
@@ -155,13 +164,14 @@ function ApiKeySetting() {
 
   return (
     <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-      <span className="setting-label">🔑 اپنی Gemini Key (آواز کے لیے)</span>
-      <input
-        type="password"
+      <span className="setting-label">🔑 اپنی Gemini Keys (آواز کے لیے)</span>
+      <span style={{ fontSize: 11, opacity: 0.6 }}>ایک یا زیادہ keys — ہر نئی line میں ایک key۔ ایک ختم ہو تو app خود دوسری پر چلی جائے گی۔</span>
+      <textarea
         value={key}
         onChange={(e) => { setKey(e.target.value); setSaved(false); }}
-        placeholder="aistudio.google.com سے free key"
+        placeholder={"aistudio.google.com سے free keys\nایک line میں ایک key"}
         dir="ltr"
+        rows={3}
         style={{
           background: 'rgba(255,255,255,0.08)',
           border: '1px solid rgba(255,255,255,0.15)',
@@ -172,7 +182,7 @@ function ApiKeySetting() {
           width: '100%',
           boxSizing: 'border-box',
         }}
-        aria-label="Gemini API key"
+        aria-label="Gemini API keys"
       />
       <div style={{ display: 'flex', gap: 8 }}>
         <button
