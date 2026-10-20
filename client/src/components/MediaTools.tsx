@@ -79,27 +79,41 @@ function BackgroundRemover() {
   const [out, setOut] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState('');
 
   async function handleFile(f: File) {
     setError('');
     setOut(null);
+    setProgress('');
     setSrc(URL.createObjectURL(f));
     setBusy(true);
     try {
       const { removeBackground } = await import('@imgly/background-removal');
-      const blob = await removeBackground(f);
+      // First use downloads the ~40MB AI model — show progress so the user
+      // knows it's working, not stuck.
+      const blob = await removeBackground(f, {
+        progress: (key: string, current: number, total: number) => {
+          const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+          if (key.includes('fetch') || key.includes('download')) {
+            setProgress(`AI ماڈل ڈاؤن لوڈ ہو رہا ہے… ${pct}% (پہلی بار تھوڑا وقت لگتا ہے)`);
+          } else {
+            setProgress(`بیک گراؤنڈ ہٹایا جا رہا ہے… ${pct}%`);
+          }
+        },
+      });
       setOut(URL.createObjectURL(blob));
     } catch {
       setError('بیک گراؤنڈ ہٹانے میں مسئلہ ہوا۔ دوبارہ کوشش کریں۔');
     } finally {
       setBusy(false);
+      setProgress('');
     }
   }
 
   return (
     <div>
       <FilePicker accept="image/*" onFile={handleFile} label="📷 تصویر چنیں" />
-      {busy && <div className="tool-loading"><Loader2 size={18} className="spin" /> بیک گراؤنڈ ہٹایا جا رہا ہے…</div>}
+      {busy && <div className="tool-loading"><Loader2 size={18} className="spin" /> {progress || 'بیک گراؤنڈ ہٹایا جا رہا ہے…'}</div>}
       {error && <div className="tool-error">{error}</div>}
       {src && (
         <div className="tool-before-after">

@@ -759,11 +759,22 @@ export default function ChatPage() {
       // Fast path: use prefetched first-sentence audio if it matches this reply.
       if (prefetchMatches && prefetch) {
         const pf = prefetch; // non-null here (prefetchMatches implies it)
-        const restText = text.slice(pf.text.length).trim().slice(0, 600);
-        // Start synthesizing the rest immediately (in background).
-        const restPromise = restText
-          ? synthesizeWithTimeout(restText)
-          : Promise.resolve(null);
+        // Speak the FULL rest — chunk into sentence groups, no 600-char cutoff.
+        const restFull = text.slice(pf.text.length).trim();
+        const restSentences = restFull.match(/[^۔.!?\n]+[۔.!?\n]*/g) || (restFull ? [restFull] : []);
+        const restChunks: string[] = [];
+        let rc = '';
+        for (const s of restSentences) {
+          if ((rc + s).length > 700 && rc) {
+            restChunks.push(rc.trim());
+            rc = s;
+          } else {
+            rc += s;
+          }
+        }
+        if (rc.trim()) restChunks.push(rc.trim());
+        // Start synthesizing all rest chunks immediately (in background).
+        const restPromises = restChunks.map((c) => synthesizeWithTimeout(c));
         if (hasEagerAudio && pf.playPromise) {
           // First chunk already playing via eager playback — wait for it to finish.
           await pf.playPromise.catch(() => {});
@@ -774,20 +785,45 @@ export default function ChatPage() {
             await playAudioChunk(first.audioBase64, first.mimeType);
           }
         }
-        const rest = await restPromise;
-        if (rest) {
-          await playAudioChunk(rest.audioBase64, rest.mimeType);
-        } else if (!hasEagerAudio) {
+        const restResults = await Promise.all(restPromises.map((p) => p.catch(() => null)));
+        let restSpokeAny = false;
+        for (const r of restResults) {
+          if (r) {
+            restSpokeAny = true;
+            await playAudioChunk(r.audioBase64, r.mimeType);
+          }
+        }
+        if (!restSpokeAny && restChunks.length > 0 && !hasEagerAudio) {
           speakWithBrowser(text);
         }
         resumeContinuousAfterTts();
         return;
       }
-      // Fallback: synthesize a trimmed reply (shorter = faster).
-      const out = await synthesizeWithTimeout(text.slice(0, 800));
-      if (out) {
-        await playAudioChunk(out.audioBase64, out.mimeType);
-      } else {
+      // Fallback: synthesize the FULL reply in chunks (no more 800-char cutoff).
+      // Split into sentence groups of ~700 chars so long replies are fully spoken.
+      const chunks: string[] = [];
+      const sentences = text.match(/[^۔.!?\n]+[۔.!?\n]*/g) || [text];
+      let current = '';
+      for (const s of sentences) {
+        if ((current + s).length > 700 && current) {
+          chunks.push(current.trim());
+          current = s;
+        } else {
+          current += s;
+        }
+      }
+      if (current.trim()) chunks.push(current.trim());
+      let spokeAny = false;
+      for (const chunk of chunks) {
+        const out = await synthesizeWithTimeout(chunk);
+        if (out) {
+          spokeAny = true;
+          await playAudioChunk(out.audioBase64, out.mimeType);
+        } else {
+          break; // TTS failed — don't play partial garbage
+        }
+      }
+      if (!spokeAny) {
         speakWithBrowser(text);
       }
       resumeContinuousAfterTts();
