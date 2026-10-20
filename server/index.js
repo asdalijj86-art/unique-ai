@@ -1332,12 +1332,6 @@ Rules:
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/openai/speech — Gemini TTS with selectable male voice
-// Accepts optional `userApiKey` in body (user's own key takes priority).
-// Accepts optional `voiceName`: "Charon" (deep male, default) or "Fenrir"
-// (second male voice). Falls back to Charon for unknown values.
-// ---------------------------------------------------------------------------
-app.post("/api/openai/speech", async (req, res) => {
 // Test a user's Gemini key with a tiny TTS request. Returns { ok: true } or
 // { ok: false, errorType, message } — used by Settings to validate the key
 // immediately on save, so a bad key is caught before it causes silent failures.
@@ -1388,6 +1382,13 @@ app.post("/api/tts/test-key", async (req, res) => {
     res.status(200).json({ ok: false, errorType: "network", message: "نیٹ ورک مسئلہ — دوبارہ کوشش کریں۔" });
   }
 });
+
+// POST /api/openai/speech — Gemini TTS with selectable male voice
+// Accepts optional `userApiKey` in body (user's own key takes priority).
+// Accepts optional `voiceName`: "Charon" (deep male, default) or "Fenrir"
+// (second male voice). Falls back to Charon for unknown values.
+// ---------------------------------------------------------------------------
+app.post("/api/openai/speech", async (req, res) => {
   const { text, userApiKey, voiceName } = req.body ?? {};
   if (typeof text !== "string" || text.trim().length === 0) {
     res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
