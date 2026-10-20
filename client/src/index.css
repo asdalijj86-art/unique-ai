@@ -1001,6 +1001,23 @@ body {
   .tool-card-title { font-size: 12px; }
   /* Settings rows: prevent text overlap */
   .setting-row { flex-wrap: wrap; }
+  /* === REAL FIX: mobile page scrolls — nothing clipped, map fully visible === */
+  /* Desktop locks the page (body overflow hidden); on phones we unlock it. */
+  body { overflow: auto; }
+  html, body, #root { height: auto; min-height: 100%; }
+  .jarvis { height: auto; min-height: 100dvh; overflow: visible; }
+  .jarvis-body {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    height: auto;
+    gap: 12px;
+    padding: 12px;
+  }
+  .jarvis-center { order: 1; width: 100%; }
+  .jarvis-rail { order: 2; width: 100%; }
+  .jarvis-chat { order: 3; width: 100%; height: 52vh; min-height: 280px; max-height: none; }
+  .status-panel { order: 4; width: 100%; max-height: none; overflow: visible; align-self: stretch; }
 }
 .jarvis-brand { display: flex; align-items: center; gap: 10px; }
 .jarvis-brand-logo {
