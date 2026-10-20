@@ -19,6 +19,7 @@ import {
   synthesizeMairaSpeech,
   synthesizeGoogleSpeech,
   useSendMairaChatMessage,
+  getGeminiKeys,
 } from '@/lib/api';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
 import { useGestures } from '@/hooks/useGestures';
@@ -169,6 +170,12 @@ export default function ChatPage() {
   // skip server TTS for the session and go straight to browser voice.
   const serverTtsFailsRef = useRef(0);
   const serverTtsDownRef = useRef(false);
+  // Fingerprint of the user's saved keys at the last TTS attempt. If the
+  // keys CHANGE (user pastes fresh ones in Settings), the "server TTS is
+  // down" verdict from earlier failures must be forgotten — otherwise the
+  // app keeps refusing to even try the new, working keys until a reload
+  // (root cause of "keys are ✅ but voice never came", found 2026-10-20).
+  const ttsKeysFingerprintRef = useRef<string | null>(null);
   const streamedTextRef = useRef('');
   // Attached image (base64 data URL) for vision — sent with the next message.
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
@@ -823,6 +830,16 @@ export default function ChatPage() {
   // session (browser voice used).
   // Returns null on timeout or failure (caller falls back to browser voice).
   function synthesizeWithTimeout(text: string, timeoutMs = 20000): Promise<{ audioBase64: string; mimeType: string } | null> {
+    // Keys changed since the last attempt? Forget any earlier "TTS down"
+    // verdict and try fresh — the new keys may work even if the old failed.
+    try {
+      const fp = getGeminiKeys().join('|');
+      if (ttsKeysFingerprintRef.current !== fp) {
+        ttsKeysFingerprintRef.current = fp;
+        serverTtsDownRef.current = false;
+        serverTtsFailsRef.current = 0;
+      }
+    } catch { /* ignore */ }
     if (serverTtsDownRef.current) {
       return Promise.resolve(null);
     }
@@ -1680,8 +1697,12 @@ export default function ChatPage() {
           }}
           onTestVoice={() => {
             // Voice test: speak a short phrase so the user can check if
-            // sound comes out of their speakers.
-            void speakNow('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
+            // sound comes out of their speakers. MUST go through the real
+            // Gemini voice path (playAssistantMessage) — the old version
+            // called the browser voice directly, so the test stayed silent
+            // on devices without a device voice even when the real
+            // (Charon) voice worked, misleading everyone (fixed 2026-10-20).
+            void playAssistantMessage('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
           }}
         />
       </div>

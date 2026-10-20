@@ -141,12 +141,14 @@ function ApiKeySetting() {
       }
       setTesting(true);
       let okCount = 0;
+      let firstOkIdx = -1;
       const perKey: string[] = [];
       for (let i = 0; i < keys.length; i++) {
         setTestMsg(`Key ${i + 1}/${keys.length} چیک ہو رہی ہے…`);
         const result = await testGeminiKey(keys[i]).catch(() => null);
         if (result?.ok) {
           okCount++;
+          if (firstOkIdx < 0) firstOkIdx = i;
           perKey.push(`Key ${i + 1}: ✅ ٹھیک`);
         } else if (result?.errorType === 'quota') {
           perKey.push(`Key ${i + 1}: ⚠️ کوٹہ ختم`);
@@ -158,7 +160,10 @@ function ApiKeySetting() {
       }
       setTesting(false);
       localStorage.setItem('unique-ai-gemini-key', keys.join('\n'));
-      localStorage.setItem('unique-ai-gemini-key-index', '0');
+      // Start rotation at the first key that actually WORKED in the test
+      // above — not blindly at Key 1, which may be quota-dead and would
+      // otherwise be retried first on every single reply.
+      localStorage.setItem('unique-ai-gemini-key-index', String(firstOkIdx >= 0 ? firstOkIdx : 0));
       setKey(keys.join('\n'));
       setSaved(true);
       setTestMsg(
@@ -171,7 +176,10 @@ function ApiKeySetting() {
   };
 
   const clear = () => {
-    try { localStorage.removeItem('unique-ai-gemini-key'); } catch { /* ignore */ }
+    try {
+      localStorage.removeItem('unique-ai-gemini-key');
+      localStorage.removeItem('unique-ai-gemini-key-index');
+    } catch { /* ignore */ }
     setKey('');
     setSaved(false);
   };
