@@ -134,6 +134,13 @@ body {
   .jarvis-lang-chips { gap: 4px; }
   .lang-chip { padding: 4px 8px; font-size: 11px; }
 }
+.jarvis-brand { display: flex; align-items: center; gap: 10px; }
+.jarvis-brand-logo {
+  width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
+  animation: brand-pulse 3s ease-in-out infinite;
+}
+@keyframes brand-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.12); opacity: 0.85; }
 }
@@ -959,7 +966,7 @@ body {
 }
 .setting-switch.on i { transform: translateX(-15px); }
 
-/* ============ MOBILE overrides (LAST so they win the cascade) ============ */
+/* ============ MOBILE overrides (LAST in file so they win the cascade) ============ */
 /* ============ MOBILE-FIRST responsive: phone vs laptop ============ */
 @media (max-width: 640px) {
   /* Top bar: stack brand and language chips so nothing overlaps */
@@ -1001,8 +1008,7 @@ body {
   .tool-card-title { font-size: 12px; }
   /* Settings rows: prevent text overlap */
   .setting-row { flex-wrap: wrap; }
-  /* === REAL FIX: mobile page scrolls — nothing clipped, map fully visible === */
-  /* Desktop locks the page (body overflow hidden); on phones we unlock it. */
+  /* === Mobile page scrolls — nothing clipped, map fully visible === */
   body { overflow: auto; }
   html, body, #root { height: auto; min-height: 100%; }
   .jarvis { height: auto; min-height: 100dvh; overflow: visible; }
@@ -1019,10 +1025,3 @@ body {
   .jarvis-chat { order: 3; width: 100%; height: 52vh; min-height: 280px; max-height: none; }
   .status-panel { order: 4; width: 100%; max-height: none; overflow: visible; align-self: stretch; }
 }
-.jarvis-brand { display: flex; align-items: center; gap: 10px; }
-.jarvis-brand-logo {
-  width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
-  animation: brand-pulse 3s ease-in-out infinite;
-}
-@keyframes brand-pulse {
