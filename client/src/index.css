@@ -735,16 +735,15 @@ body {
    media tools, video creator (functionality unchanged)
    ============================================================ */
 .project-builder {
-  /* Centered modal like every other panel (user's center rule). */
+  /* Centered modal like every other panel — bulletproof inset+margin centering. */
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  margin: auto;
   width: min(680px, calc(100vw - 24px));
+  height: fit-content;
   max-height: 86dvh;
   overflow-y: auto;
   z-index: 46;
-  margin: 0;
   border: 1px solid rgba(56, 189, 248, .35);
   border-radius: 16px;
   background: rgba(6, 14, 28, .96);
@@ -809,12 +808,12 @@ body {
 }
 
 .tool-results {
-  /* User's rule: whatever opens, opens in the CENTER of the screen. */
+  /* Bulletproof centering: inset 0 + margin auto (no transform to lose). */
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  margin: auto;
   width: min(600px, calc(100vw - 24px));
+  height: fit-content;
   max-height: min(84dvh, 900px);
   overflow: hidden auto;
   background: rgba(6, 14, 28, .97);
@@ -992,9 +991,9 @@ body {
 }
 .settings-gear:hover { color: #fff; border-color: rgba(56, 189, 248, 0.5); box-shadow: 0 0 10px rgba(34, 211, 238, 0.3); }
 .settings-dropdown {
-  /* Centered on every screen (user's center rule) — was right:330px on desktop. */
-  position: fixed; top: 50%; left: 50%; right: auto; z-index: 50;
-  transform: translate(-50%, -50%);
+  /* Centered on every screen — bulletproof inset+margin (no transform). */
+  position: fixed; inset: 0; margin: auto; z-index: 50;
+  height: fit-content;
   width: min(340px, calc(100vw - 24px)); background: rgba(8, 17, 33, 0.97);
   border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 14px;
   padding: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
@@ -1096,13 +1095,8 @@ body {
   .jarvis-rail { order: 2; width: 100%; }
   .jarvis-chat { order: 3; width: 100%; height: 52vh; min-height: 280px; max-height: none; }
   .status-panel { order: 4; width: 100%; max-height: none; overflow: visible; align-self: stretch; }
-  /* Settings dropdown: centered modal on phones (desktop right:330px pushes it off-screen) */
+  /* Settings dropdown: centered modal on phones too (same inset+margin technique) */
   .settings-dropdown {
-    top: 50%;
-    left: 50%;
-    right: auto;
-    transform: translate(-50%, -50%);
-    width: min(340px, calc(100vw - 24px));
     max-height: 82dvh;
     overflow-y: auto;
   }
