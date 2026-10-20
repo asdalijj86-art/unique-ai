@@ -626,13 +626,14 @@ body {
 .history-backdrop {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(2, 6, 14, 0.65); backdrop-filter: blur(4px);
-  display: flex; align-items: stretch; justify-content: flex-start;
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px;
   animation: fade-in 0.2s ease;
 }
 @keyframes fade-in { from { opacity: 0; } }
 .history-drawer {
-  width: min(340px, 88vw); background: rgba(6, 13, 26, 0.97);
-  border-right: 1px solid rgba(56, 189, 248, 0.22);
+  width: min(380px, 94vw); max-height: 86dvh; background: rgba(6, 13, 26, 0.97);
+  border: 1px solid rgba(56, 189, 248, 0.22); border-radius: 16px;
   padding: 16px 14px; display: flex; flex-direction: column; gap: 12px;
   overflow-y: auto; box-shadow: 0 0 40px rgba(34, 211, 238, 0.15);
   animation: drawer-in 0.25s ease;
@@ -734,11 +735,20 @@ body {
    media tools, video creator (functionality unchanged)
    ============================================================ */
 .project-builder {
-  margin: 0 12px 12px;
+  /* Centered modal like every other panel (user's center rule). */
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(680px, calc(100vw - 24px));
+  max-height: 86dvh;
+  overflow-y: auto;
+  z-index: 46;
+  margin: 0;
   border: 1px solid rgba(56, 189, 248, .35);
   border-radius: 16px;
   background: rgba(6, 14, 28, .96);
-  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 .project-builder-head {
   display: flex;
@@ -799,12 +809,13 @@ body {
 }
 
 .tool-results {
+  /* User's rule: whatever opens, opens in the CENTER of the screen. */
   position: fixed;
-  bottom: 96px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, calc(100vw - 32px));
-  max-height: 46vh;
+  transform: translate(-50%, -50%);
+  width: min(600px, calc(100vw - 24px));
+  max-height: min(84dvh, 900px);
   overflow: hidden auto;
   background: rgba(6, 14, 28, .97);
   border: 1px solid rgba(56, 189, 248, .3);
@@ -981,8 +992,10 @@ body {
 }
 .settings-gear:hover { color: #fff; border-color: rgba(56, 189, 248, 0.5); box-shadow: 0 0 10px rgba(34, 211, 238, 0.3); }
 .settings-dropdown {
-  position: fixed; top: 64px; right: 330px; z-index: 50;
-  width: 300px; max-width: calc(100vw - 32px); background: rgba(8, 17, 33, 0.97);
+  /* Centered on every screen (user's center rule) — was right:330px on desktop. */
+  position: fixed; top: 50%; left: 50%; right: auto; z-index: 50;
+  transform: translate(-50%, -50%);
+  width: min(340px, calc(100vw - 24px)); background: rgba(8, 17, 33, 0.97);
   border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 14px;
   padding: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(14px);
