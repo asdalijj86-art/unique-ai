@@ -4,7 +4,6 @@
  * green dots, Urdu labels and thin progress bars.
  */
 import { BrainCircuit } from 'lucide-react';
-import MapWidget from './MapWidget';
 import SettingsPanel, { type AppSettings } from './SettingsPanel';
 
 export type SystemStatus = {
@@ -72,7 +71,8 @@ export default function StatusPanel({ status, settings, onSettingsChange, onClea
         <span className="status-dot on" aria-hidden="true" />
         سب سسٹم فعال ہیں
       </div>
-      <MapWidget />
+      {/* Map lives in the Focus view now (🗺️ rail button / «نقشہ دکھاؤ») —
+          the side panel stays slim: status + settings only. */}
     </aside>
   );
 }

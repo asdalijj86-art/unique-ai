@@ -3,6 +3,8 @@ import {
   AudioLines,
   Clock3,
   Hand,
+  Map as MapIcon,
+  MessageCircle,
   Mic,
   MicOff,
   Plus,
@@ -30,6 +32,9 @@ import VideoCreator from '@/components/VideoCreator';
 import AiOrb from '@/components/AiOrb';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import StatusPanel from '@/components/StatusPanel';
+import MapWidget from '@/components/MapWidget';
+import WhatsAppSender from '@/components/WhatsAppSender';
+import QuranReader from '@/components/QuranReader';
 import type { ChatAction } from '@/lib/api';
 
 type ChatRole = 'user' | 'assistant';
@@ -134,6 +139,9 @@ export default function ChatPage() {
   const [toolAction, setToolAction] = useState<ChatAction | null>(null);
   const [mediaTool, setMediaTool] = useState<MediaToolName | null>(null);
   const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
+  // Focus mode (user's simple-display vision): name a thing — "نقشہ دکھاؤ",
+  // "WhatsApp کھولو" — and ONLY that thing fills the screen until واپس.
+  const [focusView, setFocusView] = useState<null | 'map' | 'whatsapp' | 'quran' | 'tools'>(null);
   const [toolPrefill, setToolPrefill] = useState<{ phone?: string } | null>(null);
   // Continuous voice mode (hands-free): listen -> auto-send on silence -> auto-speak reply.
   const [continuousVoice, setContinuousVoice] = useState(false);
@@ -290,6 +298,9 @@ export default function ChatPage() {
   async function sendMessage(textValue: string, fromVoice = false) {
     const text = textValue.trim();
     if ((!text && !attachedImage) || chatMutation.isPending) return;
+    // Focus commands work from BOTH typed text and voice: name a thing
+    // (نقشہ / WhatsApp / قرآن / ٹولز) and it alone fills the screen.
+    if (!attachedImage && handleFocusCommand(text)) return;
     // Website commands work from typed text too — not just voice.
     // (Voice paths already check this before calling sendMessage.)
     if (!fromVoice && !attachedImage && handleVoiceWebsiteCommand(text)) return;
@@ -480,6 +491,39 @@ export default function ChatPage() {
     appendWebsiteCommandExchange(recognizedText, assistantText);
     playAssistantMessage(assistantText);
     return true;
+  }
+
+  /**
+   * Focus commands — the user's "one thing at a time" vision: name a thing
+   * (map / WhatsApp / Quran / tools) and ONLY that thing fills the screen.
+   * Saying "واپس" (or "بند کرو") closes it and returns to the simple display.
+   */
+  function handleFocusCommand(recognizedText: string): boolean {
+    // Close/back — only meaningful when a focus view is open.
+    if (focusView && /(واپس|پیچھے|بند کرو|بند کر|back|close)/i.test(recognizedText)) {
+      setFocusView(null);
+      const msg = 'ٹھیک ہے، واپس آ گئے۔';
+      appendWebsiteCommandExchange(recognizedText, msg);
+      playAssistantMessage(msg);
+      return true;
+    }
+    const hasVerb = /(دکھا|دکھاؤ|کھول|کھولو|show|open|چاہیے|لگاؤ|بتاؤ)/i.test(recognizedText);
+    const isShort = recognizedText.trim().split(/\s+/).length <= 6;
+    const focusTargets: Array<[RegExp, 'map' | 'whatsapp' | 'quran' | 'tools', string, string]> = [
+      [/(نقشہ|نقشے|\bmap\b)/i, 'map', '🗺️ نقشہ', '🗺️ نقشہ سامنے ہے — جگہ تلاش کریں یا راستہ دیکھیں۔ واپس آنے کے لیے «واپس» کہیں یا ✕ دبائیں۔'],
+      [/(واٹس ایپ|واٹس‌ایپ|whatsapp)/i, 'whatsapp', '💬 WhatsApp', '💬 WhatsApp سامنے ہے — نمبر اور پیغام لکھ کر بھیجیں۔ واپس آنے کے لیے «واپس» کہیں۔'],
+      [/(قرآن|quran)/i, 'quran', '📖 قرآن پاک', '📖 قرآن پاک سامنے ہے — سورت منتخب کریں۔ واپس آنے کے لیے «واپس» کہیں۔'],
+      [/(ٹولز|\btools\b)/i, 'tools', '🧰 ٹولز', '🧰 سارے ٹولز سامنے ہیں — جو چاہیے منتخب کریں۔ واپس آنے کے لیے «واپس» کہیں۔'],
+    ];
+    for (const [pattern, view, , reply] of focusTargets) {
+      if (pattern.test(recognizedText) && (hasVerb || isShort)) {
+        setFocusView(view);
+        appendWebsiteCommandExchange(recognizedText, reply);
+        playAssistantMessage(reply);
+        return true;
+      }
+    }
+    return false;
   }
 
   function deleteConversation(id: string) {
@@ -1243,6 +1287,26 @@ export default function ChatPage() {
           >
             <Wrench size={18} />
           </button>
+          <button
+            className={`rail-btn${focusView === 'map' ? ' active' : ''}`}
+            onClick={(e) => { hideTipOnClick(e); setFocusView((v) => (v === 'map' ? null : 'map')); }}
+            onMouseLeave={restoreTipOnLeave}
+            aria-label="نقشہ کھولیں"
+            data-tip="نقشہ 🗺️"
+            data-testid="button-open-map"
+          >
+            <MapIcon size={18} />
+          </button>
+          <button
+            className={`rail-btn${focusView === 'whatsapp' ? ' active' : ''}`}
+            onClick={(e) => { hideTipOnClick(e); setFocusView((v) => (v === 'whatsapp' ? null : 'whatsapp')); }}
+            onMouseLeave={restoreTipOnLeave}
+            aria-label="WhatsApp کھولیں"
+            data-tip="WhatsApp 💬"
+            data-testid="button-open-whatsapp"
+          >
+            <MessageCircle size={18} />
+          </button>
         </nav>
 
         {/* LEFT: chat messages */}
@@ -1431,6 +1495,31 @@ export default function ChatPage() {
           }}
         />
       </div>
+
+      {/* ======= FOCUS VIEW: one thing at a time fills the whole screen ======= */}
+      {focusView && (
+        <div className="focus-view" dir="rtl" role="region" aria-label="فوکس منظر" data-testid="panel-focus">
+          <div className="focus-view-head">
+            <span className="focus-view-title">
+              {focusView === 'map' ? '🗺️ نقشہ' : focusView === 'whatsapp' ? '💬 WhatsApp' : focusView === 'quran' ? '📖 قرآن پاک' : '🧰 ٹولز'}
+            </span>
+            <button type="button" className="focus-view-close" onClick={() => setFocusView(null)} aria-label="واپس جائیں" data-testid="button-focus-back">
+              ✕ واپس
+            </button>
+          </div>
+          <div className="focus-view-body">
+            {focusView === 'map' && <MapWidget />}
+            {focusView === 'whatsapp' && <WhatsAppSender />}
+            {focusView === 'quran' && <QuranReader />}
+            {focusView === 'tools' && (
+              <ToolsPanel
+                onSelect={(tool) => { setFocusView(null); setMediaTool(tool); }}
+                onBrainTool={(example) => { setFocusView(null); setDraft(example); textareaRef.current?.focus(); }}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ======= Overlays: builders, tools, gestures, history ======= */}
       {projectBuild && (

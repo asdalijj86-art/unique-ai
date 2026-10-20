@@ -447,6 +447,26 @@ body {
 .ai-orb-speaking .ai-orb-nucleus { animation-duration: 0.9s; }
 .ai-orb-speaking .ai-orb-halo { animation-duration: 0.9s; }
 
+/* Sparkling lights around the globe — twinkling stars that catch the eye. */
+.ai-orb-sparkle {
+  position: absolute; border-radius: 50%; pointer-events: none; z-index: 3;
+  transform: translate(-50%, -50%);
+  animation: sparkle-twinkle 2.8s ease-in-out infinite;
+}
+@keyframes sparkle-twinkle {
+  0%, 100% { opacity: 0.15; transform: translate(-50%, -50%) scale(0.55) rotate(0deg); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.25) rotate(40deg); }
+}
+/* A slow shimmer sweep of light circling the globe. */
+.ai-orb-shimmer {
+  position: absolute; inset: -13px; border-radius: 50%; pointer-events: none; z-index: 2;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(253, 230, 138, 0.28) 28deg, transparent 62deg, transparent 180deg, rgba(165, 243, 252, 0.24) 214deg, transparent 252deg);
+  animation: orb-spin 14s linear infinite;
+  filter: blur(1px);
+}
+.ai-orb-speaking .ai-orb-sparkle { animation-duration: 1.4s; }
+.ai-orb-thinking .ai-orb-sparkle { animation-duration: 2s; }
+
 /* ================= VOICE WAVEFORM ================= */
 .voice-waveform { display: block; border-radius: 8px; }
 
@@ -566,6 +586,41 @@ body {
 }
 .gesture-pip-video { width: 100%; border-radius: 8px; display: block; background: #000; aspect-ratio: 4/3; object-fit: cover; transform: scaleX(-1); }
 .gesture-pip-hint { font-size: 11px; color: #7cc4e4; text-align: center; margin-top: 6px; }
+
+/* ================= FOCUS VIEW (one thing at a time) ================= */
+.focus-view {
+  position: fixed; inset: 0; z-index: 45;
+  display: flex; flex-direction: column;
+  background:
+    radial-gradient(1100px 500px at 50% -8%, rgba(14, 116, 144, 0.22), transparent 60%),
+    radial-gradient(800px 600px at 85% 110%, rgba(30, 64, 175, 0.16), transparent 60%),
+    radial-gradient(700px 500px at 8% 100%, rgba(8, 145, 178, 0.12), transparent 60%),
+    #04070f;
+  animation: fade-in 0.25s ease;
+}
+.focus-view-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.14);
+  background: rgba(6, 13, 26, 0.6);
+}
+.focus-view-title { font-weight: 800; font-size: 17px; color: #eaf9ff; }
+.focus-view-close {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(34, 211, 238, 0.12); color: #a5f3fc;
+  border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 999px;
+  padding: 7px 14px; font-size: 14px; font-weight: 700; cursor: pointer;
+  transition: all 0.2s;
+}
+.focus-view-close:hover { background: rgba(34, 211, 238, 0.25); color: #fff; }
+.focus-view-body {
+  flex: 1; overflow-y: auto; padding: 14px;
+  display: flex; flex-direction: column;
+  overscroll-behavior: contain;
+}
+/* The map stretches to fill the whole focus area. */
+.focus-view-body .map-widget { height: 100%; min-height: calc(100dvh - 130px); }
+.focus-view-body .map-container { min-height: calc(100dvh - 260px); }
 
 /* ================= HISTORY DRAWER ================= */
 .history-backdrop {
