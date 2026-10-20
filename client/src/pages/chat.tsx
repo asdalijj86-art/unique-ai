@@ -173,6 +173,16 @@ export default function ChatPage() {
   // Attached image (base64 data URL) for vision — sent with the next message.
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const serverAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Mobile audio unlock (2026-10-20 deep audit): Android Chrome rejects
+  // audio.play() that is not tied to a recent user tap, so spoken replies
+  // were silently dying on phones (synthesis succeeded, playback blocked).
+  // One persistent element, unlocked by the user's own taps, is reused for
+  // every chunk on phones. Desktop keeps its original per-chunk element.
+  const persistentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef = useRef(false);
+  const playbackBlockedRef = useRef(false);
+  const playbackStartedRef = useRef(false);
+  const isPreparingVoiceRef = useRef(false);
   const lastSpokenRef = useRef<{ text: string; at: number } | null>(null);
   const activeConversation = conversations.find((conversation) => conversation.id === activeId);
   const busy = chatMutation.isPending;
@@ -228,6 +238,29 @@ export default function ChatPage() {
     return () => window.speechSynthesis.removeEventListener('voiceschanged', warmUp);
   }, []);
 
+  // Mobile only: unlock the persistent audio element on the user's own
+  // taps, so spoken replies can play later without a fresh tap (Android
+  // Chrome's autoplay policy). Desktop registers nothing — untouched.
+  useEffect(() => {
+    if (!isMobileTurnMode()) return;
+    const unlock = () => {
+      if (audioUnlockedRef.current) return;
+      try {
+        if (!persistentAudioRef.current) persistentAudioRef.current = new Audio();
+        const el = persistentAudioRef.current;
+        el.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+        void el.play().then(() => {
+          audioUnlockedRef.current = true;
+          el.pause();
+          el.currentTime = 0;
+        }).catch(() => { /* still locked — the next tap retries */ });
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('pointerdown', unlock, { passive: true });
+    return () => window.removeEventListener('pointerdown', unlock);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [activeConversation?.messages.length, busy]);
@@ -247,10 +280,39 @@ export default function ChatPage() {
   }, [continuousVoice]);
 
   // Sync app settings to individual states + persist to localStorage.
+  const settingsInitRef = useRef(false);
   useEffect(() => {
     try { localStorage.setItem('unique-ai-settings', JSON.stringify(appSettings)); } catch {}
     setGesturesEnabled(appSettings.gesturesEnabled);
-    setContinuousVoice(appSettings.continuousVoice);
+    // Continuous voice has ONE source of truth: continuousIntendedRef.
+    // The Settings toggle must start/stop the REAL mic, not just flip the
+    // indicator (deep-audit fix 2026-10-20: before, it only changed state —
+    // the app could look like it was listening while hearing nothing, or
+    // keep listening while the toggle showed off). On first load, never
+    // auto-start the mic — browsers need a user tap anyway — so a persisted
+    // ON is normalized back to OFF instead.
+    if (!settingsInitRef.current) {
+      settingsInitRef.current = true;
+      if (appSettings.continuousVoice) {
+        setAppSettings((s: any) => ({ ...s, continuousVoice: false }));
+      }
+      return;
+    }
+    const want = appSettings.continuousVoice;
+    if (want === continuousIntendedRef.current) {
+      setContinuousVoice(want);
+      return;
+    }
+    if (want) {
+      stopSpeaking();
+      continuousIntendedRef.current = true;
+      setContinuousVoice(true);
+      startContinuousListening();
+    } else {
+      stopContinuousListening();
+      setContinuousVoice(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appSettings]);
 
   // Rail tooltip helpers: custom tooltips (data-tip) hide on click so they
@@ -424,6 +486,7 @@ export default function ChatPage() {
       void playAssistantMessage(result.text);
     } catch (sendError) {
       // Remove the streaming placeholder on failure
+      setIsPreparingVoice(false);
       updateConversation(id, (item) => ({
         ...item,
         messages: item.messages.filter((m) => m.id !== assistantId),
@@ -701,7 +764,15 @@ export default function ChatPage() {
         const bytes = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
         const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
+        // Phone: reuse the tap-unlocked persistent element (see the unlock
+        // effect) — a fresh element per chunk gets its play() rejected by
+        // Android Chrome's autoplay policy. Desktop: original behavior.
+        const usePersistent = isMobileTurnMode();
+        if (usePersistent && !persistentAudioRef.current) {
+          persistentAudioRef.current = new Audio();
+        }
+        const audio = usePersistent ? persistentAudioRef.current! : new Audio();
+        audio.src = url;
         // Google TTS fallback has a female voice — make it JARVIS-like:
         // fast and confident pace, slightly deepened pitch.
         // Gemini Charon/Fenrir (audio/wav) play at natural speed for
@@ -715,6 +786,7 @@ export default function ChatPage() {
         }
         serverAudioRef.current = audio;
         audio.onplaying = () => {
+          playbackStartedRef.current = true;
           setIsPreparingVoice(false);
           setIsSpeaking(true);
         };
@@ -731,7 +803,12 @@ export default function ChatPage() {
           if (serverAudioRef.current === audio) serverAudioRef.current = null;
           done();
         };
-        audio.play().catch(done);
+        audio.play().catch(() => {
+          // Blocked (autoplay policy) or failed before starting — record it
+          // so the caller can fall back to the browser voice on phones.
+          playbackBlockedRef.current = true;
+          done();
+        });
       } catch {
         resolve();
       }
@@ -794,7 +871,10 @@ export default function ChatPage() {
 
   async function playAssistantMessage(text: string) {
     setError('');
-    if (!appSettings.voiceEnabled) return;
+    if (!appSettings.voiceEnabled) {
+      setIsPreparingVoice(false);
+      return;
+    }
     // Guard against double-speak: skip if the exact same text was already
     // spoken within the last few seconds (e.g. mic echo or double trigger).
     const now = Date.now();
@@ -803,6 +883,8 @@ export default function ChatPage() {
       return;
     }
     lastSpokenRef.current = { text, at: now };
+    playbackBlockedRef.current = false;
+    playbackStartedRef.current = false;
     // Check for eager prefetch BEFORE stopping — don't kill our own eager audio
     // that started playing during streaming (only if it matches this reply).
     const prefetch = ttsPrefetchRef.current;
@@ -860,6 +942,11 @@ export default function ChatPage() {
         }
         if (!restSpokeAny && restChunks.length > 0 && !hasEagerAudio) {
           speakWithBrowser(text);
+        } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
+          // The phone blocked audio playback (autoplay policy) even though
+          // synthesis succeeded — fall back to the browser voice so the
+          // reply is still heard instead of going silent.
+          speakWithBrowser(text);
         }
         resumeContinuousAfterTts();
         return;
@@ -889,6 +976,9 @@ export default function ChatPage() {
         }
       }
       if (!spokeAny) {
+        speakWithBrowser(text);
+      } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
+        // Same autoplay-block fallback as the prefetch path above.
         speakWithBrowser(text);
       }
       resumeContinuousAfterTts();
@@ -1005,6 +1095,10 @@ export default function ChatPage() {
     isSpeakingRef.current = isSpeaking;
   }, [isSpeaking]);
 
+  useEffect(() => {
+    isPreparingVoiceRef.current = isPreparingVoice;
+  }, [isPreparingVoice]);
+
   // Live-mic recovery (PHONE turn-based path only — the desktop path keeps
   // its original resume logic): whenever a turn fully settles (reply sent
   // AND spoken, or nothing spoke at all — voice off / error / website
@@ -1013,7 +1107,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (!isMobileTurnMode()) return;
     if (!continuousIntendedRef.current) return;
-    if (busyState || isSpeaking) return;
+    if (busyState || isSpeaking || isPreparingVoice) return;
     if (turnInFlightRef.current) {
       turnInFlightRef.current = false;
       const t = window.setTimeout(() => {
@@ -1023,12 +1117,15 @@ export default function ChatPage() {
     }
     if (!continuousRecognitionRef.current) startContinuousListening();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busyState, isSpeaking]);
+  }, [busyState, isSpeaking, isPreparingVoice]);
 
   function startContinuousListening() {
     if (!continuousIntendedRef.current) return;
-    // Don't listen while a reply is playing or a turn is being answered.
-    if (isSpeakingRef.current || busyRef.current || turnInFlightRef.current) return;
+    // Don't listen while a reply is playing or a turn is being answered —
+    // and not while the reply's voice is still being prepared either: the
+    // mic reopening in that gap hears the speaker and talks to itself
+    // (the on/off loop the user reported on phones).
+    if (isSpeakingRef.current || busyRef.current || turnInFlightRef.current || isPreparingVoiceRef.current) return;
     if (continuousRecognitionRef.current) return; // already running
 
     const browserWindow = window as SpeechRecognitionWindow;
@@ -1105,6 +1202,7 @@ export default function ChatPage() {
           continuousIntendedRef.current &&
           !turnInFlightRef.current &&
           !isSpeakingRef.current &&
+          !isPreparingVoiceRef.current &&
           !busyRef.current
         ) {
           window.setTimeout(() => {
@@ -1160,6 +1258,8 @@ export default function ChatPage() {
     if (continuousVoice) {
       stopContinuousListening();
       setContinuousVoice(false);
+      // Keep Settings in sync — one source of truth (see the settings effect).
+      setAppSettings((s: any) => (s.continuousVoice ? { ...s, continuousVoice: false } : s));
       return;
     }
     setError('');
@@ -1168,6 +1268,7 @@ export default function ChatPage() {
     stopSpeaking();
     continuousIntendedRef.current = true;
     setContinuousVoice(true);
+    setAppSettings((s: any) => (s.continuousVoice ? s : { ...s, continuousVoice: true }));
     startContinuousListening();
   }
 
@@ -1196,7 +1297,9 @@ export default function ChatPage() {
       recognizedTextRef.current = '';
       const recognition = new Recognition();
       recognition.lang = 'ur-PK';
-      recognition.continuous = true;
+      // Phone: single-shot (same reason as the live mic — Android Chrome's
+      // continuous mode flickers on/off by itself). Desktop: unchanged.
+      recognition.continuous = !isMobileTurnMode();
       recognition.interimResults = false;
 
       recognition.onresult = (event) => {
