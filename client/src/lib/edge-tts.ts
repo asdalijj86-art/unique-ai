@@ -140,6 +140,24 @@ const pending = new Map<string, PendingRequest>();
 let sharedSocket: WebSocket | null = null;
 let sharedSocketReady: Promise<WebSocket> | null = null;
 
+// Handshake-failure memo. Microsoft's endpoint rejects the WebSocket
+// handshake itself (HTTP 403) whenever the browser's User-Agent is not
+// Microsoft Edge's — and a web page CANNOT set or override the UA on a
+// WebSocket (verified against the live endpoint 2026-10-21: Edge UA →
+// synthesis OK; the same frames with a Chrome/ChromeOS UA → 403 before
+// any frame is exchanged; Origin plays no role). So in Chrome /
+// ChromeOS / Android Chrome this leg can NEVER connect, and retrying
+// it for every chunk of every reply only burned seconds before the
+// fallback legs could speak — the user heard long silences and then
+// only Gemini, with no sign Salman had been attempted at all. After a
+// connect-phase failure, remember it for a minute: later calls fail
+// FAST with the same classified network error and the chain moves
+// straight to the server Salman leg. The memo is short (60s) so a
+// transient network drop in a browser where this leg CAN work (Edge)
+// only pauses it briefly, and a successful connect clears it at once.
+let clientEdgeDownUntil = 0;
+const CLIENT_EDGE_DOWN_MS = 60000;
+
 function failAllPending(): void {
   for (const entry of pending.values()) {
     clearTimeout(entry.timer);
@@ -231,8 +249,10 @@ function resetSocket(ws: WebSocket): void {
   if (sharedSocket === ws) {
     sharedSocket = null;
     sharedSocketReady = null;
+    failAllPending();
   }
-  failAllPending();
+  // A replacement socket is already in use: the pending requests belong
+  // to IT, and this stale socket's late close must not fail them.
 }
 
 async function connectSocket(): Promise<WebSocket> {
@@ -311,16 +331,26 @@ export async function synthesizeSalmanClientSide(
   const deadline = Date.now() + timeoutMs;
   const remaining = () => deadline - Date.now();
 
-  // Connect (or reuse) within the same budget.
-  const ws = await Promise.race([
-    ensureSocket(),
-    new Promise<never>((_, reject) => {
-      setTimeout(() => reject(timeoutError()), Math.max(1, remaining()));
-    }),
-  ]).catch((e) => {
+  // A recent handshake failure is remembered (see clientEdgeDownUntil):
+  // fail fast so the fallback legs get this call's whole budget instead
+  // of another doomed socket attempt.
+  if (Date.now() < clientEdgeDownUntil) throw networkError();
+
+  // Connect (or reuse) within the same budget — connectSocket carries
+  // its own 10s connect timeout, inside this call's 12s. A connect-phase
+  // failure arms the memo above; a successful connect clears it.
+  let ws: WebSocket;
+  try {
+    ws = await ensureSocket();
+  } catch (e) {
+    clientEdgeDownUntil = Date.now() + CLIENT_EDGE_DOWN_MS;
     throw isClassified(e) ? e : networkError();
-  });
+  }
+  clientEdgeDownUntil = 0;
   if (remaining() <= 0) throw timeoutError();
+  // send() on a CLOSING/CLOSED socket is silently dropped by browsers —
+  // the request would then hang until its own timeout. Check first.
+  if (ws.readyState !== WebSocket.OPEN) throw networkError();
 
   const requestId = randomHex(16);
   const frame =

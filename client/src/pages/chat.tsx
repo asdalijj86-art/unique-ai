@@ -21,6 +21,7 @@ import {
   synthesizeEdgeSpeech,
   useSendMairaChatMessage,
   getGeminiKeys,
+  TTS_PLAYBACK_RATE,
 } from '@/lib/api';
 import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
@@ -166,6 +167,22 @@ export default function ChatPage() {
   // True while a spoken turn is being answered (sent + reply speaking).
   // Blocks the mic from restarting mid-turn; cleared when the app goes idle.
   const turnInFlightRef = useRef(false);
+  // True for the WHOLE span of one assistant reply's speech — set by
+  // playAssistantMessage when it commits to speaking, cleared by
+  // resumeContinuousAfterTts. The instantaneous flags (isSpeaking /
+  // isPreparingVoice) flicker false in the gaps between audio chunks
+  // while the remaining chunks are still being synthesized, and every
+  // mic-reopen path used to read those gaps as "the reply is over" and
+  // reopen the mic MID-REPLY — a core part of the phone live mic's
+  // on/off cycling («کبھی بند، کبھی آن»). startContinuousListening now
+  // refuses to start while this is set.
+  const ttsActiveRef = useRef(false);
+  // The ONE pending live-mic reopen timer. Every reopen path (session
+  // onend, post-reply resume, the idle recovery effect) goes through
+  // scheduleLiveMicReopen, so at most one reopen is ever armed and a
+  // pause / stop / new turn can cancel it — previously three
+  // independent timers raced to reopen the mic.
+  const liveReopenTimerRef = useRef<number | null>(null);
   // Phone live mic: how many sessions in a row ended without any speech —
   // drives the restart backoff that stops the mic blinking on/off.
   const phoneEmptyEndsRef = useRef(0);
@@ -313,6 +330,7 @@ export default function ChatPage() {
     recognitionRef.current?.stop();
     // Continuous voice mode cleanup.
     continuousIntendedRef.current = false;
+    clearLiveReopenTimer();
     if (silenceTimerRef.current !== null) window.clearTimeout(silenceTimerRef.current);
     try { continuousRecognitionRef.current?.stop(); } catch { /* already stopped */ }
   }, []);
@@ -514,11 +532,14 @@ export default function ChatPage() {
       }));
       // Smart-brain action (Phase 2): open a website or start a project build.
       if (result.action?.type === 'open_url') {
-        try {
-          window.open(result.action.url, '_blank', 'noopener,noreferrer');
-        } catch {
-          // Popup blocked — the URL is still visible in the reply text.
-        }
+        // Never window.open here: this runs AFTER an async fetch, so the
+        // browser's popup blocker kills the tab (no user activation
+        // left) and the user was left with a dead reply — or worse, a
+        // raw percent-encoded URL pasted into the chat (his laptop
+        // report 2026-10-21). Show a tappable in-app card instead: the
+        // tap IS a user gesture, so the site always opens, and the chat
+        // text stays clean Urdu with no raw URL.
+        setToolAction({ type: 'open_link', url: result.action.url, displayName: result.action.displayName });
       } else if (result.action?.type === 'build_project') {
         setProjectBuild({ description: result.action.description });
       } else if (result.action?.type === 'android_app') {
@@ -579,6 +600,15 @@ export default function ChatPage() {
   function handleVoiceWebsiteCommand(recognizedText: string): boolean {
     const command = parseWebsiteCommand(recognizedText);
     if (!command) return false;
+    // An UNRECOGNIZED name is not a website to open — it is a search
+    // request. The old path built a google.com/search URL and tried to
+    // window.open it; the popup blocker killed the tab and the raw
+    // percent-encoded URL landed in the chat as the "reply" (user's
+    // laptop screenshot 2026-10-21). Let it fall through to the normal
+    // chat pipeline instead: the brain answers in chat and its results
+    // render as in-app cards (search_results / youtube_results, or a
+    // tappable open_link card) — never a raw URL in the message text.
+    if (command.isSearchFallback) return false;
 
     let confirmation: string;
     if (command.prefillText) {
@@ -597,9 +627,8 @@ export default function ChatPage() {
         }
       }
     } else {
-      confirmation = command.isSearchFallback
-        ? `جی، ${command.displayName} گوگل پر تلاش کر کے کھول رہا ہوں۔`
-        : `جی، ${command.displayName} کھول رہا ہوں۔`;
+      // (Search fallbacks returned earlier — this is always a known site.)
+      confirmation = `جی، ${command.displayName} کھول رہا ہوں۔`;
     }
 
     let opened = false;
@@ -608,9 +637,18 @@ export default function ChatPage() {
     } catch {
       opened = false;
     }
+    if (!opened) {
+      // Voice commands carry no user activation, so the popup blocker
+      // usually stops this open. The old reply pasted the raw URL into
+      // the chat ("یہ لنک خود کھول لیں: https://…%D8%A7…") — exactly
+      // what the user complained about. Now: a clean spoken/chat
+      // message (NO raw URL) plus a tappable in-app card; the tap is a
+      // real user gesture, so the site opens from it every time.
+      setToolAction({ type: 'open_link', url: command.url, displayName: command.displayName });
+    }
     const assistantText = opened
       ? confirmation
-      : `میں نے ${command.displayName} کھولنے کی کوشش کی، لیکن براؤزر نے نیا ٹیب روک دیا ہے۔ براہِ کرم اس سائٹ کے لیے پاپ اپ کی اجازت دیں، یا یہ لنک خود کھول لیں: ${command.url}`;
+      : `${confirmation} — نیا ٹیب خود نہ کھل سکا، نیچے «${command.displayName} کھولیں» کے بٹن سے کھول لیں۔`;
     appendWebsiteCommandExchange(recognizedText, assistantText);
     playAssistantMessage(assistantText);
     return true;
@@ -696,8 +734,9 @@ export default function ChatPage() {
   }
 
   async function speakNow(text: string) {
-    if (!appSettings.voiceEnabled) return;
+    if (!appSettings.voiceEnabled) { ttsActiveRef.current = false; return; }
     if (!('speechSynthesis' in window)) {
+      ttsActiveRef.current = false;
       setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
       return;
     }
@@ -774,6 +813,7 @@ export default function ChatPage() {
 
   function speakWithBrowser(text: string) {
     if (!('speechSynthesis' in window)) {
+      ttsActiveRef.current = false;
       setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
       return;
     }
@@ -783,6 +823,10 @@ export default function ChatPage() {
     // device default voice (often female) must never speak.
     const voices = window.speechSynthesis.getVoices();
     if (voices.length > 0 && !pickUrduMaleVoice()) {
+      // Nothing will speak: close the speech span so the live mic's
+      // recovery path can reopen instead of waiting on a span that
+      // never ends.
+      ttsActiveRef.current = false;
       setError('مردانہ آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اردو آواز انسٹال نہیں۔ Settings میں key دوبارہ چیک کریں۔');
       setIsPreparingVoice(false);
       setIsSpeaking(false);
@@ -832,12 +876,15 @@ export default function ChatPage() {
         const audio = usePersistent ? persistentAudioRef.current! : new Audio();
         audio.src = url;
         // Every server voice is a natural male voice — Gemini Charon/
-        // Fenrir (audio/wav) and Edge Salman (audio/mpeg) alike — so all
-        // server audio plays at natural speed, undistorted. (An old
-        // 1.08x pitch-down hack existed for the removed female Google-TTS
-        // fallback; it must never touch Salman's Edge voice, which is
-        // also MP3.)
-        audio.playbackRate = 1.0;
+        // Fenrir (audio/wav) and Edge Salman (audio/mpeg) alike. Playback
+        // runs at TTS_PLAYBACK_RATE (1.1x) with preservesPitch: the user
+        // asked for a slightly faster speaking pace (2026-10-21), and
+        // pitch-preserved rate change keeps the voice natural. (This is
+        // NOT the old 1.08x pitch-down hack for the removed female
+        // Google-TTS fallback — that resampled the audio itself and must
+        // never touch Salman's Edge voice, which is also MP3.)
+        audio.preservesPitch = true;
+        audio.playbackRate = TTS_PLAYBACK_RATE;
         serverAudioRef.current = audio;
         audio.onplaying = () => {
           playbackStartedRef.current = true;
@@ -926,15 +973,22 @@ export default function ChatPage() {
           return null;
         }
       };
+      // Salman-leg failures are CAPTURED, not swallowed: when Salman is
+      // the selected voice, its classified failure is the honest reason
+      // to surface (below) — swallowing it made Salman failures totally
+      // invisible, so the user only ever heard Gemini and concluded
+      // Salman never ran. A failure here is transient (network); it
+      // must NOT set serverTtsDownRef or mute anything.
+      let salmanErr: any = null;
       // Client-side Edge leg — Salman synthesized in THIS browser
       // over a direct WebSocket (see lib/edge-tts). No key, no quota,
       // and fast because residential IPs aren't throttled like
-      // Render's. A failure here is transient (network); it must NOT
-      // set serverTtsDownRef or mute anything.
+      // Render's.
       const attemptClientEdge = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
         try {
           return await synthesizeSalmanClientSide(text, timeoutMs);
-        } catch {
+        } catch (e: any) {
+          if (!salmanErr) salmanErr = e;
           return null;
         }
       };
@@ -944,15 +998,20 @@ export default function ChatPage() {
       const attemptEdge = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
         try {
           return await synthesizeEdgeSpeech({ text });
-        } catch {
+        } catch (e: any) {
+          if (!salmanErr) salmanErr = e;
           return null;
         }
       };
       let result: { audioBase64: string; mimeType: string } | null = null;
+      let spokeViaGemini = false;
       if (selection === 'Salman') {
         result = await attemptClientEdge();
         if (!result) result = await attemptEdge();
-        if (!result) result = await attemptGemini();
+        if (!result) {
+          result = await attemptGemini();
+          spokeViaGemini = !!result;
+        }
       } else {
         result = await attemptGemini();
         if (!result) result = await attemptClientEdge();
@@ -968,10 +1027,26 @@ export default function ChatPage() {
           serverTtsDownRef.current = true;
         }
       }
-      if (result) return result;
-      // All legs failed — explain WHY the male voice stopped, using the
-      // Gemini classification (the actionable one: fix key / wait / net).
-      const errorType = geminiErr?.data?.errorType || 'network';
+      if (result) {
+        // Salman was selected but only Gemini could speak: SAY so on
+        // screen instead of staying silent — otherwise the user hears
+        // the wrong voice with no explanation (his laptop report:
+        // «جیمینائی کے بغیر آواز نہیں آتی», with no sign Salman ran).
+        if (selection === 'Salman' && spokeViaGemini && salmanErr) {
+          setError('⚠️ سلمان کی آواز اس براؤزر سے نہیں بن سکی — یہ جواب Gemini کی آواز میں سنایا گیا ہے۔');
+        }
+        return result;
+      }
+      // All legs failed — explain WHY the male voice stopped. When
+      // Salman is the selected voice and the Salman legs failed, THEIR
+      // classification is the reason: blaming the Gemini key's quota
+      // for a Salman failure sent the user fixing keys that were never
+      // the problem (Salman needs no key at all). Gemini's
+      // classification is used only when the Salman legs recorded
+      // nothing.
+      const errorType = (selection === 'Salman' && salmanErr?.data?.errorType)
+        || geminiErr?.data?.errorType
+        || 'network';
       const reasonMsg =
         errorType === 'quota'
           ? '⚠️ تمہاری key کی آج کی حد ختم ہو گئی ہے — نئی key لگاؤ یا کل انتظار کرو۔'
@@ -985,7 +1060,9 @@ export default function ChatPage() {
       // Count the failure toward the Gemini leg's 3-strikes mute (soft
       // failures only — quota/auth already muted it above) and return
       // null (browser TTS with male settings will be tried by the caller).
-      if (geminiErr && errorType !== 'quota' && errorType !== 'auth') {
+      // Judged on GEMINI's own error type, not the surfaced one.
+      const geminiErrorType = geminiErr?.data?.errorType;
+      if (geminiErr && geminiErrorType !== 'quota' && geminiErrorType !== 'auth') {
         serverTtsFailsRef.current += 1;
         if (serverTtsFailsRef.current >= 3) {
           serverTtsDownRef.current = true; // stop wasting time on dead TTS
@@ -1025,6 +1102,11 @@ export default function ChatPage() {
     }
     // Hands-free mode: pause the mic while the reply plays (no echo).
     pauseContinuousForTts();
+    // Open this reply's speech span: from here until
+    // resumeContinuousAfterTts, NO path may reopen the live mic — not
+    // even in the silent gaps between audio chunks while the remaining
+    // chunks are still being synthesized (the on/off cycling fix).
+    ttsActiveRef.current = true;
     // Primary: server-side masculine Urdu voice (Gemini TTS) — same voice on every device.
     // Show "preparing" while the audio is fetched; isSpeaking flips on only
     // when playback actually begins (audio.onplaying below).
@@ -1147,6 +1229,26 @@ export default function ChatPage() {
     }
   }
 
+  function clearLiveReopenTimer() {
+    if (liveReopenTimerRef.current !== null) {
+      window.clearTimeout(liveReopenTimerRef.current);
+      liveReopenTimerRef.current = null;
+    }
+  }
+
+  // Single owner of every live-mic reopen: arming a reopen replaces any
+  // pending one, and the eventual start re-checks every guard at fire
+  // time (intended, not speaking, no turn in flight, TTS span closed) —
+  // so duplicated or stale schedules can never produce a start/stop
+  // flicker, and the mic can only ever reopen ONCE per quiet moment.
+  function scheduleLiveMicReopen(delayMs: number) {
+    clearLiveReopenTimer();
+    liveReopenTimerRef.current = window.setTimeout(() => {
+      liveReopenTimerRef.current = null;
+      if (continuousIntendedRef.current) startContinuousListening();
+    }, delayMs);
+  }
+
   // Image attach for vision: read as base64 data URL.
   function handleImagePick(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -1253,6 +1355,7 @@ export default function ChatPage() {
     if (turnInFlightRef.current) return;
     turnInFlightRef.current = true;
     clearPhoneTurnTimer();
+    clearLiveReopenTimer();
     // Pause listening while we send + get the reply, to avoid self-trigger.
     pauseContinuousForTts();
     const handledAsWebsiteCommand = voiceCommandRef.current
@@ -1285,12 +1388,16 @@ export default function ChatPage() {
     if (busyState || isSpeaking || isPreparingVoice) return;
     if (turnInFlightRef.current) {
       turnInFlightRef.current = false;
-      const t = window.setTimeout(() => {
-        if (continuousIntendedRef.current) startContinuousListening();
-      }, 500);
-      return () => window.clearTimeout(t);
     }
-    if (!continuousRecognitionRef.current) startContinuousListening();
+    // Route the reopen through the single scheduler with a settle delay
+    // instead of starting immediately: this effect re-fires on EVERY
+    // speaking/preparing flicker (each audio chunk ending flips
+    // isSpeaking false while the next chunk is still being synthesized),
+    // and an immediate start here reopened the mic in those gaps,
+    // mid-reply. The scheduler dedupes repeat fires into one pending
+    // reopen, and startContinuousListening re-checks ttsActiveRef at
+    // fire time, so the mic stays shut until the reply is truly over.
+    if (!continuousRecognitionRef.current) scheduleLiveMicReopen(600);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busyState, isSpeaking, isPreparingVoice]);
 
@@ -1299,8 +1406,11 @@ export default function ChatPage() {
     // Don't listen while a reply is playing or a turn is being answered —
     // and not while the reply's voice is still being prepared either: the
     // mic reopening in that gap hears the speaker and talks to itself
-    // (the on/off loop the user reported on phones).
-    if (isSpeakingRef.current || busyRef.current || turnInFlightRef.current || isPreparingVoiceRef.current) return;
+    // (the on/off loop the user reported on phones). ttsActiveRef covers
+    // the WHOLE reply span: between chunks the instantaneous flags all
+    // read false while more audio is still coming, and the mic must
+    // stay shut for exactly those gaps too.
+    if (isSpeakingRef.current || busyRef.current || turnInFlightRef.current || isPreparingVoiceRef.current || ttsActiveRef.current) return;
     if (continuousRecognitionRef.current) return; // already running
 
     const browserWindow = window as SpeechRecognitionWindow;
@@ -1402,6 +1512,15 @@ export default function ChatPage() {
           !isPreparingVoiceRef.current &&
           !busyRef.current
         ) {
+          // PHONE: when this session's speech is already waiting to be
+          // sent (turn timer armed / fragments accumulated), do NOT
+          // reopen here at all — the dispatch → reply → resume chain
+          // owns the next opening. The old restart (400ms) always beat
+          // the send timer (1400ms), so the mic blinked open and shut
+          // around every single turn and could catch the reply's start.
+          if (mobileTurn && (phoneTurnTimerRef.current !== null || continuousTextRef.current.trim())) {
+            return;
+          }
           // PHONE flap guard: Android ends silent single-shot sessions
           // every few seconds, and restarting instantly makes the mic
           // blink on/off forever without ever settling (the user's
@@ -1415,13 +1534,12 @@ export default function ChatPage() {
             }
             restartDelay = Math.min(400 + phoneEmptyEndsRef.current * 800, 3000);
           }
-          window.setTimeout(() => {
-            if (continuousIntendedRef.current && epoch === listenEpochRef.current) startContinuousListening();
-          }, restartDelay);
+          scheduleLiveMicReopen(restartDelay);
         }
       };
 
       continuousRecognitionRef.current = recognition;
+      clearLiveReopenTimer(); // this start consumes any pending reopen
       recognition.start();
       setVoiceStatus('سن رہا ہوں…');
     } catch {
@@ -1434,6 +1552,7 @@ export default function ChatPage() {
     // Stop the mic while the assistant speaks (avoid echo), but keep the
     // *intention* so it resumes afterwards.
     clearSilenceTimer();
+    clearLiveReopenTimer(); // no pending reopen may fire into the pause
     // Invalidate the current session's late callbacks (stop() is async —
     // its queued results must not dispatch a duplicate turn). The phone
     // turn timer is deliberately NOT cleared here: dispatch consumes the
@@ -1448,20 +1567,24 @@ export default function ChatPage() {
   }
 
   function resumeContinuousAfterTts() {
+    // The reply's speech span is over — close it FIRST so the reopen
+    // below (and any recovery-effect reopen) is allowed through.
+    ttsActiveRef.current = false;
     if (!continuousIntendedRef.current) return;
     setVoiceStatus('سن رہا ہوں…');
-    // Small delay so the mic doesn't catch the tail of the TTS audio.
-    window.setTimeout(() => {
-      if (continuousIntendedRef.current) startContinuousListening();
-    }, 600);
+    // Small delay so the mic doesn't catch the tail of the TTS audio —
+    // via the single scheduler, so this stays the one pending reopen.
+    scheduleLiveMicReopen(600);
   }
 
   function stopContinuousListening() {
     continuousIntendedRef.current = false;
     turnInFlightRef.current = false;
+    ttsActiveRef.current = false;
     phoneEmptyEndsRef.current = 0;
     clearSilenceTimer();
     clearPhoneTurnTimer();
+    clearLiveReopenTimer();
     listenEpochRef.current += 1;
     continuousTextRef.current = '';
     const rec = continuousRecognitionRef.current;

@@ -141,6 +141,7 @@ export default function ToolResults({
     <div className="tool-results" dir="rtl" data-testid="panel-tool-results" role="region" aria-label="ٹول کا نتیجہ">
       <div className="tool-results-head">
         <span className="tool-results-title">
+          {action.type === 'open_link' && '🌐 ویب سائٹ'}
           {action.type === 'search_results' && '🔍 تلاش کے نتائج'}
           {action.type === 'weather' && '🌤️ موسم'}
           {action.type === 'youtube_results' && '▶️ یوٹیوب ویڈیوز'}
@@ -162,6 +163,19 @@ export default function ToolResults({
         </button>
       </div>
       <div className="tool-results-body">
+        {action.type === 'open_link' && (
+          <div>
+            {/* Tappable label, never a raw URL in chat text: the tap is
+                a real user gesture, so target=_blank always opens —
+                unlike the programmatic window.open the popup blocker
+                used to kill. */}
+            <a href={action.url} target="_blank" rel="noopener noreferrer" className="tool-link-card">
+              <div className="tool-link-title">🌐 {action.displayName} کھولیں</div>
+              <div className="tool-link-snippet">کھولنے کے لیے یہاں دبائیں</div>
+            </a>
+          </div>
+        )}
+
         {action.type === 'search_results' && (
           <div>
             {action.results.map((r, i) => (

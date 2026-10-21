@@ -10,7 +10,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Loader2, Search, Volume2, Square, BookOpen, ArrowRight, ListMusic } from 'lucide-react';
-import { synthesizeMairaSpeech, synthesizeEdgeSpeech } from '@/lib/api';
+import { synthesizeMairaSpeech, synthesizeEdgeSpeech, TTS_PLAYBACK_RATE } from '@/lib/api';
 import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
 
 type SurahMeta = {
@@ -132,13 +132,17 @@ export default function QuranReader({ autoplaySignal }: { autoplaySignal?: numbe
       ]).finally(() => { if (timer) clearTimeout(timer); });
     };
     let result: { audioBase64: string; mimeType: string } | null = null;
+    // The Salman (Edge) legs' classified failure, remembered so the
+    // reason shown at the end can be THEIRS (below).
+    let edgeErrorType: string | undefined;
     // PRIMARY: client-side Edge TTS (Salman) straight from this
     // browser — free, no key, NO daily quota, so the tilawat plays day
     // and night, and fast (Microsoft throttles datacenter IPs, not
     // residential ones). Its own 12s budget sits inside withCap's 15s.
     try {
       result = await withCap(synthesizeSalmanClientSide(text));
-    } catch {
+    } catch (e: any) {
+      edgeErrorType = e?.data?.errorType || 'network';
       result = null;
     }
     if (!result) {
@@ -147,17 +151,20 @@ export default function QuranReader({ autoplaySignal }: { autoplaySignal?: numbe
       // long as the Gemini fallback below succeeds.
       try {
         result = await withCap(synthesizeEdgeSpeech({ text }));
-      } catch {
+      } catch (e: any) {
+        if (!edgeErrorType) edgeErrorType = e?.data?.errorType || 'network';
         result = null;
       }
     }
     if (!result) {
-      // FALLBACK 2: Gemini TTS (user keys) — its classified errorType
-      // is what surfaces when every path has failed.
+      // FALLBACK 2: Gemini TTS (user keys). When every path has failed,
+      // prefer the SALMAN legs' classification: this reader speaks with
+      // Salman, so blaming the Gemini key's quota (when the Edge paths
+      // actually failed on network/timeout) names the wrong culprit.
       try {
         result = await withCap(synthesizeMairaSpeech({ text }));
       } catch (e: any) {
-        return { ok: false, errorType: e?.data?.errorType || 'unknown' };
+        return { ok: false, errorType: edgeErrorType || e?.data?.errorType || 'unknown' };
       }
     }
     if (stopAllRef.current) return { ok: false };
@@ -167,7 +174,11 @@ export default function QuranReader({ autoplaySignal }: { autoplaySignal?: numbe
     const url = URL.createObjectURL(blob);
     return await new Promise<{ ok: boolean; errorType?: string }>((resolve) => {
       const audio = new Audio(url);
-      audio.playbackRate = 1.0; // natural pace for Quran translation
+      // Same slightly-faster pace as the chat voice (user request
+      // 2026-10-21), pitch preserved so the voice stays natural. Only
+      // the Urdu TRANSLATION is ever spoken — never the Arabic text.
+      audio.preservesPitch = true;
+      audio.playbackRate = TTS_PLAYBACK_RATE;
       audioRef.current = audio;
       audio.onended = () => { URL.revokeObjectURL(url); resolve({ ok: !stopAllRef.current }); };
       audio.onerror = () => { URL.revokeObjectURL(url); resolve({ ok: false }); };

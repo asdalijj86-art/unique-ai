@@ -5,6 +5,7 @@ type ChatMessageInput = { role: string; content: string; image?: string };
 /** Smart-brain action the server may return alongside a chat reply. */
 export type ChatAction =
   | { type: 'open_url'; url: string; displayName: string }
+  | { type: 'open_link'; url: string; displayName: string }
   | { type: 'build_project'; description: string }
   | { type: 'android_app'; description: string }
   | { type: 'search_results'; query: string; results: Array<{ title: string; snippet: string; url: string }> }
@@ -31,6 +32,16 @@ export type ChatResponse = {
   multiStep?: boolean;
   plan?: string[];
 };
+
+/**
+ * Assistant speech plays slightly faster than natural pace (user request
+ * 2026-10-21: «آواز تھوڑی سپیڈ تیز کرو»). Applied via the audio element's
+ * playbackRate WITH preservesPitch, so the voice stays natural — this is
+ * NOT a sample-rate/pitch hack (the old pitch hack distorted Salman's
+ * voice and was removed). Shared by every TTS playback path (chat voice
+ * chain, QuranReader) so the pace is identical everywhere.
+ */
+export const TTS_PLAYBACK_RATE = 1.1;
 
 /**
  * Replacement for @workspace/api-client-react's useSendMairaChatMessage.
