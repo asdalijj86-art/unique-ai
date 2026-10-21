@@ -11,6 +11,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Loader2, Search, Volume2, Square, BookOpen, ArrowRight, ListMusic } from 'lucide-react';
 import { synthesizeMairaSpeech, synthesizeEdgeSpeech } from '@/lib/api';
+import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
 
 type SurahMeta = {
   number: number;
@@ -131,17 +132,28 @@ export default function QuranReader({ autoplaySignal }: { autoplaySignal?: numbe
       ]).finally(() => { if (timer) clearTimeout(timer); });
     };
     let result: { audioBase64: string; mimeType: string } | null = null;
-    // PRIMARY: Edge TTS (Salman) — free, no key, NO daily quota, so the
-    // tilawat plays day and night. If only Edge fails, no error is shown
-    // as long as the Gemini fallback below succeeds.
+    // PRIMARY: client-side Edge TTS (Salman) straight from this
+    // browser — free, no key, NO daily quota, so the tilawat plays day
+    // and night, and fast (Microsoft throttles datacenter IPs, not
+    // residential ones). Its own 12s budget sits inside withCap's 15s.
     try {
-      result = await withCap(synthesizeEdgeSpeech({ text }));
+      result = await withCap(synthesizeSalmanClientSide(text));
     } catch {
       result = null;
     }
     if (!result) {
-      // FALLBACK: Gemini TTS (user keys) — its classified errorType is
-      // what surfaces when both paths have failed.
+      // FALLBACK 1: server-side Edge TTS (same Salman voice via our
+      // server). If only the Edge paths fail, no error is shown as
+      // long as the Gemini fallback below succeeds.
+      try {
+        result = await withCap(synthesizeEdgeSpeech({ text }));
+      } catch {
+        result = null;
+      }
+    }
+    if (!result) {
+      // FALLBACK 2: Gemini TTS (user keys) — its classified errorType
+      // is what surfaces when every path has failed.
       try {
         result = await withCap(synthesizeMairaSpeech({ text }));
       } catch (e: any) {

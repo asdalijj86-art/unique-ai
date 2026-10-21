@@ -22,6 +22,7 @@ import {
   useSendMairaChatMessage,
   getGeminiKeys,
 } from '@/lib/api';
+import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
 import { useGestures } from '@/hooks/useGestures';
 import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
@@ -868,16 +869,23 @@ export default function ChatPage() {
     });
   }
 
-  // Wrapper: synthesize with a timeout so a hung TTS request can't lock the UI.
-  // Voice chain depends on the selected voice:
-  //  - 'Salman' (default, PRIMARY): Edge TTS first — free, no key, NO daily
-  //    quota, works day and night — with Gemini TTS as backup.
-  //  - 'Charon'/'Fenrir': Gemini TTS first (original behavior), with Edge
-  //    TTS as the fallback before giving up.
-  // If both legs fail, the Gemini classification (quota/auth/network)
-  // explains WHY in Urdu. serverTtsDown tracks the GEMINI leg only: Edge
-  // has no quota, so a transient Edge failure must never mute the session.
-  // Returns null on timeout or failure (caller falls back to browser voice).
+  // Wrapper: synthesize with per-leg timeouts so a hung TTS request
+  // can't lock the UI. Voice chain depends on the selected voice:
+  //  - 'Salman' (default, PRIMARY): (1) client-side Edge TTS (Salman)
+  //    straight from this browser — fast, free, no key, NO daily quota;
+  //    (2) server Edge TTS (same Salman voice via our server — slower,
+  //    Microsoft throttles datacenter IPs); (3) Gemini TTS as backup.
+  //  - 'Charon'/'Fenrir': Gemini TTS first (original behavior), then
+  //    client-side Salman, then server Edge, before giving up.
+  // Each leg runs only if the previous one failed, and each keeps its
+  // own timeout budget (client leg: timeoutMs; server Edge: its 20s
+  // internal cap; Gemini: its per-key 15s cap) — no single outer race
+  // cutting the fallback legs off before they can start.
+  // If all legs fail, the Gemini classification (quota/auth/network)
+  // explains WHY in Urdu. serverTtsDown tracks the GEMINI leg only:
+  // Edge has no quota, so a transient Edge failure must never mute
+  // the session.
+  // Returns null on failure (caller falls back to browser voice).
   function synthesizeWithTimeout(text: string, timeoutMs = 12000): Promise<{ audioBase64: string; mimeType: string } | null> {
     // Keys changed since the last attempt? Forget any earlier "TTS down"
     // verdict and try fresh — the new keys may work even if the old failed.
@@ -918,8 +926,21 @@ export default function ChatPage() {
           return null;
         }
       };
-      // Edge leg — no key, no quota. A failure here is transient
-      // (network); it must NOT set serverTtsDownRef or mute anything.
+      // Client-side Edge leg — Salman synthesized in THIS browser
+      // over a direct WebSocket (see lib/edge-tts). No key, no quota,
+      // and fast because residential IPs aren't throttled like
+      // Render's. A failure here is transient (network); it must NOT
+      // set serverTtsDownRef or mute anything.
+      const attemptClientEdge = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
+        try {
+          return await synthesizeSalmanClientSide(text, timeoutMs);
+        } catch {
+          return null;
+        }
+      };
+      // Server Edge leg — same Salman voice via /api/tts/edge. No key,
+      // no quota, but slow when Microsoft throttles the datacenter IP.
+      // Same transient-failure semantics as the client leg.
       const attemptEdge = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
         try {
           return await synthesizeEdgeSpeech({ text });
@@ -929,10 +950,12 @@ export default function ChatPage() {
       };
       let result: { audioBase64: string; mimeType: string } | null = null;
       if (selection === 'Salman') {
-        result = await attemptEdge();
+        result = await attemptClientEdge();
+        if (!result) result = await attemptEdge();
         if (!result) result = await attemptGemini();
       } else {
         result = await attemptGemini();
+        if (!result) result = await attemptClientEdge();
         if (!result) result = await attemptEdge();
       }
       // Gemini bookkeeping: a quota/auth answer is DEFINITIVE — mute the
@@ -946,7 +969,7 @@ export default function ChatPage() {
         }
       }
       if (result) return result;
-      // Both legs failed — explain WHY the male voice stopped, using the
+      // All legs failed — explain WHY the male voice stopped, using the
       // Gemini classification (the actionable one: fix key / wait / net).
       const errorType = geminiErr?.data?.errorType || 'network';
       const reasonMsg =
@@ -970,10 +993,9 @@ export default function ChatPage() {
       }
       return null;
     };
-    return Promise.race([
-      tryBoth(),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-    ]);
+    // No outer race: each leg carries its own timeout budget, and a
+    // single 12s cap would kill the fallback legs before they start.
+    return tryBoth();
   }
 
   async function playAssistantMessage(text: string) {
