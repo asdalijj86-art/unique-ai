@@ -221,8 +221,13 @@ function refreshDeadTtsKeys(keys: string[]) {
 
 export async function synthesizeMairaSpeech({ text }: { text: string }) {
   const voiceName = (() => {
-    try { return localStorage.getItem('unique-ai-voice') || 'Charon'; }
-    catch { return 'Charon'; }
+    try {
+      const stored = localStorage.getItem('unique-ai-voice') || 'Salman';
+      // 'Salman' is the Edge TTS voice — it has no Gemini equivalent. When
+      // the Gemini path is used at all (fallback / Charon selected), it
+      // speaks with Charon; only an explicit 'Fenrir' selection differs.
+      return stored === 'Fenrir' ? 'Fenrir' : 'Charon';
+    } catch { return 'Charon'; }
   })();
   const keys = getGeminiKeys();
   refreshDeadTtsKeys(keys);
@@ -330,6 +335,40 @@ export async function synthesizeGoogleSpeech({ text }: { text: string }) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
   });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw { data: errData };
+  }
+  return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+}
+
+/**
+ * PRIMARY voice — Microsoft Edge TTS (Salman, ur-IN male) via the server.
+ * Free, needs no API key and has NO daily quota, so it works day and
+ * night — unlike Gemini TTS, whose free quota dies by evening.
+ * POSTs to /api/tts/edge and resolves with { audioBase64, mimeType }.
+ * Hard 20s cap: a stalled request throws a classifiable timeout instead
+ * of hanging the voice pipeline.
+ */
+export async function synthesizeEdgeSpeech({ text }: { text: string }) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  let res: Response;
+  try {
+    res = await fetch('/api/tts/edge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal: ctrl.signal,
+    });
+  } catch (e: any) {
+    if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
+      throw { data: { errorType: 'timeout' } };
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
     throw { data: errData };

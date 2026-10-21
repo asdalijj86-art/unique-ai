@@ -42,6 +42,8 @@ import {
   videoIdeasPrompt,
   fetchPageText,
 } from "./tools.js";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1623,6 +1625,71 @@ app.post("/api/tts/google", async (req, res) => {
     res.status(502).json({
       error: "آواز تیار نہیں ہو سکی۔ براہِ کرم دوبارہ کوشش کریں۔",
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/tts/edge — Microsoft Edge TTS, voice ur-IN-SalmanNeural (male).
+// This is the app's PRIMARY voice: free, needs NO API key and has NO daily
+// quota, so it works day and night — unlike Gemini TTS, whose free quota
+// dies by evening. Returns MP3 audio as base64.
+// EDGE_TTS_PROXY exists ONLY for local sandbox testing (the sandbox's
+// egress is proxied, so the WebSocket must be tunnelled explicitly); it
+// is unset in production, where the connection to Microsoft is direct.
+// ---------------------------------------------------------------------------
+const EDGE_TTS_VOICE = "ur-IN-SalmanNeural";
+
+app.post("/api/tts/edge", async (req, res) => {
+  const { text } = req.body ?? {};
+  if (typeof text !== "string" || text.trim().length === 0) {
+    res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
+    return;
+  }
+
+  // The client already chunks replies by sentences; cap a single chunk so
+  // one request can never balloon.
+  const ttsText = text.slice(0, 1500);
+
+  let tts;
+  try {
+    const agent = process.env.EDGE_TTS_PROXY
+      ? new HttpsProxyAgent(process.env.EDGE_TTS_PROXY)
+      : undefined;
+    tts = new MsEdgeTTS(agent ? { agent } : undefined);
+    const synth = (async () => {
+      await tts.setMetadata(EDGE_TTS_VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      const { audioStream } = tts.toStream(ttsText);
+      const chunks = [];
+      for await (const chunk of audioStream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    })();
+    // If the timeout below wins the race, this promise may reject later —
+    // swallow that late rejection so it can never crash the process.
+    synth.catch(() => {});
+    // Hard 20s cap: a stalled synthesis fails fast with a classified
+    // network error instead of hanging the voice pipeline.
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Edge TTS timed out after 20s")), 20000);
+    });
+    const audioBuffer = await Promise.race([synth, timeout]).finally(() => clearTimeout(timer));
+    if (!audioBuffer || audioBuffer.length < 100) {
+      throw new Error("Edge TTS returned empty audio");
+    }
+    res.json({
+      audioBase64: audioBuffer.toString("base64"),
+      mimeType: "audio/mpeg",
+    });
+  } catch (err) {
+    console.error("Edge TTS failed", err);
+    res.status(502).json({
+      error: "آواز تیار نہیں ہو سکی۔",
+      errorType: "network",
+    });
+  } finally {
+    try { tts?.close(); } catch { /* ignore */ }
   }
 });
 

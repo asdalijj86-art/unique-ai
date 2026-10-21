@@ -51,15 +51,20 @@ function Toggle({
 
 /**
  * VoiceSelector — lets the user pick from 3 voices:
- * 1. Charon — گہری مردانہ آواز (deep masculine, default)
- * 2. Fenrir — دوسری مردانہ آواز (second masculine voice)
+ * 1. Salman — سلمان (Edge TTS, PRIMARY default: free, no key, no daily
+ *    quota — works day and night)
+ * 2. Charon — گہری مردانہ آواز (deep masculine, Gemini)
+ * 3. Fenrir — دوسری مردانہ آواز (second masculine voice, Gemini)
  * (Google female voice REMOVED per user demand 2026-10-19 — no female voice.)
  * Stored in localStorage; sent with TTS requests.
  */
 function VoiceSelector() {
   const [voice, setVoice] = useState(() => {
-    try { return localStorage.getItem('unique-ai-voice') || 'Charon'; }
-    catch { return 'Charon'; }
+    try {
+      const stored = localStorage.getItem('unique-ai-voice');
+      // A stale 'Google' selection (female, removed) shows as Salman.
+      return stored === 'Google' ? 'Salman' : (stored || 'Salman');
+    } catch { return 'Salman'; }
   });
 
   const select = (v: string) => {
@@ -68,6 +73,7 @@ function VoiceSelector() {
   };
 
   const options = [
+    { id: 'Salman', label: '🎙️ سلمان — بنیادی آواز (ہر وقت دستیاب)', desc: 'مفت — نہ key، نہ کوٹہ' },
     { id: 'Charon', label: '🎙️ گہری آواز', desc: 'پہلی مردانہ آواز' },
     { id: 'Fenrir', label: '🎤 دوسری آواز', desc: 'دوسری مردانہ آواز' },
   ];

@@ -3,6 +3,8 @@
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "https-proxy-agent": "^9.1.0",
+    "msedge-tts": "^2.1.0",
     "qrcode": "^1.5.4"
   },
   "name": "unique-ai-server",

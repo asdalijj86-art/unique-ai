@@ -18,6 +18,7 @@ import {
 import {
   synthesizeMairaSpeech,
   synthesizeGoogleSpeech,
+  synthesizeEdgeSpeech,
   useSendMairaChatMessage,
   getGeminiKeys,
 } from '@/lib/api';
@@ -829,17 +830,13 @@ export default function ChatPage() {
         }
         const audio = usePersistent ? persistentAudioRef.current! : new Audio();
         audio.src = url;
-        // Google TTS fallback has a female voice — make it JARVIS-like:
-        // fast and confident pace, slightly deepened pitch.
-        // Gemini Charon/Fenrir (audio/wav) play at natural speed for
-        // clean, undistorted masculine voice.
-        const isGoogleTts = (mimeType || '').includes('mpeg');
-        if (isGoogleTts) {
-          audio.playbackRate = 1.08;
-          (audio as any).preservesPitch = false;
-        } else {
-          audio.playbackRate = 1.0;
-        }
+        // Every server voice is a natural male voice — Gemini Charon/
+        // Fenrir (audio/wav) and Edge Salman (audio/mpeg) alike — so all
+        // server audio plays at natural speed, undistorted. (An old
+        // 1.08x pitch-down hack existed for the removed female Google-TTS
+        // fallback; it must never touch Salman's Edge voice, which is
+        // also MP3.)
+        audio.playbackRate = 1.0;
         serverAudioRef.current = audio;
         audio.onplaying = () => {
           playbackStartedRef.current = true;
@@ -872,11 +869,14 @@ export default function ChatPage() {
   }
 
   // Wrapper: synthesize with a timeout so a hung TTS request can't lock the UI.
-  // Fallback chain: Gemini TTS → Google TTS (free, no key) → browser voice.
-  // If user selected "Google" voice in settings, skips Gemini and goes
-  // straight to Google TTS. Tracks server TTS health: after 3 consecutive
-  // failures of BOTH server options, marks server TTS as down for the
-  // session (browser voice used).
+  // Voice chain depends on the selected voice:
+  //  - 'Salman' (default, PRIMARY): Edge TTS first — free, no key, NO daily
+  //    quota, works day and night — with Gemini TTS as backup.
+  //  - 'Charon'/'Fenrir': Gemini TTS first (original behavior), with Edge
+  //    TTS as the fallback before giving up.
+  // If both legs fail, the Gemini classification (quota/auth/network)
+  // explains WHY in Urdu. serverTtsDown tracks the GEMINI leg only: Edge
+  // has no quota, so a transient Edge failure must never mute the session.
   // Returns null on timeout or failure (caller falls back to browser voice).
   function synthesizeWithTimeout(text: string, timeoutMs = 12000): Promise<{ audioBase64: string; mimeType: string } | null> {
     // Keys changed since the last attempt? Forget any earlier "TTS down"
@@ -889,53 +889,86 @@ export default function ChatPage() {
         serverTtsFailsRef.current = 0;
       }
     } catch { /* ignore */ }
-    if (serverTtsDownRef.current) {
-      return Promise.resolve(null);
-    }
-    // Note: Google (female) voice option removed per user demand 2026-10-19.
-    // If a stale 'Google' selection exists in localStorage, treat as Charon.
+    // Selected voice: 'Salman' | 'Charon' | 'Fenrir'. Default is 'Salman'
+    // (Edge). Note: Google (female) voice option was removed per user
+    // demand 2026-10-19 — a stale 'Google' selection migrates to 'Salman'.
+    let selection = 'Salman';
     try {
-      if (localStorage.getItem('unique-ai-voice') === 'Google') {
-        localStorage.setItem('unique-ai-voice', 'Charon');
+      const stored = localStorage.getItem('unique-ai-voice');
+      if (stored === 'Charon' || stored === 'Fenrir' || stored === 'Salman') {
+        selection = stored;
+      } else if (stored === 'Google') {
+        localStorage.setItem('unique-ai-voice', 'Salman');
       }
     } catch { /* ignore */ }
     const tryBoth = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
-      try {
-        const result = await synthesizeMairaSpeech({ text });
-        serverTtsFailsRef.current = 0;
-        return result;
-      } catch (geminiErr: any) {
-        // Gemini failed — explain WHY the male voice stopped instead of
-        // silently switching to the female backup voice.
-        const errorType = geminiErr?.data?.errorType || 'unknown';
-        const reasonMsg =
-          errorType === 'quota'
-            ? '⚠️ تمہاری key کی آج کی حد ختم ہو گئی ہے — نئی key لگاؤ یا کل انتظار کرو۔'
-            : errorType === 'auth'
-              ? '⚠️ تمہاری key میں مسئلہ ہے — Settings میں key دوبارہ چیک کرو۔'
-              : errorType === 'network'
-                ? '⚠️ نیٹ سست ہے — مردانہ آواز بنانے میں دیر ہو رہی ہے۔ دوبارہ کوشش کرو۔'
-                : '⚠️ مردانہ آواز وقتی طور پر بند ہے — دوبارہ کوشش کرو۔';
-        // Show the reason (stays visible so the user knows what to fix).
-        setError(reasonMsg);
-        // Male voice selected (Charon/Fenrir): NEVER fall back to the female
-        // Google voice — user explicitly demanded male voice only.
-        // Quota/auth failures are DEFINITIVE (the server classifies them
-        // only after every saved key has answered dead): stop trying server
-        // TTS for the rest of the session immediately instead of burning
-        // more slow attempts on the next replies too.
-        if (errorType === 'quota' || errorType === 'auth') {
-          serverTtsDownRef.current = true;
+      // Gemini leg. Once every saved key has answered quota/auth the leg
+      // is muted for the session (serverTtsDownRef) and skipped without a
+      // network call. Its classified error is captured, not shown yet —
+      // the Edge leg may still save this reply.
+      let geminiErr: any = null;
+      const attemptGemini = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
+        if (serverTtsDownRef.current) return null;
+        try {
+          const result = await synthesizeMairaSpeech({ text });
+          serverTtsFailsRef.current = 0;
+          return result;
+        } catch (e: any) {
+          geminiErr = e;
           return null;
         }
-        // Count the failure and return null (browser TTS with male settings
-        // will be tried by the caller).
+      };
+      // Edge leg — no key, no quota. A failure here is transient
+      // (network); it must NOT set serverTtsDownRef or mute anything.
+      const attemptEdge = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
+        try {
+          return await synthesizeEdgeSpeech({ text });
+        } catch {
+          return null;
+        }
+      };
+      let result: { audioBase64: string; mimeType: string } | null = null;
+      if (selection === 'Salman') {
+        result = await attemptEdge();
+        if (!result) result = await attemptGemini();
+      } else {
+        result = await attemptGemini();
+        if (!result) result = await attemptEdge();
+      }
+      // Gemini bookkeeping: a quota/auth answer is DEFINITIVE — mute the
+      // Gemini leg for the rest of the session even if Edge rescued this
+      // reply, so later replies don't burn slow attempts re-asking dead
+      // keys. (The female Google voice is NEVER a fallback — user demand.)
+      if (geminiErr) {
+        const et = geminiErr?.data?.errorType;
+        if (et === 'quota' || et === 'auth') {
+          serverTtsDownRef.current = true;
+        }
+      }
+      if (result) return result;
+      // Both legs failed — explain WHY the male voice stopped, using the
+      // Gemini classification (the actionable one: fix key / wait / net).
+      const errorType = geminiErr?.data?.errorType || 'network';
+      const reasonMsg =
+        errorType === 'quota'
+          ? '⚠️ تمہاری key کی آج کی حد ختم ہو گئی ہے — نئی key لگاؤ یا کل انتظار کرو۔'
+          : errorType === 'auth'
+            ? '⚠️ تمہاری key میں مسئلہ ہے — Settings میں key دوبارہ چیک کرو۔'
+            : errorType === 'network'
+              ? '⚠️ نیٹ سست ہے — مردانہ آواز بنانے میں دیر ہو رہی ہے۔ دوبارہ کوشش کرو۔'
+              : '⚠️ مردانہ آواز وقتی طور پر بند ہے — دوبارہ کوشش کرو۔';
+      // Show the reason (stays visible so the user knows what to fix).
+      setError(reasonMsg);
+      // Count the failure toward the Gemini leg's 3-strikes mute (soft
+      // failures only — quota/auth already muted it above) and return
+      // null (browser TTS with male settings will be tried by the caller).
+      if (geminiErr && errorType !== 'quota' && errorType !== 'auth') {
         serverTtsFailsRef.current += 1;
         if (serverTtsFailsRef.current >= 3) {
           serverTtsDownRef.current = true; // stop wasting time on dead TTS
         }
-        return null;
       }
+      return null;
     };
     return Promise.race([
       tryBoth(),

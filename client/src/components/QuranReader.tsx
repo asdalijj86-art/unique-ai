@@ -10,7 +10,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Loader2, Search, Volume2, Square, BookOpen, ArrowRight, ListMusic } from 'lucide-react';
-import { synthesizeMairaSpeech } from '@/lib/api';
+import { synthesizeMairaSpeech, synthesizeEdgeSpeech } from '@/lib/api';
 
 type SurahMeta = {
   number: number;
@@ -119,21 +119,34 @@ export default function QuranReader({ autoplaySignal }: { autoplaySignal?: numbe
   }
 
   async function playUrdu(text: string): Promise<{ ok: boolean; errorType?: string }> {
-    let result: { audioBase64: string; mimeType: string };
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      // Hard 15s cap: a stalled synthesis must surface as a timeout with a
-      // reason, never as endless silence.
-      result = await Promise.race([
-        synthesizeMairaSpeech({ text }),
+    // One synthesis attempt with a hard 15s cap: a stalled synthesis must
+    // surface as a timeout with a reason, never as endless silence.
+    const withCap = (p: Promise<{ audioBase64: string; mimeType: string }>) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      return Promise.race([
+        p,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject({ data: { errorType: 'timeout' } }), 15000);
         }),
-      ]);
-    } catch (e: any) {
-      return { ok: false, errorType: e?.data?.errorType || 'unknown' };
-    } finally {
-      if (timer) clearTimeout(timer);
+      ]).finally(() => { if (timer) clearTimeout(timer); });
+    };
+    let result: { audioBase64: string; mimeType: string } | null = null;
+    // PRIMARY: Edge TTS (Salman) — free, no key, NO daily quota, so the
+    // tilawat plays day and night. If only Edge fails, no error is shown
+    // as long as the Gemini fallback below succeeds.
+    try {
+      result = await withCap(synthesizeEdgeSpeech({ text }));
+    } catch {
+      result = null;
+    }
+    if (!result) {
+      // FALLBACK: Gemini TTS (user keys) — its classified errorType is
+      // what surfaces when both paths have failed.
+      try {
+        result = await withCap(synthesizeMairaSpeech({ text }));
+      } catch (e: any) {
+        return { ok: false, errorType: e?.data?.errorType || 'unknown' };
+      }
     }
     if (stopAllRef.current) return { ok: false };
     const { audioBase64, mimeType } = result;
