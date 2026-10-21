@@ -42,7 +42,7 @@ import {
   videoIdeasPrompt,
   fetchPageText,
 } from "./tools.js";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "./vendor/msedge-tts/index.js";
 import { HttpsProxyAgent } from "https-proxy-agent";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
