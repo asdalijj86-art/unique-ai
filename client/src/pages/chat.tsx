@@ -160,6 +160,27 @@ export default function ChatPage() {
   // True while a spoken turn is being answered (sent + reply speaking).
   // Blocks the mic from restarting mid-turn; cleared when the app goes idle.
   const turnInFlightRef = useRef(false);
+  // PHONE mic-fix refs (2026-10-21): Android Chrome's speech engine returns
+  // each phrase as a separate "final" and ends single-shot sessions at
+  // brief pauses, so a phone utterance arrives as several fragments across
+  // several sessions. These refs let the phone paths accumulate fragments
+  // and send ONE merged message per utterance (see schedulePhoneTurnSend /
+  // the one-shot mobile sessions below). Desktop paths never touch them.
+  const phoneTurnTimerRef = useRef<number | null>(null);
+  // Bumped whenever a live-mic session is paused/stopped/replaced, so late
+  // callbacks from a dead session can never dispatch a duplicate turn.
+  const listenEpochRef = useRef(0);
+  const oneShotSendTimerRef = useRef<number | null>(null);
+  const oneShotRestartsRef = useRef(0);
+  const oneShotActiveRef = useRef(false);
+  const oneShotFinishRef = useRef(false);
+  // Always-current send/command functions for recognition callbacks: a
+  // recognition object can live across many React renders, and the copies
+  // captured at creation time go stale (the isPending guard read false
+  // forever, sends forked conversations or were dropped). Phone paths call
+  // these refs; desktop paths keep calling the functions directly.
+  const sendMessageRef = useRef<((text: string, fromVoice?: boolean) => Promise<void>) | null>(null);
+  const voiceCommandRef = useRef<((text: string) => boolean) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -274,6 +295,9 @@ export default function ChatPage() {
 
   useEffect(() => () => {
     if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    oneShotActiveRef.current = false;
+    if (oneShotSendTimerRef.current !== null) window.clearTimeout(oneShotSendTimerRef.current);
+    if (phoneTurnTimerRef.current !== null) window.clearTimeout(phoneTurnTimerRef.current);
     recognitionRef.current?.stop();
     // Continuous voice mode cleanup.
     continuousIntendedRef.current = false;
@@ -1021,6 +1045,13 @@ export default function ChatPage() {
     busyRef.current = chatMutation.isPending;
   }, [chatMutation.isPending]);
 
+  // Keep the always-current send/command refs fresh for recognition
+  // callbacks (see the ref declarations at the top of the component).
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+    voiceCommandRef.current = handleVoiceWebsiteCommand;
+  });
+
   function clearSilenceTimer() {
     if (silenceTimerRef.current !== null) {
       window.clearTimeout(silenceTimerRef.current);
@@ -1092,17 +1123,56 @@ export default function ChatPage() {
   // PHONE path: one full turn of the live-mic conversation — the user
   // finished speaking, so send the transcript NOW and let the reply play.
   // Listening resumes when the reply finishes (resumeContinuousAfterTts /
-  // recovery effect). No silence timers: on Android Chrome each recognition
-  // session ends by itself when the user stops talking — that IS the
-  // end-of-turn signal.
+  // recovery effect).
+  //
+  // ROOT-CAUSE FIX (2026-10-21): the old phone handler dispatched a turn on
+  // the FIRST final result of a session. Android Chrome's engine, however,
+  // delivers a single spoken sentence as SEVERAL final results (often one
+  // per phrase, across several auto-ended sessions), so the user's speech
+  // was committed as tiny fragment messages ("اے یونیک", "ہے یونیک", …) and
+  // re-sent cumulatively. Now finals only ACCUMULATE (continuousTextRef);
+  // schedulePhoneTurnSend merges everything and dispatches exactly once
+  // after ~1.4s without a new fragment — a real end-of-utterance signal.
+  function clearPhoneTurnTimer() {
+    if (phoneTurnTimerRef.current !== null) {
+      window.clearTimeout(phoneTurnTimerRef.current);
+      phoneTurnTimerRef.current = null;
+    }
+  }
+
+  function schedulePhoneTurnSend() {
+    clearPhoneTurnTimer();
+    phoneTurnTimerRef.current = window.setTimeout(() => {
+      phoneTurnTimerRef.current = null;
+      // The app got busy/speaking in the meantime (e.g. a typed send) —
+      // wait for the next quiet moment instead of dropping the speech.
+      if (busyRef.current || isSpeakingRef.current || isPreparingVoiceRef.current) {
+        schedulePhoneTurnSend();
+        return;
+      }
+      const text = continuousTextRef.current.trim();
+      continuousTextRef.current = '';
+      if (!text) return;
+      dispatchContinuousTurn(text);
+    }, 1400);
+  }
+
   function dispatchContinuousTurn(text: string) {
     const clean = text.trim();
     if (!clean || !continuousIntendedRef.current) return;
+    // One turn at a time: a late fragment from a dying session must never
+    // stack a second send on top of the turn already being answered.
+    if (turnInFlightRef.current) return;
     turnInFlightRef.current = true;
+    clearPhoneTurnTimer();
     // Pause listening while we send + get the reply, to avoid self-trigger.
     pauseContinuousForTts();
-    const handledAsWebsiteCommand = handleVoiceWebsiteCommand(clean);
-    if (!handledAsWebsiteCommand) void sendMessage(clean, true);
+    const handledAsWebsiteCommand = voiceCommandRef.current
+      ? voiceCommandRef.current(clean)
+      : handleVoiceWebsiteCommand(clean);
+    if (!handledAsWebsiteCommand) {
+      void (sendMessageRef.current ? sendMessageRef.current(clean, true) : sendMessage(clean, true));
+    }
     // If nothing ends up speaking (voice off / error), the recovery effect
     // below restarts listening once the app is idle again.
   }
@@ -1158,6 +1228,10 @@ export default function ChatPage() {
       const recognition = new Recognition();
       recognition.lang = 'ur-PK';
       const mobileTurn = isMobileTurnMode();
+      // Session epoch: callbacks from any older session (stop() is async on
+      // Android — queued results/ends can still fire) are ignored, so one
+      // utterance can never be dispatched twice.
+      const epoch = ++listenEpochRef.current;
       // Phone: TURN-BASED — one utterance per session. Android Chrome
       // handles single-shot recognition reliably, while continuous=true
       // starts/stops by itself on phones (the mic flickering the user
@@ -1166,6 +1240,7 @@ export default function ChatPage() {
       recognition.interimResults = mobileTurn ? false : true;
 
       recognition.onresult = (event) => {
+        if (epoch !== listenEpochRef.current) return; // dead session
         if (!continuousIntendedRef.current) return;
         if (!mobileTurn) {
           // DESKTOP (original flow): accumulate final text, send on silence.
@@ -1184,20 +1259,27 @@ export default function ChatPage() {
           }
           return;
         }
-        // PHONE (turn-based): the final transcript IS the whole turn.
-        let text = '';
-        for (let i = 0; i < event.results.length; i += 1) {
+        // PHONE (turn-based, fixed 2026-10-21): a final result is only a
+        // FRAGMENT of the turn — Android splits one sentence into several
+        // finals. Accumulate from resultIndex (never re-read old results)
+        // and let the debounce in schedulePhoneTurnSend decide when the
+        // utterance is really over. Nothing is sent from here.
+        let gotFinal = false;
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
           const result = event.results[i];
-          if (result?.isFinal) text += `${result[0]?.transcript ?? ''} `;
+          if (result?.isFinal) {
+            continuousTextRef.current += `${result[0]?.transcript ?? ''} `;
+            gotFinal = true;
+          }
         }
-        const clean = text.trim();
-        if (clean) {
-          setVoiceStatus('جواب آ رہا ہے…');
-          dispatchContinuousTurn(clean);
+        if (gotFinal) {
+          setVoiceStatus('سن رہا ہوں…');
+          schedulePhoneTurnSend();
         }
       };
 
       recognition.onerror = (event) => {
+        if (epoch !== listenEpochRef.current) return; // dead session
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           continuousIntendedRef.current = false;
           setContinuousVoice(false);
@@ -1209,8 +1291,15 @@ export default function ChatPage() {
       };
 
       recognition.onend = () => {
-        continuousRecognitionRef.current = null;
-        clearSilenceTimer();
+        if (epoch !== listenEpochRef.current) return; // dead session
+        if (continuousRecognitionRef.current === recognition) {
+          continuousRecognitionRef.current = null;
+        }
+        // Desktop clears its silence timer here (original). The PHONE turn
+        // timer must survive session ends — fragments of one utterance
+        // arrive across several sessions, and clearing it on the first
+        // session end is exactly what used to split them apart.
+        if (!mobileTurn) clearSilenceTimer();
         // Session ended with nothing sent (silence): keep waiting for the
         // user to speak, as long as live mic is on and no turn is in flight.
         // (turnInFlight only ever becomes true on the phone path; on the
@@ -1223,7 +1312,7 @@ export default function ChatPage() {
           !busyRef.current
         ) {
           window.setTimeout(() => {
-            if (continuousIntendedRef.current) startContinuousListening();
+            if (continuousIntendedRef.current && epoch === listenEpochRef.current) startContinuousListening();
           }, 400);
         }
       };
@@ -1241,6 +1330,11 @@ export default function ChatPage() {
     // Stop the mic while the assistant speaks (avoid echo), but keep the
     // *intention* so it resumes afterwards.
     clearSilenceTimer();
+    // Invalidate the current session's late callbacks (stop() is async —
+    // its queued results must not dispatch a duplicate turn). The phone
+    // turn timer is deliberately NOT cleared here: dispatch consumes the
+    // accumulated text before pausing, so the buffer is already empty.
+    listenEpochRef.current += 1;
     const rec = continuousRecognitionRef.current;
     continuousRecognitionRef.current = null;
     if (rec) {
@@ -1262,6 +1356,8 @@ export default function ChatPage() {
     continuousIntendedRef.current = false;
     turnInFlightRef.current = false;
     clearSilenceTimer();
+    clearPhoneTurnTimer();
+    listenEpochRef.current += 1;
     continuousTextRef.current = '';
     const rec = continuousRecognitionRef.current;
     continuousRecognitionRef.current = null;
@@ -1289,8 +1385,163 @@ export default function ChatPage() {
     startContinuousListening();
   }
 
+  // ------------------------------------------------------------------
+  // One-shot mic — PHONE sessions (mobile only, fixed 2026-10-21).
+  // Android Chrome ends a single-shot session at the first brief pause,
+  // so the old code sent whatever fragment had accumulated ("اے یونیک")
+  // as the whole message. Phone sessions now CHAIN: when a session ends
+  // after hearing speech, the mic reopens for the continuation while a
+  // send timer runs; the accumulated text is sent exactly ONCE, as one
+  // message, only when a continuation session hears nothing new (the
+  // user really stopped) or the user taps the mic to finish.
+  // ------------------------------------------------------------------
+  function clearOneShotSendTimer() {
+    if (oneShotSendTimerRef.current !== null) {
+      window.clearTimeout(oneShotSendTimerRef.current);
+      oneShotSendTimerRef.current = null;
+    }
+  }
+
+  function scheduleOneShotSend(delayMs: number) {
+    clearOneShotSendTimer();
+    oneShotSendTimerRef.current = window.setTimeout(() => {
+      oneShotSendTimerRef.current = null;
+      finishOneShotSend();
+    }, delayMs);
+  }
+
+  function finishOneShotSend() {
+    oneShotActiveRef.current = false;
+    oneShotFinishRef.current = false;
+    clearOneShotSendTimer();
+    const rec = recognitionRef.current;
+    recognitionRef.current = null;
+    if (rec) {
+      // Its onend fires but oneShotActiveRef is already false, so it
+      // cannot restart or send a second copy.
+      try { rec.stop(); } catch { /* already stopped */ }
+    }
+    setRecording(false);
+    if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    timerRef.current = null;
+    const recognizedText = recognizedTextRef.current.trim();
+    recognizedTextRef.current = '';
+    if (recognizedText) {
+      const handledAsWebsiteCommand = voiceCommandRef.current
+        ? voiceCommandRef.current(recognizedText)
+        : handleVoiceWebsiteCommand(recognizedText);
+      if (!handledAsWebsiteCommand) {
+        void (sendMessageRef.current ? sendMessageRef.current(recognizedText, true) : sendMessage(recognizedText, true));
+      }
+    }
+  }
+
+  function startOneShotMobileSession() {
+    if (!oneShotActiveRef.current) return;
+    const browserWindow = window as SpeechRecognitionWindow;
+    const Recognition = browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      oneShotActiveRef.current = false;
+      setRecording(false);
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+      timerRef.current = null;
+      setError('اس براؤزر میں مفت آواز پہچاننے کی سہولت دستیاب نہیں۔ براہِ کرم Chrome استعمال کریں یا پیغام لکھیں۔');
+      return;
+    }
+    try {
+      const recognition = new Recognition();
+      recognition.lang = 'ur-PK';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      let sessionGotFinal = false;
+
+      recognition.onresult = (event) => {
+        if (!oneShotActiveRef.current) return;
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          if (result?.isFinal) {
+            recognizedTextRef.current += `${result[0]?.transcript ?? ''} `;
+            sessionGotFinal = true;
+          }
+        }
+        // Fresh speech arrived — the pending merged send (if any) must
+        // wait for this session's end instead of firing mid-utterance.
+        if (sessionGotFinal) clearOneShotSendTimer();
+      };
+
+      recognition.onerror = (event) => {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          oneShotActiveRef.current = false;
+          setError('مائیکروفون کی اجازت دیں، پھر دوبارہ کوشش کریں۔');
+        }
+        // 'no-speech' / 'aborted' are routine on Android (the session
+        // simply timed out) — onend decides what happens next, silently.
+      };
+
+      recognition.onend = () => {
+        if (recognitionRef.current === recognition) recognitionRef.current = null;
+        if (!oneShotActiveRef.current) return;
+        if (oneShotFinishRef.current) {
+          finishOneShotSend();
+          return;
+        }
+        const hasText = recognizedTextRef.current.trim().length > 0;
+        if (!hasText) {
+          // Nothing heard yet: Android kills silent sessions quickly, so
+          // reopen a few times while the user gathers their thought; then
+          // give up quietly (no fragment, no error spam).
+          if (oneShotRestartsRef.current < 8) {
+            oneShotRestartsRef.current += 1;
+            startOneShotMobileSession();
+          } else {
+            oneShotActiveRef.current = false;
+            setRecording(false);
+            if (timerRef.current !== null) window.clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          return;
+        }
+        if (sessionGotFinal && oneShotRestartsRef.current < 8) {
+          // The session heard speech but Android cut it at a pause — the
+          // user may still be mid-sentence. Reopen for the continuation
+          // AND arm the send timer; if the continuation adds a fragment,
+          // onresult clears the timer and the cycle repeats.
+          oneShotRestartsRef.current += 1;
+          scheduleOneShotSend(1800);
+          startOneShotMobileSession();
+          return;
+        }
+        // Continuation heard nothing new (or restarts are exhausted):
+        // the utterance is over — send the merged text once, shortly.
+        scheduleOneShotSend(1200);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      oneShotActiveRef.current = false;
+      setRecording(false);
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+      timerRef.current = null;
+      setError('مائیکروفون شروع نہیں ہو سکا۔ Chrome کی اجازت چیک کریں۔');
+    }
+  }
+
   function toggleRecording() {
     if (recording) {
+      // PHONE: tapping the mic while a chained one-shot is running means
+      // "I'm done" — send the accumulated utterance as ONE message now.
+      if (isMobileTurnMode() && oneShotActiveRef.current) {
+        oneShotFinishRef.current = true;
+        clearOneShotSendTimer();
+        const rec = recognitionRef.current;
+        if (rec) {
+          try { rec.stop(); } catch { /* already stopped */ } // onend sends
+        } else {
+          finishOneShotSend();
+        }
+        return;
+      }
       recognitionRef.current?.stop();
       setRecording(false);
       if (timerRef.current !== null) window.clearInterval(timerRef.current);
@@ -1302,6 +1553,24 @@ export default function ChatPage() {
     // Stop any playing reply before listening — otherwise the mic can pick
     // up the speaker and the two voices overlap.
     stopSpeaking();
+
+    // PHONE start: chained single-shot sessions (see above). Desktop
+    // falls through to the original code below, unchanged.
+    if (isMobileTurnMode()) {
+      recognizedTextRef.current = '';
+      oneShotRestartsRef.current = 0;
+      oneShotFinishRef.current = false;
+      oneShotActiveRef.current = true;
+      setRecording(true);
+      setRecordingSeconds(0);
+      timerRef.current = window.setInterval(
+        () => setRecordingSeconds((seconds) => seconds + 1),
+        1000,
+      );
+      startOneShotMobileSession();
+      return;
+    }
+
     const browserWindow = window as SpeechRecognitionWindow;
     const Recognition = browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition;
 
@@ -1314,9 +1583,8 @@ export default function ChatPage() {
       recognizedTextRef.current = '';
       const recognition = new Recognition();
       recognition.lang = 'ur-PK';
-      // Phone: single-shot (same reason as the live mic — Android Chrome's
-      // continuous mode flickers on/off by itself). Desktop: unchanged.
-      recognition.continuous = !isMobileTurnMode();
+      // Desktop: original continuous flow, unchanged.
+      recognition.continuous = true;
       recognition.interimResults = false;
 
       recognition.onresult = (event) => {
