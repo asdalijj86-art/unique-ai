@@ -160,6 +160,9 @@ export default function ChatPage() {
   // True while a spoken turn is being answered (sent + reply speaking).
   // Blocks the mic from restarting mid-turn; cleared when the app goes idle.
   const turnInFlightRef = useRef(false);
+  // Phone live mic: how many sessions in a row ended without any speech —
+  // drives the restart backoff that stops the mic blinking on/off.
+  const phoneEmptyEndsRef = useRef(0);
   // PHONE mic-fix refs (2026-10-21): Android Chrome's speech engine returns
   // each phrase as a separate "final" and ends single-shot sessions at
   // brief pauses, so a phone utterance arrives as several fragments across
@@ -174,6 +177,9 @@ export default function ChatPage() {
   const oneShotRestartsRef = useRef(0);
   const oneShotActiveRef = useRef(false);
   const oneShotFinishRef = useRef(false);
+  // Latest interim (not-yet-final) transcript of the one-shot mic — the
+  // fallback when Android never delivers a final result for the session.
+  const oneShotInterimRef = useRef('');
   // Always-current send/command functions for recognition callbacks: a
   // recognition object can live across many React renders, and the copies
   // captured at creation time go stale (the isPending guard read false
@@ -393,7 +399,14 @@ export default function ChatPage() {
 
   async function sendMessage(textValue: string, fromVoice = false) {
     const text = textValue.trim();
-    if ((!text && !attachedImage) || chatMutation.isPending) return;
+    if (!text && !attachedImage) return;
+    // Never swallow a send in silence: if a reply is still being fetched,
+    // say so on screen. (This guard used to drop voice messages without a
+    // trace whenever an earlier request was slow or stuck.)
+    if (chatMutation.isPending) {
+      setError('پچھلا جواب ابھی آ رہا ہے — چند لمحے انتظار کریں، پھر دوبارہ بولیں۔');
+      return;
+    }
     // Focus commands work from BOTH typed text and voice: name a thing
     // (نقشہ / WhatsApp / قرآن / ٹولز) and it alone fills the screen.
     if (!attachedImage && handleFocusCommand(text)) return;
@@ -522,7 +535,14 @@ export default function ChatPage() {
         ...item,
         messages: item.messages.filter((m) => m.id !== assistantId),
       }));
-      setError(getErrorMessage(sendError));
+      const failureMessage = getErrorMessage(sendError);
+      // Speak WHY it failed, in Urdu — in hands-free use the user may never
+      // look at the screen, and a silent failure reads as "the app is
+      // dead". The spoken path also resumes the live mic for the next
+      // turn. setError runs after, because playAssistantMessage clears
+      // the error banner on entry.
+      void playAssistantMessage(failureMessage);
+      setError(failureMessage);
     }
   }
 
@@ -1232,6 +1252,7 @@ export default function ChatPage() {
       // Android — queued results/ends can still fire) are ignored, so one
       // utterance can never be dispatched twice.
       const epoch = ++listenEpochRef.current;
+      let sessionGotFinal = false;
       // Phone: TURN-BASED — one utterance per session. Android Chrome
       // handles single-shot recognition reliably, while continuous=true
       // starts/stops by itself on phones (the mic flickering the user
@@ -1273,6 +1294,8 @@ export default function ChatPage() {
           }
         }
         if (gotFinal) {
+          sessionGotFinal = true;
+          phoneEmptyEndsRef.current = 0;
           setVoiceStatus('سن رہا ہوں…');
           schedulePhoneTurnSend();
         }
@@ -1311,9 +1334,22 @@ export default function ChatPage() {
           !isPreparingVoiceRef.current &&
           !busyRef.current
         ) {
+          // PHONE flap guard: Android ends silent single-shot sessions
+          // every few seconds, and restarting instantly makes the mic
+          // blink on/off forever without ever settling (the user's
+          // complaint). While sessions keep ending EMPTY, back the
+          // restart off (up to 3s); real speech resets it to instant.
+          // Desktop keeps its original 400ms restart, untouched.
+          let restartDelay = 400;
+          if (mobileTurn) {
+            if (!sessionGotFinal && !continuousTextRef.current.trim()) {
+              phoneEmptyEndsRef.current += 1;
+            }
+            restartDelay = Math.min(400 + phoneEmptyEndsRef.current * 800, 3000);
+          }
           window.setTimeout(() => {
             if (continuousIntendedRef.current && epoch === listenEpochRef.current) startContinuousListening();
-          }, 400);
+          }, restartDelay);
         }
       };
 
@@ -1355,6 +1391,7 @@ export default function ChatPage() {
   function stopContinuousListening() {
     continuousIntendedRef.current = false;
     turnInFlightRef.current = false;
+    phoneEmptyEndsRef.current = 0;
     clearSilenceTimer();
     clearPhoneTurnTimer();
     listenEpochRef.current += 1;
@@ -1424,8 +1461,12 @@ export default function ChatPage() {
     setRecording(false);
     if (timerRef.current !== null) window.clearInterval(timerRef.current);
     timerRef.current = null;
-    const recognizedText = recognizedTextRef.current.trim();
+    // If no final result ever arrived (Android single-shot sessions can
+    // drop it), fall back to the last interim transcript — the user's
+    // words must not be lost just because the engine never finalized.
+    const recognizedText = recognizedTextRef.current.trim() || oneShotInterimRef.current.trim();
     recognizedTextRef.current = '';
+    oneShotInterimRef.current = '';
     if (recognizedText) {
       const handledAsWebsiteCommand = voiceCommandRef.current
         ? voiceCommandRef.current(recognizedText)
@@ -1452,7 +1493,11 @@ export default function ChatPage() {
       const recognition = new Recognition();
       recognition.lang = 'ur-PK';
       recognition.continuous = false;
-      recognition.interimResults = false;
+      // interimResults ON: on Android the FINAL result of a single-shot
+      // session sometimes arrives after onend — or never — which used to
+      // lose the user's whole utterance. Interim hypotheses are tracked
+      // as a fallback and used only if no final ever lands.
+      recognition.interimResults = true;
       let sessionGotFinal = false;
 
       recognition.onresult = (event) => {
@@ -1461,12 +1506,16 @@ export default function ChatPage() {
           const result = event.results[i];
           if (result?.isFinal) {
             recognizedTextRef.current += `${result[0]?.transcript ?? ''} `;
+            oneShotInterimRef.current = '';
             sessionGotFinal = true;
+          } else if (result) {
+            oneShotInterimRef.current = result[0]?.transcript ?? '';
           }
         }
-        // Fresh speech arrived — the pending merged send (if any) must
-        // wait for this session's end instead of firing mid-utterance.
-        if (sessionGotFinal) clearOneShotSendTimer();
+        // Fresh speech activity (a final OR an interim update) — the
+        // pending merged send (if any) must wait for this session's end
+        // instead of firing mid-utterance.
+        clearOneShotSendTimer();
       };
 
       recognition.onerror = (event) => {
@@ -1485,7 +1534,7 @@ export default function ChatPage() {
           finishOneShotSend();
           return;
         }
-        const hasText = recognizedTextRef.current.trim().length > 0;
+        const hasText = (recognizedTextRef.current.trim() || oneShotInterimRef.current.trim()).length > 0;
         if (!hasText) {
           // Nothing heard yet: Android kills silent sessions quickly, so
           // reopen a few times while the user gathers their thought; then
@@ -1498,6 +1547,12 @@ export default function ChatPage() {
             setRecording(false);
             if (timerRef.current !== null) window.clearInterval(timerRef.current);
             timerRef.current = null;
+            // Never end in total silence: the user spoke, nothing was
+            // heard, and previously NOTHING told him — no message, no
+            // error, no sound. Say it out loud and on screen.
+            const noHearMessage = 'آواز سمجھ نہیں آئی۔ مائیک دوبارہ دبا کر قریب سے بولیں، یا پیغام لکھ کر بھیجیں۔';
+            void playAssistantMessage(noHearMessage);
+            setError(noHearMessage);
           }
           return;
         }
@@ -1558,6 +1613,7 @@ export default function ChatPage() {
     // falls through to the original code below, unchanged.
     if (isMobileTurnMode()) {
       recognizedTextRef.current = '';
+      oneShotInterimRef.current = '';
       oneShotRestartsRef.current = 0;
       oneShotFinishRef.current = false;
       oneShotActiveRef.current = true;

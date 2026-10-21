@@ -40,43 +40,110 @@ export function useSendMairaChatMessage() {
   return useMutation({
     mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void; language?: string } }) => {
       const { onDelta, ...body } = data;
-      const res = await fetch('/api/openai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw { data: errData };
-      }
-      // Streaming mode: read SSE deltas and call onDelta for each
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('text/event-stream') && onDelta) {
-        const reader = res.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let finalData: ChatResponse = { text: '' };
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith('data:')) continue;
-            try {
-              const evt = JSON.parse(trimmed.slice(5).trim());
-              if (evt.delta) onDelta(evt.delta);
-              if (evt.done) {
-                finalData = { text: evt.text || '', ...(evt.multiStep ? { multiStep: true, plan: evt.plan } : {}) };
-              }
-            } catch { /* skip */ }
+
+      // One chat attempt with HARD timeouts. Previously this fetch had no
+      // timeout at all: a stalled upstream left the mutation pending
+      // forever, so the user got no reply, no error, and every later send
+      // was silently swallowed by the isPending guard. A stall watchdog
+      // aborts after 35s without data; an absolute cap aborts at 90s.
+      const chatOnce = async (userApiKey: string | undefined, trackDelta: () => void): Promise<ChatResponse> => {
+        const ctrl = new AbortController();
+        let timedOut = false;
+        let stallTimer: ReturnType<typeof setTimeout> | undefined;
+        const armStall = () => {
+          if (stallTimer) clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, 35000);
+        };
+        const absTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, 90000);
+        armStall();
+        try {
+          const res = await fetch('/api/openai/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...body, ...(userApiKey ? { userApiKey } : {}) }),
+            signal: ctrl.signal,
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw { data: errData };
           }
+          // Streaming mode: read SSE deltas and call onDelta for each
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('text/event-stream') && onDelta) {
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalData: ChatResponse = { text: '' };
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              armStall();
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data:')) continue;
+                try {
+                  const evt = JSON.parse(trimmed.slice(5).trim());
+                  // The server reports a mid-stream failure (e.g. the
+                  // upstream died before any text) as an error event.
+                  if (evt.error) {
+                    throw { data: { error: evt.error, errorType: evt.errorType } };
+                  }
+                  if (evt.delta) { trackDelta(); onDelta(evt.delta); }
+                  if (evt.done) {
+                    finalData = { text: evt.text || '', ...(evt.multiStep ? { multiStep: true, plan: evt.plan } : {}) };
+                  }
+                } catch (e: any) {
+                  if (e?.data) throw e;
+                  /* skip malformed line */
+                }
+              }
+            }
+            return finalData;
+          }
+          return (await res.json()) as ChatResponse;
+        } catch (e: any) {
+          if (timedOut) {
+            throw { data: { error: 'جواب آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔', errorType: 'timeout' } };
+          }
+          throw e;
+        } finally {
+          if (stallTimer) clearTimeout(stallTimer);
+          clearTimeout(absTimer);
         }
-        return finalData;
+      };
+
+      // The user's own keys power the chat too — same rotation scheme as
+      // speech (synthesizeMairaSpeech): start from the active key, and on
+      // quota/auth failure rotate to the next key. Rotation happens ONLY
+      // when no reply text has streamed yet (retrying mid-stream would
+      // duplicate the reply). With no saved keys, a single attempt runs on
+      // the server's env key, exactly as before.
+      const keys = getGeminiKeys();
+      const attempts = keys.length > 0 ? keys : [undefined];
+      const startIdx = keys.length > 0 ? getActiveKeyIndex() % keys.length : 0;
+      let lastErr: any = null;
+      for (let a = 0; a < attempts.length; a++) {
+        const keyIdx = keys.length > 0 ? (startIdx + a) % keys.length : 0;
+        const userApiKey = keys.length > 0 ? keys[keyIdx] : undefined;
+        let gotDelta = false;
+        try {
+          const result = await chatOnce(userApiKey, () => { gotDelta = true; });
+          if (keys.length > 0) setActiveKeyIndex(keyIdx);
+          return result;
+        } catch (e: any) {
+          lastErr = e;
+          const t = e?.data?.errorType;
+          if (keys.length > 1 && !gotDelta && (t === 'quota' || t === 'auth')) {
+            setActiveKeyIndex(keyIdx);
+            continue;
+          }
+          throw e;
+        }
       }
-      return res.json() as Promise<ChatResponse>;
+      throw lastErr || { data: { error: 'پیغام بھیجنے میں مسئلہ ہوا۔ براہِ کرم دوبارہ کوشش کریں۔', errorType: 'unknown' } };
     },
   });
 }

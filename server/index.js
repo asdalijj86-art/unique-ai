@@ -110,11 +110,37 @@ function imageToGeminiPart(dataUrl) {
   return { inlineData: { mimeType: match[1], data: match[3] } };
 }
 
+// Fetch with a hard timeout. Upstream calls (Gemini) can stall for minutes
+// on a bad network path; without an abort signal the request — and the
+// user's app, which waits on it — hangs forever. Every Gemini call in this
+// file goes through here (or an explicit AbortController) so a stall fails
+// FAST with a classifiable error instead.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 25000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Classify a failed Gemini call so the client can explain WHY in Urdu and
+// rotate to the user's next key on quota/auth failures (same scheme as the
+// speech route).
+function geminiErrorType(status, err) {
+  if (err && (err.name === "AbortError" || err.name === "TimeoutError")) return "timeout";
+  if (status === 429) return "quota";
+  if (status === 400 || status === 401 || status === 403) return "auth";
+  if (err) return "network";
+  return "unknown";
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/openai/chat — chat with Gemini (+ smart-brain intent actions)
 // ---------------------------------------------------------------------------
 app.post("/api/openai/chat", async (req, res) => {
-  const { messages, stream, language } = req.body ?? {};
+  const { messages, stream, language, userApiKey } = req.body ?? {};
   if (!validMessages(messages)) {
     res.status(400).json({ error: "پیغام درست نہیں ہے۔ دوبارہ کوشش کریں۔" });
     return;
@@ -126,6 +152,10 @@ app.post("/api/openai/chat", async (req, res) => {
   // Manual language selection (from the UI language chips) overrides auto-detection.
   const lang = ['ur', 'roman', 'en', 'ar'].includes(language) ? language : detectLanguage(latestUserText);
   const { intent } = c;
+  // The user's own key (sent by the app when saved in Settings) takes
+  // priority everywhere in this handler — same rule as the speech route;
+  // the server env key is only a fallback.
+  const chatApiKey = (typeof userApiKey === "string" && userApiKey.trim()) || process.env.GEMINI_API_KEY;
 
   if (intent === "open_website" && c.website) {
     res.json({
@@ -301,11 +331,11 @@ app.post("/api/openai/chat", async (req, res) => {
   }
 
   if (intent === "translate" && c.translate) {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = chatApiKey;
     if (apiKey) {
       try {
         const targetName = c.translate.target === "en" ? "English" : c.translate.target === "ar" ? "Modern Standard Arabic (العربية)" : "Urdu (Perso-Arabic script, NEVER Devanagari)";
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
           {
             method: "POST",
@@ -333,10 +363,10 @@ app.post("/api/openai/chat", async (req, res) => {
   }
 
   if (intent === "youtube_trending") {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = chatApiKey;
     if (apiKey) {
       try {
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
           {
             method: "POST",
@@ -366,11 +396,11 @@ app.post("/api/openai/chat", async (req, res) => {
   if (intent === "read_webpage" && c.url) {
     const page = await fetchPageText(c.url);
     if (page.ok) {
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = chatApiKey;
       if (apiKey) {
         try {
           const langHint = lang === "en" ? "in English" : lang === "roman" ? "in Roman Urdu" : "in Urdu (Perso-Arabic script, never Devanagari)";
-          const response = await fetch(
+          const response = await fetchWithTimeout(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
             {
               method: "POST",
@@ -431,9 +461,9 @@ app.post("/api/openai/chat", async (req, res) => {
   }
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = chatApiKey;
     if (!apiKey) {
-      res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+      res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔", errorType: "auth" });
       return;
     }
 
@@ -470,21 +500,44 @@ app.post("/api/openai/chat", async (req, res) => {
 
     // STREAMING MODE: pipe Gemini's SSE stream to the client for instant word-by-word display
     if (stream) {
-      const streamResponse = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify(requestBody),
-        }
-      );
-      if (!streamResponse.ok) {
+      // Hard timeouts: 25s for the upstream to start responding, then a
+      // 30s stall watchdog while the body streams. Without these, a
+      // stalled upstream leaves this request — and the user's app —
+      // hanging forever with no reply and no error.
+      const ctrl = new AbortController();
+      const headerTimer = setTimeout(() => ctrl.abort(), 25000);
+      let streamResponse;
+      try {
+        streamResponse = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey,
+            },
+            body: JSON.stringify(requestBody),
+            signal: ctrl.signal,
+          }
+        );
+      } catch (fetchErr) {
+        clearTimeout(headerTimer);
+        const errorType = geminiErrorType(undefined, fetchErr);
+        console.error("Gemini stream request failed", fetchErr);
+        res.status(502).json({
+          error: errorType === "timeout"
+            ? "جواب آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔"
+            : "Gemini AI سروس سے رابطہ نہیں ہو سکا۔ انٹرنیٹ اور API کی دستیابی چیک کریں۔",
+          errorType,
+        });
+        return;
+      }
+      clearTimeout(headerTimer);
+      if (!streamResponse.ok || !streamResponse.body) {
         console.error("Gemini stream request failed", { status: streamResponse.status });
         res.status(502).json({
           error: "Gemini AI ابھی جواب نہیں دے سکی۔ API key، انٹرنیٹ اور API کی دستیابی چیک کریں۔",
+          errorType: geminiErrorType(streamResponse.status),
         });
         return;
       }
@@ -497,10 +550,14 @@ app.post("/api/openai/chat", async (req, res) => {
       const reader = streamResponse.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let streamError = null;
+      let stallTimer = setTimeout(() => ctrl.abort(), 30000);
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => ctrl.abort(), 30000);
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
@@ -522,9 +579,26 @@ app.post("/api/openai/chat", async (req, res) => {
           }
         }
       } catch (streamErr) {
+        streamError = streamErr;
         console.error("Gemini stream read failed", streamErr);
+      } finally {
+        clearTimeout(stallTimer);
       }
       fullText = fullText.trim();
+      if (streamError && !fullText) {
+        // The stream died before a single word arrived — tell the client
+        // WHY over the SSE channel (it renders and speaks this) instead of
+        // ending with an empty "done".
+        const errorType = geminiErrorType(undefined, streamError);
+        res.write(`data: ${JSON.stringify({
+          error: errorType === "timeout"
+            ? "جواب آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔"
+            : "جواب ادھورا رہ گیا۔ دوبارہ کوشش کریں۔",
+          errorType,
+        })}\n\n`);
+        res.end();
+        return;
+      }
       // Send final metadata (plan extraction for multi-step)
       let plan;
       if (multiStep && fullText) {
@@ -541,7 +615,7 @@ app.post("/api/openai/chat", async (req, res) => {
       return;
     }
 
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
       {
         method: "POST",
@@ -550,13 +624,15 @@ app.post("/api/openai/chat", async (req, res) => {
           "x-goog-api-key": apiKey,
         },
         body: JSON.stringify(requestBody),
-      }
+      },
+      30000
     );
 
     if (!response.ok) {
       console.error("Gemini request failed", { status: response.status });
       res.status(502).json({
         error: "Gemini AI ابھی جواب نہیں دے سکی۔ API key، انٹرنیٹ اور API کی دستیابی چیک کریں۔",
+        errorType: geminiErrorType(response.status),
       });
       return;
     }
@@ -589,8 +665,12 @@ app.post("/api/openai/chat", async (req, res) => {
     res.json(plan ? { text, multiStep: true, plan } : { text });
   } catch (err) {
     console.error("Unique AI chat request failed", err);
+    const errorType = geminiErrorType(undefined, err);
     res.status(502).json({
-      error: "Gemini AI سروس سے رابطہ نہیں ہو سکا۔ انٹرنیٹ اور API کی دستیابی چیک کریں۔",
+      error: errorType === "timeout"
+        ? "جواب آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔"
+        : "Gemini AI سروس سے رابطہ نہیں ہو سکا۔ انٹرنیٹ اور API کی دستیابی چیک کریں۔",
+      errorType,
     });
   }
 });
@@ -964,7 +1044,7 @@ app.post("/api/transcribe", async (req, res) => {
     return;
   }
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
       {
         method: "POST",
