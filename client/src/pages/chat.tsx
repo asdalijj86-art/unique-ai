@@ -143,6 +143,10 @@ export default function ChatPage() {
   // Focus mode (user's simple-display vision): name a thing — "نقشہ دکھاؤ",
   // "WhatsApp کھولو" — and ONLY that thing fills the screen until واپس.
   const [focusView, setFocusView] = useState<null | 'map' | 'whatsapp' | 'quran' | 'tools'>(null);
+  // Bumped each time a voice command asks to HEAR the Quran («تلاوت سناؤ»):
+  // opening the reader alone was silent — the bump tells QuranReader to
+  // open Surah Al-Fatiha and start speaking its translation right away.
+  const [quranAutoplay, setQuranAutoplay] = useState(0);
   const [toolPrefill, setToolPrefill] = useState<{ phone?: string } | null>(null);
   // Continuous voice mode (hands-free): listen -> auto-send on silence -> auto-speak reply.
   const [continuousVoice, setContinuousVoice] = useState(false);
@@ -624,17 +628,27 @@ export default function ChatPage() {
       playAssistantMessage(msg);
       return true;
     }
-    const hasVerb = /(دکھا|دکھاؤ|کھول|کھولو|show|open|چاہیے|لگاؤ|بتاؤ)/i.test(recognizedText);
+    const hasVerb = /(دکھا|دکھاؤ|کھول|کھولو|اوپن|کرو|کر دو|show|open|چاہیے|لگاؤ|بتاؤ)/i.test(recognizedText);
     const isShort = recognizedText.trim().split(/\s+/).length <= 6;
+    // A no-verb QUESTION about a thing («ٹول باکس میں کیا ہوتا ہے») is a
+    // chat question for Gemini, not a command to open that thing.
+    const isQuestion = /(کیا|کیوں|کب|کہاں|کیسے)/.test(recognizedText);
+    // "Recite for me" — the user asked to HEAR the Quran, so merely opening
+    // the reader is not enough; QuranReader auto-plays on the bump below.
+    const wantsRecite = /(سناؤ|تلاوت|پڑھو|سننا|recite|listen)/i.test(recognizedText);
     const focusTargets: Array<[RegExp, 'map' | 'whatsapp' | 'quran' | 'tools', string, string]> = [
       [/(نقشہ|نقشے|\bmap\b)/i, 'map', '🗺️ نقشہ', '🗺️ نقشہ سامنے ہے — جگہ تلاش کریں یا راستہ دیکھیں۔ واپس آنے کے لیے «واپس» کہیں یا ✕ دبائیں۔'],
       [/(واٹس ایپ|واٹس‌ایپ|whatsapp)/i, 'whatsapp', '💬 WhatsApp', '💬 WhatsApp سامنے ہے — نمبر اور پیغام لکھ کر بھیجیں۔ واپس آنے کے لیے «واپس» کہیں۔'],
       [/(قرآن|quran)/i, 'quran', '📖 قرآن پاک', '📖 قرآن پاک سامنے ہے — سورت منتخب کریں۔ واپس آنے کے لیے «واپس» کہیں۔'],
-      [/(ٹولز|\btools\b)/i, 'tools', '🧰 ٹولز', '🧰 سارے ٹولز سامنے ہیں — جو چاہیے منتخب کریں۔ واپس آنے کے لیے «واپس» کہیں۔'],
+      [/(ٹولز|ٹول باکس|\btools\b|\btoolbox\b|tool\s*box)/i, 'tools', '🧰 ٹولز', '🧰 سارے ٹولز سامنے ہیں — جو چاہیے منتخب کریں۔ واپس آنے کے لیے «واپس» کہیں۔'],
     ];
     for (const [pattern, view, , reply] of focusTargets) {
-      if (pattern.test(recognizedText) && (hasVerb || isShort)) {
+      const gateOk = hasVerb || (isShort && !isQuestion) || (view === 'quran' && wantsRecite);
+      if (pattern.test(recognizedText) && gateOk) {
         setFocusView(view);
+        if (view === 'quran' && wantsRecite) {
+          setQuranAutoplay((n) => n + 1);
+        }
         appendWebsiteCommandExchange(recognizedText, reply);
         playAssistantMessage(reply);
         return true;
@@ -658,31 +672,25 @@ export default function ChatPage() {
 
   function pickUrduMaleVoice(): SpeechSynthesisVoice | undefined {
     const voices = window.speechSynthesis.getVoices();
-    // STRICT rule (user demand): NEVER a female voice. Any voice whose name
-    // suggests female is excluded at every step — better silence + error
-    // than a female voice.
-    const isFemaleName = (name: string) => {
-      const n = name.toLowerCase();
-      return n.includes('female') || n.includes('uzma') || n.includes('woman') || n.includes('girl') || n.includes('zira') || n.includes('samantha') || n.includes('veena');
+    // ABSOLUTE rule (user demand): NEVER a female voice. A browser voice is
+    // used ONLY when its name EXPLICITLY signals male — on Samsung devices
+    // the first Urdu voice is Google's FEMALE Urdu voice with NO female
+    // marker in its name, so "not obviously female" is not good enough and
+    // positional fallbacks (first Urdu/Hindi/any voice) kept letting her
+    // speak. No explicit male marker → return undefined: silence + an
+    // on-screen Urdu reason is correct, a female voice never is.
+    const isExplicitMale = (v: SpeechSynthesisVoice) => {
+      const n = v.name.toLowerCase();
+      return n.includes('male') || n.includes('asad') || n.includes('salim');
     };
-    const notFemale = (v: SpeechSynthesisVoice) => !isFemaleName(v.name);
-    const urduVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('ur') && notFemale(v));
-    const maleUrdu = urduVoices.find((v) => {
-      const name = v.name.toLowerCase();
-      return name.includes('male') || name.includes('asad');
-    });
-    if (maleUrdu) return maleUrdu;
-    if (urduVoices[0]) return urduVoices[0];
-    // Fallback: Hindi voices are very commonly installed on Pakistani devices
-    // and Hindi/Urdu are mutually intelligible when spoken — still no female.
-    const hindi = voices.filter((v) => v.lang.toLowerCase().startsWith('hi') && notFemale(v));
-    if (hindi[0]) return hindi[0];
-    // Last resort: any non-female voice (deepened pitch below).
-    const anyNonFemale = voices.filter(notFemale);
-    if (anyNonFemale[0]) return anyNonFemale[0];
-    // No usable male/neutral voice — return undefined so caller errors out
-    // instead of playing a female voice.
-    return undefined;
+    const maleVoices = voices.filter(isExplicitMale);
+    // Language preference among explicitly-male voices only: Urdu first,
+    // then Hindi, then any language.
+    return (
+      maleVoices.find((v) => v.lang.toLowerCase().startsWith('ur')) ||
+      maleVoices.find((v) => v.lang.toLowerCase().startsWith('hi')) ||
+      maleVoices[0]
+    );
   }
 
   async function speakNow(text: string) {
@@ -767,15 +775,12 @@ export default function ChatPage() {
       setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
       return;
     }
-    // Don't play garbage: only use browser TTS if there's a usable
-    // Urdu/Hindi voice. Otherwise show a clear error instead of
-    // buzzing/distorted audio.
+    // Don't play garbage: only use browser TTS when an EXPLICITLY male
+    // voice exists (the same strict picker speakNow uses). If voices are
+    // loaded and none qualifies, show the reason and stay silent — the
+    // device default voice (often female) must never speak.
     const voices = window.speechSynthesis.getVoices();
-    const usable = voices.some((v) => {
-      const lang = v.lang.toLowerCase();
-      return lang.startsWith('ur') || lang.startsWith('hi');
-    });
-    if (voices.length > 0 && !usable) {
+    if (voices.length > 0 && !pickUrduMaleVoice()) {
       setError('مردانہ آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اردو آواز انسٹال نہیں۔ Settings میں key دوبارہ چیک کریں۔');
       setIsPreparingVoice(false);
       setIsSpeaking(false);
@@ -873,7 +878,7 @@ export default function ChatPage() {
   // failures of BOTH server options, marks server TTS as down for the
   // session (browser voice used).
   // Returns null on timeout or failure (caller falls back to browser voice).
-  function synthesizeWithTimeout(text: string, timeoutMs = 20000): Promise<{ audioBase64: string; mimeType: string } | null> {
+  function synthesizeWithTimeout(text: string, timeoutMs = 12000): Promise<{ audioBase64: string; mimeType: string } | null> {
     // Keys changed since the last attempt? Forget any earlier "TTS down"
     // verdict and try fresh — the new keys may work even if the old failed.
     try {
@@ -915,6 +920,14 @@ export default function ChatPage() {
         setError(reasonMsg);
         // Male voice selected (Charon/Fenrir): NEVER fall back to the female
         // Google voice — user explicitly demanded male voice only.
+        // Quota/auth failures are DEFINITIVE (the server classifies them
+        // only after every saved key has answered dead): stop trying server
+        // TTS for the rest of the session immediately instead of burning
+        // more slow attempts on the next replies too.
+        if (errorType === 'quota' || errorType === 'auth') {
+          serverTtsDownRef.current = true;
+          return null;
+        }
         // Count the failure and return null (browser TTS with male settings
         // will be tried by the caller).
         serverTtsFailsRef.current += 1;
@@ -2045,7 +2058,7 @@ export default function ChatPage() {
           <div className="focus-view-body">
             {focusView === 'map' && <MapWidget />}
             {focusView === 'whatsapp' && <WhatsAppSender />}
-            {focusView === 'quran' && <QuranReader />}
+            {focusView === 'quran' && <QuranReader autoplaySignal={quranAutoplay} />}
             {focusView === 'tools' && (
               <ToolsPanel
                 onSelect={(tool) => { setFocusView(null); setMediaTool(tool); }}

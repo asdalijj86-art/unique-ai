@@ -1426,7 +1426,7 @@ app.post("/api/tts/test-key", async (req, res) => {
   try {
     // Hard timeout: a hung upstream must fail fast, never spin forever.
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 20000);
+    const timer = setTimeout(() => ctrl.abort(), 12000);
     let testRes;
     try {
       testRes = await fetch(
@@ -1491,13 +1491,17 @@ app.post("/api/openai/speech", async (req, res) => {
   // is shortened.
   const ttsText = text.slice(0, 2000);
 
-  // The upstream call can fail intermittently, so retry a few times before
-  // giving up — this keeps the masculine voice consistent instead of
-  // falling back to the device voice.
-  let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  // Fail FAST and classify: every attempt goes through fetchWithTimeout
+  // (12s hard cap). HTTP error statuses are NEVER retried — a 429 (quota)
+  // or 400/401/403 (auth) answer will not change by asking again, and
+  // retrying only delays the client, which then rotates to the user's
+  // next key. Only a network/timeout failure earns ONE retry (2 attempts
+  // total). The classified errorType lets the client explain WHY in Urdu.
+  let lastErrorType = "unknown";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let response;
     try {
-      const response = await fetch(
+      response = await fetchWithTimeout(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent",
         {
           method: "POST",
@@ -1514,47 +1518,49 @@ app.post("/api/openai/speech", async (req, res) => {
               },
             },
           }),
-        }
+        },
+        12000
       );
-      if (!response.ok) {
-        const errBody = await response.text().catch(() => "");
-        // Don't retry on 429 (quota exhausted) — retries just burn more quota.
-        if (response.status === 429) {
-          throw new Error(
-            `Gemini TTS HTTP 429 (quota exhausted, no retry): ${errBody.slice(0, 200)}`
-          );
-        }
-        throw new Error(`Gemini TTS HTTP ${response.status}: ${errBody.slice(0, 300)}`);
-      }
-      const result = await response.json();
-      const pcmBase64 = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!pcmBase64) {
-        throw new Error("Gemini TTS returned no audio");
-      }
-      res.json({
-        audioBase64: pcmToWavBase64(pcmBase64),
-        mimeType: "audio/wav",
+    } catch (err) {
+      // Stall/network failure — classifiable, and worth exactly one retry.
+      lastErrorType = geminiErrorType(null, err);
+      console.warn("Unique AI speech attempt failed", { attempt, err: String(err) });
+      continue;
+    }
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => "");
+      const errorType = geminiErrorType(response.status);
+      console.error("Unique AI speech generation failed", {
+        status: response.status,
+        errorType,
+        detail: errBody.slice(0, 200),
+      });
+      res.status(502).json({
+        error: "آواز تیار نہیں ہو سکی۔ براہِ کرم دوبارہ کوشش کریں۔",
+        errorType,
       });
       return;
-    } catch (err) {
-      lastError = err;
-      console.warn("Unique AI speech attempt failed, retrying", { attempt, err: String(err) });
-      if (attempt < 3) {
-        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
-      }
     }
+    const result = await response.json().catch(() => null);
+    const pcmBase64 = result?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!pcmBase64) {
+      console.error("Unique AI speech generation failed: Gemini TTS returned no audio");
+      res.status(502).json({
+        error: "آواز تیار نہیں ہو سکی۔ براہِ کرم دوبارہ کوشش کریں۔",
+        errorType: "unknown",
+      });
+      return;
+    }
+    res.json({
+      audioBase64: pcmToWavBase64(pcmBase64),
+      mimeType: "audio/wav",
+    });
+    return;
   }
-  console.error("Unique AI speech generation failed after retries", lastError);
-  // Classify the failure so the client can explain WHY the male voice stopped
-  // instead of silently switching to the female backup voice.
-  const errStr = String(lastError && lastError.message || lastError || "");
-  let errorType = "unknown";
-  if (/429/.test(errStr)) errorType = "quota";
-  else if (/40[013]/.test(errStr)) errorType = "auth";
-  else if (/timeout|ETIMEDOUT|ENOTFOUND|ECONN|fetch failed/i.test(errStr)) errorType = "network";
+  console.error("Unique AI speech generation failed after retries", { errorType: lastErrorType });
   res.status(502).json({
     error: "آواز تیار نہیں ہو سکی۔ براہِ کرم دوبارہ کوشش کریں۔",
-    errorType,
+    errorType: lastErrorType,
   });
 });
 

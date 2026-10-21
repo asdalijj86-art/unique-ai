@@ -140,12 +140,15 @@ function ApiKeySetting() {
         return;
       }
       setTesting(true);
+      setTestMsg(`${keys.length} keys چیک ہو رہی ہیں…`);
+      // Test all keys IN PARALLEL — sequential testing made the user wait
+      // out each key's full round-trip (up to ~12s apiece) one by one.
+      // Result labels and their Key 1/2/3 order are unchanged.
+      const results = await Promise.all(keys.map((k) => testGeminiKey(k).catch(() => null)));
       let okCount = 0;
       let firstOkIdx = -1;
       const perKey: string[] = [];
-      for (let i = 0; i < keys.length; i++) {
-        setTestMsg(`Key ${i + 1}/${keys.length} چیک ہو رہی ہے…`);
-        const result = await testGeminiKey(keys[i]).catch(() => null);
+      results.forEach((result, i) => {
         if (result?.ok) {
           okCount++;
           if (firstOkIdx < 0) firstOkIdx = i;
@@ -157,7 +160,7 @@ function ApiKeySetting() {
         } else {
           perKey.push(`Key ${i + 1}: ❓ چیک نہ ہو سکی`);
         }
-      }
+      });
       setTesting(false);
       localStorage.setItem('unique-ai-gemini-key', keys.join('\n'));
       // Start rotation at the first key that actually WORKED in the test

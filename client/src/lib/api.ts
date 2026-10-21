@@ -203,20 +203,47 @@ export function getActiveGeminiKey(): string | undefined {
  * rotation to the next key when one hits quota.
  * Sends the user's selected voice (Charon/Fenrir) from settings.
  */
+// Session dead-key memory: once a key answers quota/auth it is dead for
+// the rest of the session — re-asking it on every reply burned several
+// slow server attempts before the voice arrived (or never did). Dead keys
+// are skipped with NO network call. The memory is forgotten the moment
+// the saved key list itself changes (a fresh paste gets a fresh chance).
+const deadTtsKeys = new Set<string>();
+let deadTtsKeysFingerprint: string | null = null;
+
+function refreshDeadTtsKeys(keys: string[]) {
+  const fp = keys.join('|');
+  if (deadTtsKeysFingerprint !== fp) {
+    deadTtsKeysFingerprint = fp;
+    deadTtsKeys.clear();
+  }
+}
+
 export async function synthesizeMairaSpeech({ text }: { text: string }) {
   const voiceName = (() => {
     try { return localStorage.getItem('unique-ai-voice') || 'Charon'; }
     catch { return 'Charon'; }
   })();
   const keys = getGeminiKeys();
+  refreshDeadTtsKeys(keys);
   const attempts = keys.length > 0 ? keys : [undefined];
   let lastErr: any = null;
   const startIdx = keys.length > 0 ? getActiveKeyIndex() % keys.length : 0;
   for (let a = 0; a < attempts.length; a++) {
     const keyIdx = keys.length > 0 ? (startIdx + a) % keys.length : 0;
     const userApiKey = keys.length > 0 ? keys[keyIdx] : undefined;
+    // Known-dead this session — skip instantly, no network call at all.
+    if (userApiKey && deadTtsKeys.has(userApiKey)) {
+      lastErr = { data: { errorType: 'quota' } };
+      continue;
+    }
+    // Hard 15s cap per key attempt: a stalled speech request must fail as
+    // a classifiable timeout, never hang the voice pipeline.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    let res: Response;
     try {
-      const res = await fetch('/api/openai/speech', {
+      res = await fetch('/api/openai/speech', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -224,27 +251,35 @@ export async function synthesizeMairaSpeech({ text }: { text: string }) {
           voiceName,
           ...(userApiKey ? { userApiKey } : {}),
         }),
+        signal: ctrl.signal,
       });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        // Quota/auth failure → rotate to the next key and retry.
-        if (keys.length > 1 && (errData?.errorType === 'quota' || errData?.errorType === 'auth')) {
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
+        throw { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
+      }
+      // Network failure — rotating keys cannot fix the network; fail now.
+      throw e;
+    }
+    clearTimeout(timer);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const t = errData?.errorType;
+      // Rotate to the next key ONLY on quota/auth — and remember this key
+      // as dead so later replies don't waste time asking it again.
+      if (t === 'quota' || t === 'auth') {
+        if (userApiKey) deadTtsKeys.add(userApiKey);
+        if (keys.length > 1) {
           setActiveKeyIndex(keyIdx);
           lastErr = { data: errData };
           continue;
         }
-        throw { data: errData };
       }
-      // Success — remember this key as the active one.
-      if (keys.length > 0) setActiveKeyIndex(keyIdx);
-      return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
-    } catch (e: any) {
-      if (e?.data) {
-        lastErr = e;
-        if (keys.length > 1) continue;
-      }
-      throw e;
+      throw { data: errData };
     }
+    // Success — remember this key as the active one.
+    if (keys.length > 0) setActiveKeyIndex(keyIdx);
+    return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
   }
   throw lastErr || { data: { errorType: 'quota' } };
 }

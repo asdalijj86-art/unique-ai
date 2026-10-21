@@ -67,7 +67,7 @@ const SURAH_ALIASES: Record<number, string[]> = {
 
 const BISMILLAH = 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ';
 
-export default function QuranReader() {
+export default function QuranReader({ autoplaySignal }: { autoplaySignal?: number } = {}) {
   const [surahs, setSurahs] = useState<SurahMeta[] | null>(null);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<SurahDetail | null>(null);
@@ -102,24 +102,52 @@ export default function QuranReader() {
     setTtsBusy(false);
   }
 
-  async function playUrdu(text: string): Promise<boolean> {
-    try {
-      const { audioBase64, mimeType } = await synthesizeMairaSpeech({ text });
-      if (stopAllRef.current) return false;
-      const bytes = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
-      const url = URL.createObjectURL(blob);
-      return await new Promise<boolean>((resolve) => {
-        const audio = new Audio(url);
-        audio.playbackRate = 1.0; // natural pace for Quran translation
-        audioRef.current = audio;
-        audio.onended = () => { URL.revokeObjectURL(url); resolve(!stopAllRef.current); };
-        audio.onerror = () => { URL.revokeObjectURL(url); resolve(false); };
-        audio.play().catch(() => resolve(false));
-      });
-    } catch {
-      return false;
+  // Explain WHY the voice failed, in Urdu, from the server's classified
+  // errorType — a silent failure left the user staring at a mute reader.
+  function ttsErrorMessage(errorType?: string): string {
+    switch (errorType) {
+      case 'quota':
+        return '⚠️ آواز کی key کا آج کا کوٹہ ختم ہے — کل دوبارہ کوشش کریں یا نئی key لگائیں۔';
+      case 'auth':
+        return '⚠️ Gemini key میں مسئلہ ہے — Settings میں key چیک کریں۔';
+      case 'timeout':
+      case 'network':
+        return '⚠️ نیٹ سست ہے — آواز نہیں بن سکی، دوبارہ کوشش کریں۔';
+      default:
+        return 'آواز نہیں چل سکی۔';
     }
+  }
+
+  async function playUrdu(text: string): Promise<{ ok: boolean; errorType?: string }> {
+    let result: { audioBase64: string; mimeType: string };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // Hard 15s cap: a stalled synthesis must surface as a timeout with a
+      // reason, never as endless silence.
+      result = await Promise.race([
+        synthesizeMairaSpeech({ text }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject({ data: { errorType: 'timeout' } }), 15000);
+        }),
+      ]);
+    } catch (e: any) {
+      return { ok: false, errorType: e?.data?.errorType || 'unknown' };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (stopAllRef.current) return { ok: false };
+    const { audioBase64, mimeType } = result;
+    const bytes = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    return await new Promise<{ ok: boolean; errorType?: string }>((resolve) => {
+      const audio = new Audio(url);
+      audio.playbackRate = 1.0; // natural pace for Quran translation
+      audioRef.current = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); resolve({ ok: !stopAllRef.current }); };
+      audio.onerror = () => { URL.revokeObjectURL(url); resolve({ ok: false }); };
+      audio.play().catch(() => resolve({ ok: false }));
+    });
   }
 
   async function speakAyah(ayah: Ayah) {
@@ -128,32 +156,37 @@ export default function QuranReader() {
     stopAllRef.current = false;
     setTtsBusy(true);
     setSpeakingAyah(ayah.numberInSurah);
-    const ok = await playUrdu(ayah.urdu);
-    if (!ok) setError('آواز نہیں چل سکی۔');
+    const r = await playUrdu(ayah.urdu);
+    if (!r.ok && !stopAllRef.current) setError(ttsErrorMessage(r.errorType));
     setSpeakingAyah(null);
     setTtsBusy(false);
   }
 
-  async function speakWholeSurah() {
-    if (!selected) return;
+  async function speakWholeSurah(surah?: SurahDetail) {
+    const target = surah && Array.isArray(surah.ayahs) ? surah : selected;
+    if (!target) return;
     if (speakingAll) { stopAudio(); return; }
     stopAudio();
     stopAllRef.current = false;
     setSpeakingAll(true);
     setTtsBusy(true);
-    // Speak each ayah's Urdu translation in order
-    for (const ayah of selected.ayahs) {
+    // Speak each ayah's Urdu translation in order. On failure, SAY WHY
+    // (classified reason) instead of breaking in silence.
+    for (const ayah of target.ayahs) {
       if (stopAllRef.current) break;
       setSpeakingAyah(ayah.numberInSurah);
-      const ok = await playUrdu(ayah.urdu);
-      if (!ok) break;
+      const r = await playUrdu(ayah.urdu);
+      if (!r.ok) {
+        if (!stopAllRef.current) setError(ttsErrorMessage(r.errorType));
+        break;
+      }
     }
     setSpeakingAyah(null);
     setSpeakingAll(false);
     setTtsBusy(false);
   }
 
-  async function openSurah(n: number) {
+  async function openSurah(n: number): Promise<SurahDetail | null> {
     stopAudio();
     setLoadingSurah(true);
     setError('');
@@ -162,12 +195,37 @@ export default function QuranReader() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'error');
       setSelected(data);
+      return data as SurahDetail;
     } catch {
       setError('سورۃ نہیں کھل سکی۔ دوبارہ کوشش کریں۔');
+      return null;
     } finally {
       setLoadingSurah(false);
     }
   }
+
+  // Voice-command autoplay («مجھے قرآن پاک کی تلاوت سناؤ»): the chat bumps
+  // autoplaySignal when a recite command opens this reader. Open Surah
+  // Al-Fatiha and speak its translation right away — opening in silence
+  // was the bug. Guarded so a signal can never start two recitations.
+  const autoplaySeenRef = useRef(0);
+  const autoplayingRef = useRef(false);
+  useEffect(() => {
+    if (!autoplaySignal || autoplaySignal <= autoplaySeenRef.current) return;
+    autoplaySeenRef.current = autoplaySignal;
+    if (autoplayingRef.current) return;
+    autoplayingRef.current = true;
+    (async () => {
+      try {
+        const detail = await openSurah(1);
+        // speakWholeSurah resets stopAllRef itself after its stopAudio().
+        if (detail) await speakWholeSurah(detail);
+      } finally {
+        autoplayingRef.current = false;
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoplaySignal]);
 
   const filtered = useMemo(() => {
     if (!surahs) return [];
@@ -199,7 +257,7 @@ export default function QuranReader() {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <ArrowRight size={14} /> فہرست
           </button>
-          <button type="button" className="tool-action-button" onClick={speakWholeSurah} disabled={ttsBusy && !speakingAll}
+          <button type="button" className="tool-action-button" onClick={() => speakWholeSurah()} disabled={ttsBusy && !speakingAll}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {speakingAll ? <><Square size={14} /> روکیں</> : <><ListMusic size={14} /> پوری سورۃ سناؤ (ترجمہ)</>}
           </button>
