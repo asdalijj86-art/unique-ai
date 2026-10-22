@@ -9,6 +9,11 @@
  *     >= 2 novel words, >= 34% novel vs the text being spoken; fast path
  *     for a >= 4-word >= 50%-novel FINAL; candidate decays after a
  *     > 1200ms result gap),
+ *   - the STOP-PHRASE fast path («رک جاؤ» / «رکو» / «بس کرو» / "bas
+ *     karo" / "stop" ...): an utterance consisting of / dominated by a
+ *     stop command interrupts IMMEDIATELY — no sustain, no word count,
+ *     no novelty — unless the phrase is literally part of the text
+ *     being spoken (speaker echo guard),
  *   - ADOPTION of the detecting recognition as the capture session
  *     (finals seeded, phone send debounce 1400ms, dispatch exactly once),
  *   - the bounded restart / unavailable policy (4 empty ends or a
@@ -53,6 +58,41 @@ function normalizeSpeechWords(text) {
   return text.toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, ' ').split(/\s+/).filter(Boolean);
 }
 
+// ---- stop phrases (mirrored from chat.tsx) -----------------------------------
+const STOP_PHRASES = [
+  ['خاموش', 'ہو', 'جاؤ'],
+  ['رک', 'جاؤ'], ['بس', 'کرو'], ['چپ', 'کرو'],
+  ['ruk', 'jao'], ['bas', 'karo'], ['stop', 'it'],
+  ['رکو'], ['رک'], ['بس'],
+  ['ruko'], ['ruk'], ['bas'], ['stop'],
+];
+
+function matchStopPhrase(words) {
+  if (!words.length || words.length > 4) return null;
+  for (const phrase of STOP_PHRASES) {
+    if (phrase.length > words.length) continue;
+    const start = words.length - phrase.length;
+    if (start > 1) continue;
+    if (phrase.length * 2 < words.length) continue;
+    let ok = true;
+    for (let i = 0; i < phrase.length; i += 1) {
+      if (words[start + i] !== phrase[i]) { ok = false; break; }
+    }
+    if (ok) return phrase;
+  }
+  return null;
+}
+
+function wordsContainPhrase(words, phrase) {
+  outer: for (let s = 0; s + phrase.length <= words.length; s += 1) {
+    for (let i = 0; i < phrase.length; i += 1) {
+      if (words[s + i] !== phrase[i]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
 // ---- the miniature engine ----------------------------------------------------
 function makeWorld({ recognitionAvailable = true } = {}) {
   const W = {
@@ -80,6 +120,8 @@ function makeWorld({ recognitionAvailable = true } = {}) {
     turnBuffer: '',
     sendTimer: null,
     captureFinals: [], // finals arriving after adoption
+    stopPhraseAt: null, // when the stop-phrase fast path fired
+    stopPhrase: '',
   };
 
   function playChunk(chunk, ticket) {
@@ -175,6 +217,18 @@ function makeWorld({ recognitionAvailable = true } = {}) {
     c.text = heard; c.finals = heardFinals;
     if (!c.firstAt) c.firstAt = now;
     c.lastAt = now;
+    // STOP-PHRASE FAST PATH (mirrors chat.tsx): immediate interrupt —
+    // no sustain / word count / novelty — unless the phrase is part of
+    // the text being spoken (echo guard). No adoption: a stop command
+    // is not a new turn.
+    const stopPhrase = matchStopPhrase(normalizeSpeechWords(c.text));
+    if (stopPhrase
+      && !wordsContainPhrase(normalizeSpeechWords(W.currentSpeechText), stopPhrase)) {
+      W.stopPhraseAt = now;
+      W.stopPhrase = stopPhrase.join(' ');
+      interruptSpeech();
+      return;
+    }
     const words = normalizeSpeechWords(c.text);
     if (words.length < BARGE_MIN_WORDS) return;
     const spoken = new Set(normalizeSpeechWords(W.currentSpeechText));
@@ -399,6 +453,71 @@ async function scenario7() {
   check('reply still completed', (await done) === 'completed');
 }
 
+// ---- Scenario 8: stop phrase «رک جاؤ» alone — instant stop --------------------
+async function scenario8() {
+  console.log('Scenario 8: stop phrase «رک جاؤ» — instant stop, no sustain needed');
+  now = 0; timers.clear();
+  const { W, playReply, feedDetect } = makeWorld();
+  const done = playReply(REPLY, CHUNKS); // REPLY contains no stop phrase
+  await run(1500); // chunk 2 playing
+  check('chunk 2 is playing', W.chunksStarted.length === 2);
+  const saidAt = now;
+  // ONE interim result, two words — the old gates needed >= 3 words
+  // sustained >= 450ms; the fast path must fire on this single event.
+  feedDetect([{ isFinal: false, transcript: 'رک جاؤ' }], -1);
+  await settle();
+  check('stop phrase recognized', W.stopPhrase === 'رک جاؤ', `got "${W.stopPhrase}"`);
+  check('silence is immediate (same tick)', W.audioStoppedAt === saidAt, `stoppedAt=${W.audioStoppedAt} saidAt=${saidAt}`);
+  check('not adopted as a capture turn', W.bargeMode === 'off', `mode=${W.bargeMode}`);
+  check('reply aborted', (await done) === 'aborted');
+  await run(6000);
+  check('remaining chunks never played', W.chunksStarted.length === 2, `started=${W.chunksStarted.join(',')}`);
+  check('nothing dispatched', W.dispatched.length === 0);
+}
+
+// ---- Scenario 9: echo of a story containing «رکو» — no false stop --------------
+async function scenario9() {
+  console.log('Scenario 9: AI story itself says «رکو» — echo must NOT stop the reply');
+  now = 0; timers.clear();
+  const { W, playReply, feedDetect } = makeWorld();
+  const STORY = 'عدیل نے کہانی سنائی بچے نے زور سے کہا رکو یہ میری باری ہے سب ہنس پڑے';
+  const done = playReply(STORY, CHUNKS.slice(0, 3));
+  await run(1100); // chunk 2 playing
+  // The speakers play the story; the mic hears fragments of it back.
+  // The dangerous fragment: the stop word ALONE as an interim — the
+  // echo guard (phrase is part of the spoken text) must block it.
+  feedDetect([{ isFinal: false, transcript: 'رکو' }], -1);
+  await settle();
+  check('echo stop word did not fire the fast path', W.stopPhraseAt === null && W.audioStoppedAt === null,
+    `stopAt=${W.stopPhraseAt} audioStoppedAt=${W.audioStoppedAt}`);
+  // Sustained echo of the story's own words — novelty gate must hold too.
+  const storyWords = STORY.split(' ');
+  for (let i = 0; i < 4; i++) {
+    feedDetect([{ isFinal: i >= 3, transcript: storyWords.slice(0, 5 + i * 2).join(' ') }], i >= 3 ? 0 : -1);
+    await run(300);
+  }
+  await run(1500);
+  check('reply completed despite the echo', (await done) === 'completed');
+  check('no capture, no dispatch from echo', W.bargeMode === 'off' && W.dispatched.length === 0);
+}
+
+// ---- Scenario 10: Roman Urdu stop phrase «bas karo» ----------------------------
+async function scenario10() {
+  console.log('Scenario 10: Roman Urdu «bas karo» — instant stop');
+  now = 0; timers.clear();
+  const { W, playReply, feedDetect } = makeWorld();
+  const done = playReply(REPLY, CHUNKS);
+  await run(1200); // chunk 2 playing
+  const saidAt = now;
+  feedDetect([{ isFinal: true, transcript: 'bas karo' }], 0);
+  await settle();
+  check('stop phrase recognized', W.stopPhrase === 'bas karo', `got "${W.stopPhrase}"`);
+  check('silence is immediate (same tick)', W.audioStoppedAt === saidAt, `stoppedAt=${W.audioStoppedAt} saidAt=${saidAt}`);
+  check('reply aborted', (await done) === 'aborted');
+  await run(6000);
+  check('remaining chunks never played', W.chunksStarted.length === 2);
+}
+
 await scenario1();
 await scenario2();
 await scenario3();
@@ -406,6 +525,9 @@ await scenario4();
 await scenario5();
 await scenario6();
 await scenario7();
+await scenario8();
+await scenario9();
+await scenario10();
 
 console.log(failures === 0 ? '\nALL SCENARIOS PASSED' : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

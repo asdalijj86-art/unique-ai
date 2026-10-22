@@ -157,9 +157,13 @@ export default function MapWidget() {
         setLocating(false);
         showOnMap(pos.coords.latitude, pos.coords.longitude, '📍 تمہاری موجودہ جگہ', 16);
       },
-      () => {
+      (err) => {
         setLocating(false);
-        setError('Location نہیں مل سکی۔ اجازت دیں یا دوبارہ کوشش کریں۔');
+        // Denied is not a dead end: say plainly how to allow it (the
+        // rest of the map — search, pan, zoom — keeps working).
+        setError(err && err.code === 1
+          ? 'مقام کی اجازت منع ہے۔ آن کرنے کے لیے: براؤزر کے ایڈریس بار کے بائیں طرف لاک 🔒 کے نشان سے اس سائٹ کی اجازتوں میں «مقام/Location» Allow کر دیں، پھر دوبارہ دبائیں۔ تلاش اور نقشہ ویسے ہی چل رہا ہے۔'
+          : 'Location نہیں مل سکی۔ دوبارہ کوشش کریں۔');
       },
       { timeout: 10000 }
     );

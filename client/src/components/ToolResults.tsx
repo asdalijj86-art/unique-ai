@@ -128,6 +128,42 @@ function NotesView({ initialText, mode }: { initialText?: string; mode: 'save' |
   );
 }
 
+// A document a tool generated (CV / invoice / assignment) that the
+// user asked to download in chat. The button builds the REAL PDF in
+// the browser from the stored document HTML (lib/doc-pdf) — this card
+// is what replaced the old "میرے پاس permission نہیں ہے" dead end.
+function DocDownloadView({ title, filename, html }: { title: string; filename: string; html: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+
+  async function go() {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const { downloadDocumentPdf } = await import('@/lib/doc-pdf');
+      await downloadDocumentPdf(html, filename);
+      setDone(true);
+    } catch {
+      setError('PDF بنانے میں مسئلہ ہوا — دوبارہ کوشش کریں، یا ٹول کھول کر وہاں سے ڈاؤن لوڈ کریں۔');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div data-testid="doc-download-card">
+      <div className="tool-text-block">📄 {title}</div>
+      <button type="button" className="tool-action-button" onClick={go} disabled={busy} data-testid="button-doc-download">
+        {busy ? 'PDF بن رہا ہے…' : '📥 PDF ڈاؤن لوڈ کریں'}
+      </button>
+      {done && <div className="tool-small-note">✅ ڈاؤن لوڈ شروع ہو گیا — فائل آپ کے آلے میں محفوظ ہو جائے گی۔</div>}
+      {error && <div className="tool-error">{error}</div>}
+    </div>
+  );
+}
+
 export default function ToolResults({
   action,
   onClose,
@@ -157,6 +193,7 @@ export default function ToolResults({
           {action.type === 'video_ideas' && '💡 ویڈیو آئیڈیاز'}
           {action.type === 'world_clock' && '🕐 عالمی وقت'}
           {action.type === 'page_summary' && '📄 صفحے کا خلاصہ'}
+          {action.type === 'doc_download' && '📄 دستاویز ڈاؤن لوڈ'}
         </span>
         <button type="button" className="tool-results-close" onClick={onClose} aria-label="بند کریں">
           ✕
@@ -316,6 +353,10 @@ export default function ToolResults({
               {action.summary}
             </div>
           </div>
+        )}
+
+        {action.type === 'doc_download' && (
+          <DocDownloadView title={action.title} filename={action.filename} html={action.html} />
         )}
       </div>
     </div>

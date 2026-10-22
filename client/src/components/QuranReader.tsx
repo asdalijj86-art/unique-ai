@@ -13,6 +13,7 @@ import { Loader2, Search, Volume2, Square, BookOpen, ArrowRight, ListMusic } fro
 import { synthesizeMairaSpeech, synthesizeEdgeSpeech, TTS_PLAYBACK_RATE } from '@/lib/api';
 import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
 import { registerAudioStop, stopOtherAudio } from '@/lib/audio-bus';
+import { SURAH_URDU, SURAH_ALIASES } from '@/lib/surah-names';
 
 type SurahMeta = {
   number: number;
@@ -32,44 +33,11 @@ type Ayah = {
 
 type SurahDetail = SurahMeta & { ayahs: Ayah[] };
 
-// Urdu names for all 114 surahs (standard names + common alternates for search)
-const SURAH_URDU: Record<number, string> = {
-  1: 'الفاتحہ', 2: 'البقرہ', 3: 'آل عمران', 4: 'النساء', 5: 'المائدہ',
-  6: 'الانعام', 7: 'الاعراف', 8: 'الانفال', 9: 'التوبہ', 10: 'یونس',
-  11: 'ہود', 12: 'یوسف', 13: 'الرعد', 14: 'ابراہیم', 15: 'الحجر',
-  16: 'النحل', 17: 'بنی اسرائیل', 18: 'الکہف', 19: 'مریم', 20: 'طٰہٰ',
-  21: 'الانبیاء', 22: 'الحج', 23: 'المومنون', 24: 'النور', 25: 'الفرقان',
-  26: 'الشعراء', 27: 'النمل', 28: 'القصص', 29: 'العنکبوت', 30: 'الروم',
-  31: 'لقمان', 32: 'السجدہ', 33: 'الاحزاب', 34: 'سبا', 35: 'فاطر',
-  36: 'یٰسین', 37: 'الصٰفٰت', 38: 'ص', 39: 'الزمر', 40: 'المومن',
-  41: 'حم سجدہ', 42: 'الشوریٰ', 43: 'الزخرف', 44: 'الدخان', 45: 'الجاثیہ',
-  46: 'الاحقاف', 47: 'محمد', 48: 'الفتح', 49: 'الحجرات', 50: 'ق',
-  51: 'الذاریات', 52: 'الطور', 53: 'النجم', 54: 'القمر', 55: 'الرحمٰن',
-  56: 'الواقعہ', 57: 'الحدید', 58: 'المجادلہ', 59: 'الحشر', 60: 'الممتحنہ',
-  61: 'الصف', 62: 'الجمعہ', 63: 'المنافقون', 64: 'التغابن', 65: 'الطلاق',
-  66: 'التحریم', 67: 'الملک', 68: 'القلم', 69: 'الحاقہ', 70: 'المعارج',
-  71: 'نوح', 72: 'الجن', 73: 'المزمل', 74: 'المدثر', 75: 'القیامہ',
-  76: 'الدہر', 77: 'المرسلات', 78: 'النبأ', 79: 'النازعات', 80: 'عبس',
-  81: 'التکویر', 82: 'الانفطار', 83: 'المطففین', 84: 'الانشقاق', 85: 'البروج',
-  86: 'الطارق', 87: 'الاعلیٰ', 88: 'الغاشیہ', 89: 'الفجر', 90: 'البلد',
-  91: 'الشمس', 92: 'اللیل', 93: 'الضحیٰ', 94: 'الشرح', 95: 'التین',
-  96: 'العلق', 97: 'القدر', 98: 'البینہ', 99: 'الزلزال', 100: 'العادیات',
-  101: 'القارعہ', 102: 'التکاثر', 103: 'العصر', 104: 'الہمزہ', 105: 'الفیل',
-  106: 'قریش', 107: 'الماعون', 108: 'الکوثر', 109: 'الکافرون', 110: 'النصر',
-  111: 'اللہب', 112: 'الاخلاص', 113: 'الفلق', 114: 'الناس',
-};
-
-// Alternate/common names for search
-const SURAH_ALIASES: Record<number, string[]> = {
-  17: ['الاسراء'], 36: ['یاسین', 'یٰس'], 40: ['غافر'], 41: ['فصلت'],
-  55: ['رحمن', 'رحمٰن'], 56: ['واقعہ'], 67: ['تبارک'], 76: ['الانسان'],
-  94: ['الانشراح'], 111: ['المسد'], 1: ['فاتحہ', 'الحمد'],
-  2: ['بقرہ'], 18: ['کہف'], 112: ['قل ہو اللہ'],
-};
-
 const BISMILLAH = 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ';
 
-export default function QuranReader({ autoplaySignal }: { autoplaySignal?: number } = {}) {
+export type QuranAutoplayRequest = { signal: number; surah: number; speak: boolean };
+
+export default function QuranReader({ autoplayRequest }: { autoplayRequest?: QuranAutoplayRequest | null } = {}) {
   const [surahs, setSurahs] = useState<SurahMeta[] | null>(null);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<SurahDetail | null>(null);
@@ -249,28 +217,38 @@ export default function QuranReader({ autoplaySignal }: { autoplaySignal?: numbe
     }
   }
 
-  // Voice-command autoplay («مجھے قرآن پاک کی تلاوت سناؤ»): the chat bumps
-  // autoplaySignal when a recite command opens this reader. Open Surah
-  // Al-Fatiha and speak its translation right away — opening in silence
-  // was the bug. Guarded so a signal can never start two recitations.
+  // Voice-command autoplay: the chat sends an autoplay REQUEST naming
+  // the surah («سورۃ ناس پڑھ کر سناؤ» → surah 114; generic «تلاوت سناؤ»
+  // → surah 1). Open THAT surah and — when speak is set — recite its
+  // Urdu translation right away. Works on first mount AND when the
+  // reader is already open (a fresh signal re-opens on the new surah
+  // instead of re-running the generic open). Guarded so one signal can
+  // never start two recitations.
   const autoplaySeenRef = useRef(0);
   const autoplayingRef = useRef(false);
   useEffect(() => {
-    if (!autoplaySignal || autoplaySignal <= autoplaySeenRef.current) return;
-    autoplaySeenRef.current = autoplaySignal;
-    if (autoplayingRef.current) return;
+    if (!autoplayRequest || autoplayRequest.signal <= autoplaySeenRef.current) return;
+    autoplaySeenRef.current = autoplayRequest.signal;
+    const { surah, speak } = autoplayRequest;
+    if (autoplayingRef.current) {
+      // A recitation is in flight: still honor the command — switch the
+      // visible surah (openSurah stops the current audio and the old
+      // speak loop exits on stopAllRef).
+      void openSurah(surah);
+      return;
+    }
     autoplayingRef.current = true;
     (async () => {
       try {
-        const detail = await openSurah(1);
+        const detail = await openSurah(surah);
         // speakWholeSurah resets stopAllRef itself after its stopAudio().
-        if (detail) await speakWholeSurah(detail);
+        if (detail && speak) await speakWholeSurah(detail);
       } finally {
         autoplayingRef.current = false;
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoplaySignal]);
+  }, [autoplayRequest]);
 
   const filtered = useMemo(() => {
     if (!surahs) return [];

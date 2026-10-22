@@ -45,9 +45,15 @@ const BRAIN_TOOLS: { id: string; icon: string; title: string; example: string }[
   // تصویر تلاش moved into the 🖼️ تصویر ٹولز hub as its image_search section.
 ];
 
-export default function ToolsPanel({ onSelect, onBrainTool }: {
+export default function ToolsPanel({ onSelect, onBrainTool, onOpenMap, onPairDevices }: {
   onSelect: (tool: MediaToolName) => void;
   onBrainTool: (example: string) => void;
+  // The map lives in the focus view, not the media-tools hub — without
+  // this entry it had NO presence in the grid at all and the user
+  // could not find it (only the small rail button / voice opened it).
+  onOpenMap?: () => void;
+  // Device pairing (phone ⇄ laptop) — its own panel, not a media tool.
+  onPairDevices?: () => void;
 }) {
   const toolButtonStyle = {
     background: 'rgba(139,92,246,0.07)', border: '1px solid rgba(139,92,246,0.22)',
@@ -59,13 +65,37 @@ export default function ToolsPanel({ onSelect, onBrainTool }: {
   return (
     <div dir="rtl" className="tools-panel">
       <div style={{ textAlign: 'center', marginBottom: 14 }}>
-        <div style={{ fontSize: 19, fontWeight: 800, color: '#e9d5ff' }}>🧰 ٹولز ({MEDIA_TOOL_ORDER.length + BRAIN_TOOLS.length})</div>
+        <div style={{ fontSize: 19, fontWeight: 800, color: '#e9d5ff' }}>🧰 ٹولز ({MEDIA_TOOL_ORDER.length + BRAIN_TOOLS.length + (onOpenMap ? 1 : 0) + (onPairDevices ? 1 : 0)})</div>
         <div className="tool-small-note">کوئی ٹول چنیں</div>
       </div>
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
         gap: 10, maxHeight: 440, overflowY: 'auto', paddingLeft: 4,
       }}>
+        {onOpenMap && (
+          <button
+            type="button"
+            onClick={onOpenMap}
+            style={toolButtonStyle}
+            onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(139,92,246,0.16)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(139,92,246,0.07)'; }}
+          >
+            <span style={{ fontSize: 26 }}>🗺️</span>
+            <span>نقشہ</span>
+          </button>
+        )}
+        {onPairDevices && (
+          <button
+            type="button"
+            onClick={onPairDevices}
+            style={toolButtonStyle}
+            onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(139,92,246,0.16)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(139,92,246,0.07)'; }}
+          >
+            <span style={{ fontSize: 26 }}>📱</span>
+            <span>ڈیوائس جوڑیں</span>
+          </button>
+        )}
         {MEDIA_TOOL_ORDER.map((tool) => (
           <button
             key={tool}

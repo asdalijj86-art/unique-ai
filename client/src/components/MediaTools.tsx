@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { saveLastDocument, downloadDocumentPdf } from '../lib/doc-pdf';
 import VideoUpload from './VideoUpload';
 import VideoCreator from './VideoCreator';
 import WhatsAppSender from './WhatsAppSender';
@@ -906,10 +907,41 @@ ${skills ? `<h2>مہارتیں / Skills</h2><div class="sec">${esc(skills)}</div
 </body></html>`;
   }
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState('');
+
+  function rememberDocument(html: string) {
+    // So a later «PDF ڈاؤن لوڈ دو» in chat finds THIS document and
+    // serves a real download card instead of a dead end.
+    saveLastDocument({
+      kind: 'resume',
+      title: `ریزیومے (CV) — ${name.trim()}`,
+      filename: `resume-${name.trim().replace(/\s+/g, '-')}.pdf`,
+      html,
+    });
+  }
+
   function download() {
     if (!name.trim()) return;
-    const blob = new Blob([buildHtml()], { type: 'text/html;charset=utf-8' });
+    const html = buildHtml();
+    rememberDocument(html);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     downloadBlob(blob, `resume-${name.trim().replace(/\s+/g, '-')}.html`);
+  }
+
+  async function downloadPdf() {
+    if (!name.trim() || pdfBusy) return;
+    const html = buildHtml();
+    rememberDocument(html);
+    setPdfBusy(true);
+    setPdfError('');
+    try {
+      await downloadDocumentPdf(html, `resume-${name.trim().replace(/\s+/g, '-')}.pdf`);
+    } catch {
+      setPdfError('PDF بنانے میں مسئلہ ہوا — نیچے HTML فائل ڈاؤن لوڈ کر کے اسے پرنٹ سے PDF بنا لیں۔');
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   const field = (label: string, value: string, set: (v: string) => void, textarea = false) => (
@@ -934,10 +966,14 @@ ${skills ? `<h2>مہارتیں / Skills</h2><div class="sec">${esc(skills)}</div
       {field('تجربہ', experience, setExperience, true)}
       {field('تعلیم', education, setEducation, true)}
       {field('مہارتیں', skills, setSkills, true)}
-      <button type="button" className="tool-action-button" onClick={download} disabled={!name.trim()}>
-        📄 ریزیومے ڈاؤن لوڈ کریں (HTML — پرنٹ کر کے PDF بنائیں)
+      <button type="button" className="tool-action-button" onClick={downloadPdf} disabled={!name.trim() || pdfBusy}>
+        {pdfBusy ? <><Loader2 size={16} className="spin" /> PDF بن رہا ہے…</> : '📄 ریزیومے PDF ڈاؤن لوڈ کریں'}
       </button>
-      <div className="tool-small-note">ٹپ: ڈاؤن لوڈ شدہ فائل کھولیں، Ctrl+P دبائیں اور "Save as PDF" چنیں۔</div>
+      {pdfError && <div className="tool-error">{pdfError}</div>}
+      <button type="button" className="tool-action-button" onClick={download} disabled={!name.trim()}>
+        🌐 HTML فائل ڈاؤن لوڈ کریں
+      </button>
+      <div className="tool-small-note">ٹپ: چیٹ میں «PDF ڈاؤن لوڈ دو» کہہ کر بھی یہی فائل منگوائی جا سکتی ہے۔</div>
     </div>
   );
 }
@@ -981,9 +1017,38 @@ th,td{border:1px solid #ccc;padding:8px;text-align:right}th{background:#f5f5f5}
 </body></html>`;
   }
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState('');
+
+  function rememberDocument(html: string) {
+    saveLastDocument({
+      kind: 'invoice',
+      title: `انوائس نمبر ${invoiceNo}${clientName.trim() ? ` — ${clientName.trim()}` : ''}`,
+      filename: `invoice-${invoiceNo}.pdf`,
+      html,
+    });
+  }
+
   function download() {
-    const blob = new Blob([buildHtml()], { type: 'text/html;charset=utf-8' });
+    const html = buildHtml();
+    rememberDocument(html);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     downloadBlob(blob, `invoice-${invoiceNo}.html`);
+  }
+
+  async function downloadPdf() {
+    if (pdfBusy) return;
+    const html = buildHtml();
+    rememberDocument(html);
+    setPdfBusy(true);
+    setPdfError('');
+    try {
+      await downloadDocumentPdf(html, `invoice-${invoiceNo}.pdf`);
+    } catch {
+      setPdfError('PDF بنانے میں مسئلہ ہوا — نیچے HTML فائل ڈاؤن لوڈ کر کے اسے پرنٹ سے PDF بنا لیں۔');
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   return (
@@ -1011,7 +1076,12 @@ th,td{border:1px solid #ccc;padding:8px;text-align:right}th{background:#f5f5f5}
       ))}
       <button type="button" className="tool-action-button" onClick={addItem}>➕ آئٹم شامل کریں</button>
       <div className="tool-text-block">کل: <b>{total.toLocaleString()} روپے</b></div>
-      <button type="button" className="tool-action-button" onClick={download}>🧾 انوائس ڈاؤن لوڈ کریں</button>
+      <button type="button" className="tool-action-button" onClick={downloadPdf} disabled={pdfBusy}>
+        {pdfBusy ? <><Loader2 size={16} className="spin" /> PDF بن رہا ہے…</> : '🧾 انوائس PDF ڈاؤن لوڈ کریں'}
+      </button>
+      {pdfError && <div className="tool-error">{pdfError}</div>}
+      <button type="button" className="tool-action-button" onClick={download}>🌐 HTML فائل ڈاؤن لوڈ کریں</button>
+      <div className="tool-small-note">ٹپ: چیٹ میں «PDF ڈاؤن لوڈ دو» کہہ کر بھی یہی فائل منگوائی جا سکتی ہے۔</div>
     </div>
   );
 }
@@ -1042,6 +1112,18 @@ function AssignmentMaker() {
     { v: 'long', t: 'تفصیلی' },
   ];
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState('');
+
+  function rememberDocument(html: string) {
+    saveLastDocument({
+      kind: 'assignment',
+      title: `اسائنمنٹ — ${topic.trim()}`,
+      filename: `assignment-${topic.trim().slice(0, 30).replace(/\s+/g, '-')}.pdf`,
+      html,
+    });
+  }
+
   async function generate() {
     if (!topic.trim() || loading) return;
     setLoading(true); setError(''); setContent('');
@@ -1049,6 +1131,9 @@ function AssignmentMaker() {
       const { generateAssignment } = await import('../lib/api');
       const data = await generateAssignment({ name, rollNo, classLevel, subject, topic, language, length });
       setContent(data.content);
+      // Remember the finished document so «PDF ڈاؤن لوڈ دو» in chat
+      // can serve it as a real download afterwards.
+      rememberDocument(buildHtml(data.content));
     } catch (e: any) {
       setError(e?.data?.error || 'اسائنمنٹ بنانے میں مسئلہ ہوا۔ دوبارہ کوشش کریں۔');
     } finally {
@@ -1056,9 +1141,9 @@ function AssignmentMaker() {
     }
   }
 
-  function buildHtml(): string {
+  function buildHtml(text: string = content): string {
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const body = esc(content).replace(/\n/g, '<br>');
+    const body = esc(text).replace(/\n/g, '<br>');
     const levelT = CLASS_LEVELS.find((c) => c.v === classLevel)?.t || '';
     const dirAttr = language === 'ur' ? 'dir="rtl" lang="ur"' : 'dir="ltr" lang="en"';
     return `<!DOCTYPE html><html ${dirAttr}><head><meta charset="utf-8"><title>Assignment - ${esc(topic)}</title>
@@ -1075,12 +1160,29 @@ h1{text-align:center;font-size:26px;border-bottom:3px double #333;padding-bottom
 
   function download() {
     if (!content) return;
-    const blob = new Blob([buildHtml()], { type: 'text/html;charset=utf-8' });
+    const html = buildHtml();
+    rememberDocument(html);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `assignment-${topic.trim().slice(0, 30).replace(/\s+/g, '-')}.html`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+
+  async function downloadPdf() {
+    if (!content || pdfBusy) return;
+    const html = buildHtml();
+    rememberDocument(html);
+    setPdfBusy(true);
+    setPdfError('');
+    try {
+      await downloadDocumentPdf(html, `assignment-${topic.trim().slice(0, 30).replace(/\s+/g, '-')}.pdf`);
+    } catch {
+      setPdfError('PDF بنانے میں مسئلہ ہوا — نیچے HTML فائل ڈاؤن لوڈ کر کے اسے پرنٹ سے PDF بنا لیں۔');
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   const field = (label: string, value: string, set: (v: string) => void) => (
@@ -1114,8 +1216,12 @@ h1{text-align:center;font-size:26px;border-bottom:3px double #333;padding-bottom
       {content && (
         <div>
           <div className="tool-text-block" dir={language === 'ur' ? 'rtl' : 'ltr'} style={{ whiteSpace: 'pre-wrap', maxHeight: 320, overflowY: 'auto' }}>{content}</div>
-          <button type="button" className="tool-action-button" onClick={download}>📥 ڈاؤن لوڈ کریں (پرنٹ کر کے PDF بنائیں)</button>
-          <div className="tool-small-note">ٹپ: ڈاؤن لوڈ شدہ فائل کھولیں، Ctrl+P دبائیں اور "Save as PDF" چنیں۔</div>
+          <button type="button" className="tool-action-button" onClick={downloadPdf} disabled={pdfBusy}>
+            {pdfBusy ? <><Loader2 size={16} className="spin" /> PDF بن رہا ہے…</> : '📥 PDF ڈاؤن لوڈ کریں'}
+          </button>
+          {pdfError && <div className="tool-error">{pdfError}</div>}
+          <button type="button" className="tool-action-button" onClick={download}>🌐 HTML فائل ڈاؤن لوڈ کریں</button>
+          <div className="tool-small-note">ٹپ: چیٹ میں «PDF ڈاؤن لوڈ دو» کہہ کر بھی یہی فائل منگوائی جا سکتی ہے۔</div>
         </div>
       )}
     </div>

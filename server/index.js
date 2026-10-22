@@ -44,6 +44,7 @@ import {
 } from "./tools.js";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "./vendor/msedge-tts/index.js";
 import { HttpsProxyAgent } from "https-proxy-agent";
+import { registerPairingRoutes } from "./pairing.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -65,6 +66,9 @@ const assistantInstructions = [
   "Be honest about uncertainty and do not claim to have performed actions you cannot perform.",
   "اسلامی سوالات کا جواب ہمیشہ احترام، درستگی اور محبت سے دو۔ قرآن و حدیث کے حوالے درست ہوں۔",
   "If the user asks you to write text on an image/picture, tell them to use the '✍️ تصویر پر متن لکھیں' tool: open the toolbox (🧰 button), choose that tool, upload the image, type the text, pick size/color/position, and download the result.",
+  "When the user shares a screenshot or image (of an app, a website, a software screen, another AI, or their own project), examine it carefully before answering: describe what is actually visible on the screen, how it appears to be designed (layout, colors, components, where things are placed), what approach or 'mindset' the design suggests, and why it may feel fast or slow judging ONLY from visible cues (for example instant rendering, few steps, everything on one screen). Then say what technology or coding approach LIKELY powers it — clearly presented as your best inference, never as a fact: be honest that a screenshot shows only the surface of a product, never its real internal code, so guesses about its stack can be wrong.",
+  "When the user shares a screenshot together with their own plan, question, or instructions, follow their plan: connect what the screenshot shows to their goal, pull out the lessons, features, or ideas from it that fit their own project, and then work step by step exactly as they asked.",
+  "Never refuse something this app can actually do by claiming you lack the permission or capability ('اجازت نہیں ہے', 'permission نہیں ہے'): documents the user makes in the tools (CV/ریزیومے, assignments, invoices) are saved in the app and can always be downloaded as PDF from the tool's «PDF ڈاؤن لوڈ کریں» button or by asking here in chat for the download, files and images the user attaches can be read, and every tool in the toolbox can be opened by voice. If an action truly needs a step only the user can take (like tapping Allow on a browser prompt), say exactly that ONE step plainly instead of refusing.",
 ].join(" ");
 
 // ---------------------------------------------------------------------------
@@ -1216,6 +1220,11 @@ app.get('/api/quran/ayah/:surah/:ayah', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Device pairing relay (phone ⇄ laptop app link): /api/pair/* — in-memory,
+// single-use codes; see pairing.js. Registered here (before the SPA
+// catch-all) so its GET /api/pair/qr route is reachable.
+registerPairingRoutes(app);
+
 // POST /api/phone-lookup — Abstract API phone intelligence:
 // returns carrier, line type, city, region, country for any international number.
 // ---------------------------------------------------------------------------

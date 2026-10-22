@@ -15,6 +15,11 @@ export type ChatAction =
   | { type: 'news_results'; headlines: Array<{ title: string; snippet: string; url: string }> }
   | { type: 'currency_result'; amount: number; from: string; to: string; result: number; rate: number }
   | { type: 'set_timer'; seconds: number; label: string }
+  // Client-side only (never sent by the server): a document a tool
+  // generated (CV / invoice / assignment) that the user asked to
+  // download in chat — rendered as a card whose button builds the
+  // real PDF in the browser from the stored document HTML.
+  | { type: 'doc_download'; title: string; filename: string; html: string }
   | { type: 'save_note'; text: string }
   | { type: 'list_notes' }
   | { type: 'prayer_times'; city: string; date: string; hijri: string; times: Record<string, string> }
@@ -336,23 +341,6 @@ export async function testGeminiKey(userApiKey: string): Promise<{ ok: boolean; 
     body: JSON.stringify({ userApiKey }),
   });
   return res.json();
-}
-
-/**
- * Free fallback TTS via Google Translate (server-proxied, no API key).
- * Used when Gemini TTS is down AND browser TTS doesn't work on the device.
- */
-export async function synthesizeGoogleSpeech({ text }: { text: string }) {
-  const res = await fetch('/api/tts/google', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw { data: errData };
-  }
-  return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
 }
 
 /**

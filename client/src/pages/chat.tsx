@@ -17,13 +17,16 @@ import {
 } from 'lucide-react';
 import {
   synthesizeMairaSpeech,
-  synthesizeGoogleSpeech,
   synthesizeEdgeSpeech,
   useSendMairaChatMessage,
   getGeminiKeys,
   TTS_PLAYBACK_RATE,
 } from '@/lib/api';
 import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
+import { loadLastDocument } from '@/lib/doc-pdf';
+import { parseSurahReference, surahDisplayName } from '@/lib/surah-names';
+import DevicePairing, { type ConversationHandover, type RemoteCommand } from '@/components/DevicePairing';
+import { queryAllPermissions, requestAllPermissions } from '@/lib/permissions';
 import { registerAudioStop, stopOtherAudio } from '@/lib/audio-bus';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
 import { useGestures } from '@/hooks/useGestures';
@@ -146,13 +149,29 @@ export default function ChatPage() {
   // voice/chat command names a specific feature; undefined = first section.
   const [toolSection, setToolSection] = useState<HubSection | undefined>(undefined);
   const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
+  // Device pairing (Task 6b): panel visibility + a join code arriving
+  // via a scanned QR link (?pair=CODE), pre-filled for one-tap joining.
+  const [pairingOpen, setPairingOpen] = useState(false);
+  const [pairingJoinCode, setPairingJoinCode] = useState('');
+  // One-time contextual permissions offer (Task 7): shown once when a
+  // capability the app uses is still un-granted, so the user can allow
+  // everything in one tap instead of meeting prompts tool by tool.
+  const [showPermHint, setShowPermHint] = useState(false);
+  const [permHintBusy, setPermHintBusy] = useState(false);
   // Focus mode (user's simple-display vision): name a thing — "نقشہ دکھاؤ",
   // "WhatsApp کھولو" — and ONLY that thing fills the screen until واپس.
   const [focusView, setFocusView] = useState<null | 'map' | 'whatsapp' | 'quran' | 'tools'>(null);
-  // Bumped each time a voice command asks to HEAR the Quran («تلاوت سناؤ»):
-  // opening the reader alone was silent — the bump tells QuranReader to
-  // open Surah Al-Fatiha and start speaking its translation right away.
-  const [quranAutoplay, setQuranAutoplay] = useState(0);
+  // Quran voice requests: each command sends a fresh REQUEST naming the
+  // surah to open (and whether to recite it). The generic «تلاوت سناؤ»
+  // asks for Al-Fatiha; a NAMED surah («سورۃ ناس سناؤ») asks for that
+  // surah — the old bump-only signal could not carry the name, so the
+  // reader always played Al-Fatiha or nothing at all.
+  const [quranAutoplayReq, setQuranAutoplayReq] = useState<{ signal: number; surah: number; speak: boolean } | null>(null);
+  const quranSignalRef = useRef(0);
+  function requestQuran(surah: number, speakRecitation: boolean) {
+    quranSignalRef.current += 1;
+    setQuranAutoplayReq({ signal: quranSignalRef.current, surah, speak: speakRecitation });
+  }
   const [toolPrefill, setToolPrefill] = useState<{ phone?: string } | null>(null);
   // Continuous voice mode (hands-free): listen -> auto-send on silence -> auto-speak reply.
   const [continuousVoice, setContinuousVoice] = useState(false);
@@ -261,6 +280,28 @@ export default function ChatPage() {
   // skip server TTS for the session and go straight to browser voice.
   const serverTtsFailsRef = useRef(0);
   const serverTtsDownRef = useRef(false);
+  // SESSION VOICE WARM-UP (2026-10-22, defect: mixed voices at start).
+  // At session start every leg of the voice chain is cold: the Render
+  // server may be asleep (its routes can eat their whole timeout
+  // budget just waking), and the client Edge leg must spend one
+  // handshake attempt learning that Chrome's UA is rejected before its
+  // 60s fail-fast memo exists. Those costs used to land on the user's
+  // FIRST replies — each chunk/reply independently re-probed the cold
+  // legs and landed on whichever answered first: one reply fell to the
+  // browser voice, the next to Gemini, and only once everything was
+  // warm did the chosen voice (Salman) run steadily — exactly his
+  // report: «شروع شروع سے دو سے تین آوازیں آتی ہیں، پھر ایک ہی آواز
+  // چلتی ہے». The fix: warm the chain ONCE, on the first user
+  // interaction — one tiny discarded synthesis wakes the server and
+  // arms the client-leg memo before any real reply is spoken — and
+  // the first spoken reply WAITS for that probe to settle (bounded by
+  // the chain's own leg timeouts) instead of racing cold legs.
+  const voiceWarmupStartedRef = useRef(false);
+  const voiceWarmupPromiseRef = useRef<Promise<void> | null>(null);
+  // True once ANY server-leg audio has actually played this session
+  // (or the warm-up probe was answered by a server leg): from then on
+  // the chain's verdicts are warm and fallbacks behave as before.
+  const sessionVoiceReadyRef = useRef(false);
   // Fingerprint of the user's saved keys at the last TTS attempt. If the
   // keys CHANGE (user pastes fresh ones in Settings), the "server TTS is
   // down" verdict from earlier failures must be forgotten — otherwise the
@@ -335,6 +376,115 @@ export default function ChatPage() {
     window.speechSynthesis.addEventListener('voiceschanged', warmUp);
     return () => window.speechSynthesis.removeEventListener('voiceschanged', warmUp);
   }, []);
+
+  // Session voice warm-up: the FIRST tap or keypress of the session
+  // fires the one-time probe (see warmUpVoiceChain) so the server is
+  // awake and the client Edge leg's verdict is known long before the
+  // first reply needs its voice.
+  useEffect(() => {
+    const warm = () => warmUpVoiceChain();
+    window.addEventListener('pointerdown', warm, { once: true });
+    window.addEventListener('keydown', warm, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', warm);
+      window.removeEventListener('keydown', warm);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Permissions hint: check states once on load (reading state never
+  // prompts); offer the one-tap warm-up only if something is missing
+  // and the user hasn't dismissed the offer before.
+  useEffect(() => {
+    let cancelled = false;
+    try {
+      if (localStorage.getItem('unique-ai-perm-hint-dismissed') === '1') return;
+    } catch { /* ignore */ }
+    void queryAllPermissions().then((states) => {
+      if (cancelled) return;
+      const missing = Object.values(states).some((state) => state === 'prompt');
+      if (missing) setShowPermHint(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  function dismissPermHint() {
+    setShowPermHint(false);
+    try {
+      localStorage.setItem('unique-ai-perm-hint-dismissed', '1');
+    } catch { /* ignore */ }
+  }
+
+  async function warmUpFromHint() {
+    setPermHintBusy(true);
+    try {
+      await requestAllPermissions();
+    } finally {
+      setPermHintBusy(false);
+      dismissPermHint();
+    }
+  }
+
+  // Device pairing link (QR scan): /?pair=123456 opens the pairing
+  // panel with the join code pre-filled, then the param is cleaned.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pair = (params.get('pair') || '').replace(/\D/g, '');
+      if (pair.length === 6) {
+        setPairingJoinCode(pair);
+        setPairingOpen(true);
+        params.delete('pair');
+        const qs = params.toString();
+        window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // ---- Device pairing callbacks (Task 6b) ----
+  function getPairingConversation(): ConversationHandover | null {
+    const active = conversations.find((conversation) => conversation.id === activeId);
+    if (!active) return null;
+    return {
+      title: active.title,
+      messages: active.messages
+        .filter((message) => typeof message.content === 'string' && message.content.trim())
+        .map((message) => ({ role: message.role, content: message.content })),
+    };
+  }
+
+  function handleReceivedConversation(handover: ConversationHandover, fromName: string) {
+    const now = new Date().toISOString();
+    const incoming: Conversation = {
+      id: createId(),
+      title: handover.title || '📱 موصول گفتگو',
+      updatedAt: now,
+      messages: (handover.messages || []).map((message) => ({
+        id: createId(),
+        role: (message.role === 'user' ? 'user' : 'assistant') as ChatRole,
+        content: String(message.content || ''),
+        createdAt: now,
+      })),
+    };
+    if (incoming.messages.length === 0) return;
+    setConversations((current) => [incoming, ...current]);
+    setActiveId(incoming.id);
+    void playAssistantMessage(`📱 ${fromName} سے گفتگو موصول ہوئی — سامنے آ گئی ہے۔`);
+  }
+
+  function handleRemoteCommand(command: RemoteCommand) {
+    const labels: Record<string, string> = {
+      open_quran: 'قرآن پاک', open_map: 'نقشہ', open_tools: 'ٹولز',
+    };
+    if (command.action === 'open_quran') setFocusView('quran');
+    else if (command.action === 'open_map') setFocusView('map');
+    else if (command.action === 'open_tools') setFocusView('tools');
+    else if (command.action === 'open_tool' && command.tool) {
+      setToolSection(undefined);
+      setMediaTool(command.tool as MediaToolName);
+    } else return;
+    void playAssistantMessage(`📱 دوسری ڈیوائس کے کہنے پر ${labels[command.action] || 'ٹول'} کھول دیا ہے۔`);
+  }
 
   // Mobile only: unlock the persistent audio element on the user's own
   // taps, so spoken replies can play later without a fresh tap (Android
@@ -482,6 +632,9 @@ export default function ChatPage() {
     // Website commands work from typed text too — not just voice.
     // (Voice paths already check this before calling sendMessage.)
     if (!fromVoice && !attachedImage && handleVoiceWebsiteCommand(text)) return;
+    // «PDF ڈاؤن لوڈ دو» for a document a tool just generated: served
+    // locally with a real download card (see handleDocumentDownloadRequest).
+    if (!attachedImage && handleDocumentDownloadRequest(text)) return;
     setError('');
     let conversation = activeConversation;
     if (!conversation) {
@@ -657,6 +810,33 @@ export default function ChatPage() {
     }));
   }
 
+  // Document download requests («ڈاؤن لوڈ لنک دو», «PDF دو», "download
+  // my CV") for the document a tool generated most recently (CV /
+  // invoice / assignment — the tools remember it via lib/doc-pdf).
+  // Served entirely on-device: a spoken confirmation plus a download
+  // card whose button builds the REAL PDF in the browser. This is the
+  // fix for his report that asking in chat for his CV's PDF ended at
+  // "میرے پاس permission نہیں ہے" — the file was on his own device all
+  // along; the chat just never connected the request to it. When no
+  // document has been generated yet, the request falls through to the
+  // normal chat flow untouched.
+  function handleDocumentDownloadRequest(textValue: string): boolean {
+    const text = textValue.trim();
+    if (!text || text.length > 120) return false;
+    const namesDoc = /(pdf|پی\s?ڈی\s?ایف|سی\s?وی|cv|ریزیومے|resume|انوائس|invoice|اسائنمنٹ|assignment|فائل|دستاویز)/i.test(text);
+    const wantsFile = /(ڈاؤن\s?لوڈ|ڈاؤنلوڈ|download)/i.test(text)
+      || (/(لنک|فائل)\s*(دو|دے\s?دو|بھیج|بھیجو|چاہیے)/.test(text) && namesDoc)
+      || (namesDoc && /(دو|دے\s?دو|بھیج|بھیجو|چاہیے|لاؤ|لادو)/.test(text) && /(pdf|پی\s?ڈی\s?ایف)/i.test(text));
+    if (!wantsFile) return false;
+    const doc = loadLastDocument();
+    if (!doc) return false;
+    const reply = `یہ رہی آپ کی فائل — «${doc.title}» 👇 نیچے دیے گئے بٹن سے PDF ڈاؤن لوڈ کر لیں۔`;
+    appendWebsiteCommandExchange(text, reply);
+    setToolAction({ type: 'doc_download', title: doc.title, filename: doc.filename, html: doc.html });
+    playAssistantMessage(reply);
+    return true;
+  }
+
   function handleVoiceWebsiteCommand(recognizedText: string): boolean {
     const command = parseWebsiteCommand(recognizedText);
     if (!command) return false;
@@ -728,6 +908,45 @@ export default function ChatPage() {
       playAssistantMessage(msg);
       return true;
     }
+    // NAMED-SURAH commands («سورۃ ناس پڑھ کر سناؤ», "Surah Yaseen sunao",
+    // «سورت 114 سناؤ»): the focus routing below only knew the word
+    // «قرآن», so a surah named WITHOUT that word fell through to the
+    // brain — which just replied «قرآن پاک کھول رہا ہوں» and nothing
+    // played; and the old autoplay always played Al-Fatiha regardless
+    // of the name. Parse the surah explicitly and route it, from the
+    // main chat AND when the reader is already open (a fresh request
+    // re-opens the reader on the named surah).
+    const reciteIntent = /(سناؤ|سناو|سنا دو|سنا دیں|تلاوت|پڑھ کر سنا|پڑھو|پڑھیں|سننا|recite|recitation|play|sunao|suna do|parho|tilawat)/i.test(recognizedText);
+    const openIntent = /(کھول|کھولو|دکھا|open)/i.test(recognizedText);
+    const namedSurah = parseSurahReference(recognizedText);
+    const mentionsSurahWord = /(سورت|سورۃ|سورة|سورہ|surah)/i.test(recognizedText);
+    const mentionsQuranWord = /(قرآن|quran)/i.test(recognizedText);
+    if (namedSurah && (reciteIntent || openIntent)) {
+      const reply = reciteIntent
+        ? `📖 ${surahDisplayName(namedSurah)} سنائی جا رہی ہے — اردو ترجمے کی تلاوت شروع ہو رہی ہے۔ واپس آنے کے لیے «واپس» کہیں۔`
+        : `📖 ${surahDisplayName(namedSurah)} کھول دی ہے۔ واپس آنے کے لیے «واپس» کہیں۔`;
+      appendWebsiteCommandExchange(recognizedText, reply);
+      playAssistantMessage(reply);
+      setFocusView('quran');
+      requestQuran(namedSurah, reciteIntent);
+      setDraft('');
+      return true;
+    }
+    if (reciteIntent && (mentionsQuranWord || mentionsSurahWord || /تلاوت/.test(recognizedText))) {
+      // No name given: «کوئی بھی سورت سناؤ» → a short COMPLETE surah
+      // (An-Nas) rather than nothing; the generic «تلاوت سناؤ» keeps its
+      // established Al-Fatiha autoplay.
+      const target = mentionsSurahWord ? 114 : 1;
+      const reply = target === 114
+        ? `📖 ${surahDisplayName(114)} سنائی جا رہی ہے — اردو ترجمے کی تلاوت شروع ہو رہی ہے۔ واپس آنے کے لیے «واپس» کہیں۔`
+        : '📖 قرآن پاک سامنے ہے — تلاوت سنائی جا رہی ہے۔ واپس آنے کے لیے «واپس» کہیں۔';
+      appendWebsiteCommandExchange(recognizedText, reply);
+      playAssistantMessage(reply);
+      setFocusView('quran');
+      requestQuran(target, true);
+      setDraft('');
+      return true;
+    }
     const hasVerb = /(دکھا|دکھاؤ|کھول|کھولو|اوپن|کرو|کر دو|show|open|چاہیے|لگاؤ|بتاؤ)/i.test(recognizedText);
     const isShort = recognizedText.trim().split(/\s+/).length <= 6;
     // A no-verb QUESTION about a thing («ٹول باکس میں کیا ہوتا ہے») is a
@@ -747,7 +966,7 @@ export default function ChatPage() {
       if (pattern.test(recognizedText) && gateOk) {
         setFocusView(view);
         if (view === 'quran' && wantsRecite) {
-          setQuranAutoplay((n) => n + 1);
+          requestQuran(1, true);
         }
         appendWebsiteCommandExchange(recognizedText, reply);
         playAssistantMessage(reply);
@@ -782,7 +1001,16 @@ export default function ChatPage() {
     // on-screen Urdu reason is correct, a female voice never is.
     const isExplicitMale = (v: SpeechSynthesisVoice) => {
       const n = v.name.toLowerCase();
-      return n.includes('male') || n.includes('asad') || n.includes('salim');
+      // A name containing "female" is NEVER male — and the old test
+      // `n.includes('male')` waved exactly those voices through,
+      // because "female" CONTAINS "male" as a substring. That is how a
+      // female-named device voice passed the "explicitly male" filter
+      // and spoke the session's first replies (his on-device report
+      // 2026-10-22: «شروع میں کبھی لڑکی کی آواز آ جاتی ہے»). Exclude
+      // female names first, then require a STANDALONE "male" word (not
+      // a substring of another word) or a known male voice name.
+      if (n.includes('female')) return false;
+      return /(^|[^a-z])male([^a-z]|$)/.test(n) || n.includes('asad') || n.includes('salim');
     };
     const maleVoices = voices.filter(isExplicitMale);
     // Language preference among explicitly-male voices only: Urdu first,
@@ -999,6 +1227,9 @@ export default function ChatPage() {
             return;
           }
           playbackStartedRef.current = true;
+          // A server-leg voice is really playing: the chain is warm
+          // for the rest of this session (see the warm-up refs).
+          sessionVoiceReadyRef.current = true;
           setIsPreparingVoice(false);
           setIsSpeaking(true);
           // Sound is really coming out: in live mode the barge-in
@@ -1029,6 +1260,23 @@ export default function ChatPage() {
         resolve();
       }
     });
+  }
+
+  // Fire the one-time session warm-up probe (see the refs above): a
+  // single tiny synthesis through the normal chain, its audio thrown
+  // away. Idempotent — later calls return at once. Triggered by the
+  // first user interaction and again (harmlessly) at the top of
+  // playAssistantMessage, so a session that somehow starts speaking
+  // without a prior tap still warms before its second reply.
+  function warmUpVoiceChain() {
+    if (voiceWarmupStartedRef.current) return;
+    voiceWarmupStartedRef.current = true;
+    if (!appSettings.voiceEnabled) return;
+    voiceWarmupPromiseRef.current = synthesizeWithTimeout('السلام علیکم')
+      .then((audio) => {
+        if (audio) sessionVoiceReadyRef.current = true;
+      })
+      .catch(() => { /* the probe is best-effort; real replies retry the chain themselves */ });
   }
 
   // Wrapper: synthesize with per-leg timeouts so a hung TTS request
@@ -1207,6 +1455,20 @@ export default function ChatPage() {
     // it is speaking (it does the same to us when it starts).
     stopOtherAudio('chat');
     const speechStale = () => ticket !== speechTicketRef.current;
+    // FIRST-REPLY HOLD (2026-10-22): if this is the session's first
+    // spoken reply and the warm-up probe is still in flight, wait for
+    // it to settle before synthesizing anything — its verdicts (server
+    // awake, client-leg memo armed) are what make THIS reply land on
+    // the selected voice instead of racing cold legs into whichever
+    // fallback answers first. The wait is bounded by the chain's own
+    // per-leg timeouts, and the eager-prefetch path below re-checks
+    // the ticket after it, so an interrupt during the wait still
+    // silences this reply completely.
+    warmUpVoiceChain();
+    if (!sessionVoiceReadyRef.current && voiceWarmupPromiseRef.current) {
+      await voiceWarmupPromiseRef.current.catch(() => {});
+      if (speechStale()) return;
+    }
     // Guard against double-speak: skip if the exact same text was already
     // spoken within the last few seconds (e.g. mic echo or double trigger).
     const now = Date.now();
@@ -1393,11 +1655,11 @@ export default function ChatPage() {
     }, delayMs);
   }
 
-  // Image attach for vision: read as base64 data URL.
-  function handleImagePick(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
+  // Image attach for vision: read as base64 data URL. Shared by the
+  // file picker and by PASTE (screenshots are usually pasted, not
+  // picked — his main use is showing the AI a screenshot of another
+  // app and asking how it works).
+  function acceptMediaFile(file: File) {
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
     if (!isImage && !isVideo) {
@@ -1417,6 +1679,26 @@ export default function ChatPage() {
     };
     reader.onerror = () => setError('فائل پڑھنے میں مسئلہ ہوا۔');
     reader.readAsDataURL(file);
+  }
+
+  function handleImagePick(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    acceptMediaFile(file);
+  }
+
+  // Paste a screenshot/image straight into the composer (Ctrl+V or
+  // long-press paste): the clipboard file goes through the very same
+  // validation + vision path as a picked file. Plain-text pastes are
+  // untouched (no file on the clipboard → the default paste proceeds).
+  function handleComposerPaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = event.clipboardData?.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) return;
+    event.preventDefault();
+    acceptMediaFile(file);
   }
 
   // Live mic has two engines, chosen by screen size:
@@ -1673,6 +1955,58 @@ export default function ChatPage() {
   const BARGE_MAX_RESTARTS = 12;
   const BARGE_MAX_EMPTY_ENDS = 4;
 
+  // STOP-PHRASE FAST PATH (2026-10-22, his on-device report): the
+  // conservative bar above can NEVER fire for his natural stop command
+  // — «رک جاؤ» is only two words and he means it the instant he says
+  // it. So before those gates, the freshest heard text is checked for a
+  // stop command: when the utterance CONSISTS OF (or is dominated by) a
+  // stop phrase, interruptSpeech() fires immediately — no sustain, no
+  // word count, no novelty requirement. The single exception is echo:
+  // if that very phrase is literally part of the text currently being
+  // spoken, the "user" we heard is the AI's own voice coming back
+  // through the speakers (a story saying «رکو»), and the fast path
+  // stays silent — the novelty-gated detector above still guards it.
+  const STOP_PHRASES: string[][] = [
+    ['خاموش', 'ہو', 'جاؤ'],
+    ['رک', 'جاؤ'], ['بس', 'کرو'], ['چپ', 'کرو'],
+    ['ruk', 'jao'], ['bas', 'karo'], ['stop', 'it'],
+    ['رکو'], ['رک'], ['بس'],
+    ['ruko'], ['ruk'], ['bas'], ['stop'],
+  ];
+
+  // The matched stop phrase when `words` is a stop command: the whole
+  // utterance is the phrase, or the phrase is its tail with at most one
+  // leading word before it («ارے رک جاؤ») and covers at least half of
+  // the utterance. Anything longer is a sentence, not a command.
+  function matchStopPhrase(words: string[]): string[] | null {
+    if (!words.length || words.length > 4) return null;
+    for (const phrase of STOP_PHRASES) {
+      if (phrase.length > words.length) continue;
+      const start = words.length - phrase.length;
+      if (start > 1) continue;
+      if (phrase.length * 2 < words.length) continue; // not dominant
+      let ok = true;
+      for (let i = 0; i < phrase.length; i += 1) {
+        if (words[start + i] !== phrase[i]) { ok = false; break; }
+      }
+      if (ok) return phrase;
+    }
+    return null;
+  }
+
+  // True when `phrase` appears as a contiguous word sequence in `words`
+  // — the echo guard: the stop phrase we "heard" is part of the reply
+  // text itself, so it came from the speakers, not from the user.
+  function wordsContainPhrase(words: string[], phrase: string[]): boolean {
+    outer: for (let s = 0; s + phrase.length <= words.length; s += 1) {
+      for (let i = 0; i < phrase.length; i += 1) {
+        if (words[s + i] !== phrase[i]) continue outer;
+      }
+      return true;
+    }
+    return false;
+  }
+
   function normalizeSpeechWords(text: string): string[] {
     return text
       .toLowerCase()
@@ -1782,6 +2116,20 @@ export default function ChatPage() {
         candidate.finals = heardFinals;
         if (!candidate.firstAt) candidate.firstAt = now;
         candidate.lastAt = now;
+
+        // STOP-PHRASE FAST PATH — checked on EVERY result (interim or
+        // final), before the conservative gates below: a stop command
+        // interrupts at once, unless the phrase is literally part of
+        // the text being spoken right now (speaker echo of the reply
+        // itself — e.g. a story that says «رکو»). interruptSpeech
+        // stops this listener and reopens the live mic, so the user
+        // can speak his next turn immediately.
+        const stopPhrase = matchStopPhrase(normalizeSpeechWords(candidate.text));
+        if (stopPhrase
+          && !wordsContainPhrase(normalizeSpeechWords(currentSpeechTextRef.current), stopPhrase)) {
+          interruptSpeech();
+          return;
+        }
 
         const words = normalizeSpeechWords(candidate.text);
         if (words.length < BARGE_MIN_WORDS) return;
@@ -2340,7 +2688,7 @@ export default function ChatPage() {
 
       recognition.onerror = (event) => {
         setError(event.error === 'not-allowed'
-          ? 'مائیکروفون کی اجازت دیں، پھر دوبارہ کوشش کریں۔'
+          ? 'مائیکروفون کی اجازت دیں، پھر دوبارہ کوشش کریں۔ (Settings میں «🔓 ساری اجازتیں آن کریں» سے ایک ہی بار سب اجازتیں آن ہو جاتی ہیں۔)'
           : 'آواز سمجھ نہیں آئی۔ دوبارہ کوشش کریں یا پیغام لکھیں۔');
       };
 
@@ -2461,6 +2809,25 @@ export default function ChatPage() {
           )}
         </div>
       </header>
+
+      {showPermHint && (
+        <div dir="rtl" data-testid="banner-permissions" style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          margin: '8px 12px 0', padding: '10px 14px', borderRadius: 12,
+          background: 'rgba(88,28,135,0.35)', border: '1px solid rgba(216,180,254,0.4)', color: '#f3e8ff',
+          fontSize: 13.5, lineHeight: 1.8,
+        }}>
+          <span style={{ flex: 1, minWidth: 220 }}>
+            🔓 ایک بار ساری اجازتیں (مائیک، کیمرا، مقام) آن کر دیں تو ہر ٹول بغیر رکے چلے گا — براؤزر ہر اجازت صرف پہلی بار پوچھتا ہے۔
+          </span>
+          <button type="button" onClick={warmUpFromHint} disabled={permHintBusy} style={{ padding: '6px 14px', borderRadius: 999, border: '1px solid rgba(216,180,254,0.6)', background: 'rgba(139,92,246,0.35)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+            {permHintBusy ? 'ہو رہا ہے…' : '🔓 ساری اجازتیں آن کریں'}
+          </button>
+          <button type="button" onClick={dismissPermHint} aria-label="یہ اطلاع بند کریں" style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid transparent', background: 'transparent', color: '#e9d5ff', cursor: 'pointer' }}>
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ======= BODY: rail | chat | hero | status ======= */}
       <div className="jarvis-body">
@@ -2681,6 +3048,7 @@ export default function ChatPage() {
                 event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
               }}
               onKeyDown={onComposerKeyDown}
+              onPaste={handleComposerPaste}
               placeholder="Type a message…"
               aria-label="Unique AI کو پیغام لکھیں"
               rows={1}
@@ -2747,11 +3115,13 @@ export default function ChatPage() {
           <div className="focus-view-body">
             {focusView === 'map' && <MapWidget />}
             {focusView === 'whatsapp' && <WhatsAppSender />}
-            {focusView === 'quran' && <QuranReader autoplaySignal={quranAutoplay} />}
+            {focusView === 'quran' && <QuranReader autoplayRequest={quranAutoplayReq} />}
             {focusView === 'tools' && (
               <ToolsPanel
                 onSelect={(tool) => { setFocusView(null); setToolSection(undefined); setMediaTool(tool); }}
                 onBrainTool={(example) => { setFocusView(null); setDraft(example); textareaRef.current?.focus(); }}
+                onOpenMap={() => setFocusView('map')}
+                onPairDevices={() => { setFocusView(null); setPairingOpen(true); }}
               />
             )}
           </div>
@@ -2795,10 +3165,24 @@ export default function ChatPage() {
             <ToolsPanel
               onSelect={(tool) => { setToolsPanelOpen(false); setToolSection(undefined); setMediaTool(tool); }}
               onBrainTool={(example) => { setToolsPanelOpen(false); setDraft(example); textareaRef.current?.focus(); }}
+              onOpenMap={() => { setToolsPanelOpen(false); setFocusView('map'); }}
+              onPairDevices={() => { setToolsPanelOpen(false); setPairingOpen(true); }}
             />
           </div>
         </div>
       )}
+
+      {/* Device pairing: stays mounted while linked so incoming
+          conversations/commands arrive even with the panel closed. */}
+      <DevicePairing
+        open={pairingOpen}
+        onClose={() => setPairingOpen(false)}
+        onRequestOpen={() => setPairingOpen(true)}
+        initialJoinCode={pairingJoinCode}
+        getConversation={getPairingConversation}
+        onReceiveConversation={handleReceivedConversation}
+        onRemoteCommand={handleRemoteCommand}
+      />
 
       {gesturesEnabled && (
         <div className="gesture-pip" dir="rtl" data-testid="panel-gestures" aria-label="ہاتھ کے اشارے">

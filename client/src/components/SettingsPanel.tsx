@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, MapPin, Mic, Hand, Volume2, Trash2 } from 'lucide-react';
 import { testGeminiKey, parseGeminiKeys } from '../lib/api';
+import PermissionsWarmup from './PermissionsWarmup';
 
 export type AppSettings = {
   locationEnabled: boolean;
@@ -298,6 +299,8 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
             value={settings.locationEnabled}
             onToggle={() => toggle('locationEnabled')}
           />
+          <div className="settings-group">اجازتیں</div>
+          <PermissionsWarmup />
           <div className="settings-group">آواز</div>
           <Toggle
             label="آواز (بول کر جواب)"
