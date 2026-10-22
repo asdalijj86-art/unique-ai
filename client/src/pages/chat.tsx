@@ -24,15 +24,15 @@ import {
   TTS_PLAYBACK_RATE,
 } from '@/lib/api';
 import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
+import { registerAudioStop, stopOtherAudio } from '@/lib/audio-bus';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
 import { useGestures } from '@/hooks/useGestures';
 import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
 import ProjectBuilder from '@/components/ProjectBuilder';
 import AppBuilder from '@/components/AppBuilder';
 import ToolResults from '@/components/ToolResults';
-import MediaTools, { type MediaToolName } from '@/components/MediaTools';
+import MediaTools, { type MediaToolName, type HubSection, resolveToolOpen } from '@/components/MediaTools';
 import ToolsPanel from '@/components/ToolsPanel';
-import VideoCreator from '@/components/VideoCreator';
 import AiOrb from '@/components/AiOrb';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import StatusPanel from '@/components/StatusPanel';
@@ -142,6 +142,9 @@ export default function ChatPage() {
   const [appBuild, setAppBuild] = useState<{ description: string } | null>(null);
   const [toolAction, setToolAction] = useState<ChatAction | null>(null);
   const [mediaTool, setMediaTool] = useState<MediaToolName | null>(null);
+  // Which section of a hub tool (تصویر ٹولز / ویڈیو ٹولز) to land on when a
+  // voice/chat command names a specific feature; undefined = first section.
+  const [toolSection, setToolSection] = useState<HubSection | undefined>(undefined);
   const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
   // Focus mode (user's simple-display vision): name a thing — "نقشہ دکھاؤ",
   // "WhatsApp کھولو" — and ONLY that thing fills the screen until واپس.
@@ -183,6 +186,44 @@ export default function ChatPage() {
   // pause / stop / new turn can cancel it — previously three
   // independent timers raced to reopen the mic.
   const liveReopenTimerRef = useRef<number | null>(null);
+  // SPEECH TICKET (barge-in foundation, 2026-10-22): a monotonically
+  // increasing token that owns the right to make sound. Every send takes
+  // a ticket; every new playAssistantMessage takes one; interruptSpeech()
+  // takes one — instantly orphaning the previous owner. Every place that
+  // can START a sound (chunk loops, the eager-prefetch player, the
+  // browser-voice sentence chain) checks its ticket is still current
+  // before making noise. This is what stopSpeaking() alone could never
+  // do: pausing the current <audio> element resolves its promise, and
+  // the old loops simply walked on to the next chunk — a reply could
+  // not be stopped, it talked over the user (his on-device report).
+  const speechTicketRef = useRef(0);
+  // The text of the reply currently being spoken — the barge-in detector
+  // compares candidate speech against it, so the AI hearing its OWN
+  // voice through the speakers (echo) is not mistaken for the user.
+  const currentSpeechTextRef = useRef('');
+  // Barge-in listener: a SEPARATE recognition that runs only while a
+  // reply speaks in live mode, purely to hear the user start talking.
+  // On confirmation it is ADOPTED as the live session (same object —
+  // the user is mid-sentence, a restart would eat his words), so its
+  // mode flips from 'detect' to 'capture' and the normal turn machinery
+  // takes over its results.
+  const bargeInRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const bargeInModeRef = useRef<'off' | 'detect' | 'capture'>('off');
+  const bargeInEpochRef = useRef(0);
+  const bargeInCandidateRef = useRef<{ firstAt: number; lastAt: number; text: string; finals: string }>({
+    firstAt: 0, lastAt: 0, text: '', finals: '',
+  });
+  const bargeInRestartsRef = useRef(0);
+  const bargeInEmptyEndsRef = useRef(0);
+  const bargeInGotResultRef = useRef(false);
+  // The ticket of the speech span the current listener belongs to — a
+  // new span resets the restart/unavailable verdicts, a stale listener
+  // from a dead span never restarts.
+  const bargeInSpanTicketRef = useRef(0);
+  const bargeInUnavailableRef = useRef(false);
+  const bargeInRestartTimerRef = useRef<number | null>(null);
+  // Always-current interruptSpeech for the audio bus registration.
+  const interruptSpeechRef = useRef<() => void>(() => {});
   // Phone live mic: how many sessions in a row ended without any speech —
   // drives the restart backoff that stops the mic blinking on/off.
   const phoneEmptyEndsRef = useRef(0);
@@ -215,7 +256,7 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // TTS prefetch: start synthesizing the first sentence while text still streams,
   // so voice begins almost immediately after the reply completes.
-  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string } | null>; eagerPlayed: boolean; playPromise: Promise<void> | null } | null>(null);
+  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string } | null>; eagerPlayed: boolean; playPromise: Promise<void> | null; ticket: number } | null>(null);
   // TTS health: track consecutive server TTS failures. After 3 failures,
   // skip server TTS for the session and go straight to browser voice.
   const serverTtsFailsRef = useRef(0);
@@ -254,7 +295,7 @@ export default function ChatPage() {
     enabled: gesturesEnabled,
     onGesture: (gesture: Exclude<GestureName, 'none'>) => {
       if (gesture === 'open_palm') {
-        stopSpeaking(); // "رکو" — stop the voice
+        interruptSpeech(); // "رکو" — stop the voice AND its whole queue
       } else if (gesture === 'fist') {
         toggleRecording(); // mic on/off
       } else if (gesture === 'thumbs_up') {
@@ -330,6 +371,7 @@ export default function ChatPage() {
     recognitionRef.current?.stop();
     // Continuous voice mode cleanup.
     continuousIntendedRef.current = false;
+    stopBargeInListener();
     clearLiveReopenTimer();
     if (silenceTimerRef.current !== null) window.clearTimeout(silenceTimerRef.current);
     try { continuousRecognitionRef.current?.stop(); } catch { /* already stopped */ }
@@ -365,7 +407,7 @@ export default function ChatPage() {
       return;
     }
     if (want) {
-      stopSpeaking();
+      interruptSpeech();
       continuousIntendedRef.current = true;
       setContinuousVoice(true);
       startContinuousListening();
@@ -386,6 +428,9 @@ export default function ChatPage() {
   }
 
   function startNewChat() {
+    // Leaving this chat silences its reply — a voice from a chat the
+    // user has already left must never keep talking over the new one.
+    interruptSpeech();
     // Toggle: if we're already on an empty new chat, go BACK to the most
     // recent conversation with messages. Uses the persisted conversations
     // list (survives refresh) — NOT a ref (which is wiped on reload).
@@ -476,6 +521,10 @@ export default function ChatPage() {
       updatedAt: assistantPlaceholder.createdAt,
       messages: [...item.messages, assistantPlaceholder],
     }));
+    // This send owns a fresh speech ticket: any older reply still
+    // speaking is orphaned (its chunk loops stop at their next check),
+    // and an interrupt during streaming orphans THIS send's speech.
+    const speechTicket = ++speechTicketRef.current;
     // Reset TTS prefetch for this new message
     ttsPrefetchRef.current = null;
     streamedTextRef.current = '';
@@ -505,16 +554,21 @@ export default function ChatPage() {
                   promise: synthesizeWithTimeout(firstSentence),
                   eagerPlayed: false,
                   playPromise: null as Promise<void> | null,
+                  ticket: speechTicket,
                 };
                 ttsPrefetchRef.current = entry;
                 setIsPreparingVoice(true);
                 entry.promise.then((audio) => {
                   const pf = ttsPrefetchRef.current;
                   // Only play if this is still the current message's prefetch
-                  // (a new message would have reset the ref).
-                  if (pf === entry && !pf.eagerPlayed && audio && appSettings.voiceEnabled) {
+                  // (a new message would have reset the ref) AND its speech
+                  // ticket is still current — an interrupt that landed
+                  // while the text was still streaming must keep this
+                  // audio silent forever.
+                  if (pf === entry && !pf.eagerPlayed && audio && appSettings.voiceEnabled && entry.ticket === speechTicketRef.current) {
                     pf.eagerPlayed = true;
-                    pf.playPromise = playAudioChunk(audio.audioBase64, audio.mimeType);
+                    currentSpeechTextRef.current = streamedTextRef.current;
+                    pf.playPromise = playAudioChunk(audio.audioBase64, audio.mimeType, entry.ticket);
                   }
                 }).catch(() => {});
               }
@@ -545,7 +599,13 @@ export default function ChatPage() {
       } else if (result.action?.type === 'android_app') {
         setAppBuild({ description: result.action.description });
       } else if (result.action?.type === 'open_tool') {
-        setMediaTool(result.action.tool as MediaToolName);
+        // The server may still name a legacy image/video tool — land on
+        // its hub + matching section; unknown ids are ignored gracefully.
+        const open = resolveToolOpen(result.action.tool);
+        if (open) {
+          setMediaTool(open.tool);
+          setToolSection(open.section);
+        }
         if (result.action.phone) {
           setToolPrefill({ phone: result.action.phone });
         }
@@ -554,7 +614,7 @@ export default function ChatPage() {
         setToolAction(result.action as ChatAction);
       }
       // The assistant speaks EVERY reply aloud automatically — no mic or button needed.
-      void playAssistantMessage(result.text);
+      void playAssistantMessage(result.text, speechTicket);
     } catch (sendError) {
       // Remove the streaming placeholder on failure
       setIsPreparingVoice(false);
@@ -568,7 +628,7 @@ export default function ChatPage() {
       // dead". The spoken path also resumes the live mic for the next
       // turn. setError runs after, because playAssistantMessage clears
       // the error banner on entry.
-      void playAssistantMessage(failureMessage);
+      void playAssistantMessage(failureMessage, speechTicket);
       setError(failureMessage);
     }
   }
@@ -699,6 +759,7 @@ export default function ChatPage() {
 
   function deleteConversation(id: string) {
     if (!window.confirm('کیا اس آلے سے یہ گفتگو حذف کرنی ہے؟')) return;
+    if (activeId === id) interruptSpeech(); // don't let a deleted chat keep talking
     setConversations((current) => current.filter((conversation) => conversation.id !== id));
     if (activeId === id) setActiveId(null);
   }
@@ -733,13 +794,18 @@ export default function ChatPage() {
     );
   }
 
-  async function speakNow(text: string) {
+  async function speakNow(text: string, ticket?: number) {
     if (!appSettings.voiceEnabled) { ttsActiveRef.current = false; return; }
     if (!('speechSynthesis' in window)) {
       ttsActiveRef.current = false;
       setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
       return;
     }
+    // A stopped reply must stay stopped: synth.cancel() (from a stop)
+    // fires the current utterance's error/end event, and the old chain
+    // treated that as "next sentence" — the voice resurrected after the
+    // user stopped it. Every advance now checks the speech ticket.
+    const stale = () => ticket !== undefined && ticket !== speechTicketRef.current;
     const synth = window.speechSynthesis;
     // Chrome bug workarounds:
     // 1. cancel() then immediate speak() often fails silently — wait after cancel.
@@ -747,6 +813,7 @@ export default function ChatPage() {
     synth.cancel();
     try { synth.resume(); } catch { /* ignore */ }
     await new Promise((r) => setTimeout(r, 150));
+    if (stale()) return; // interrupted during the cancel settle — stay silent
     setIsSpeaking(false);
     setIsPreparingVoice(false);
 
@@ -767,6 +834,7 @@ export default function ChatPage() {
     let failedAll = true;
 
     const speakSentence = (index: number) => {
+      if (stale()) { setIsSpeaking(false); return; } // stopped — never advance
       if (index >= sentences.length) {
         setIsSpeaking(false);
         resumeContinuousAfterTts();
@@ -783,11 +851,15 @@ export default function ChatPage() {
       utterance.pitch = 0.9; // slightly deeper (masculine)
       if (voice) utterance.voice = voice;
       utterance.onend = () => {
+        if (stale()) { setIsSpeaking(false); return; }
         spokenAny = true;
         failedAll = false;
         speakSentence(index + 1);
       };
       utterance.onerror = () => {
+        // 'interrupted'/'canceled' arrive here when the user stops the
+        // voice — that is a STOP, not a failure: never advance the chain.
+        if (stale()) { setIsSpeaking(false); return; }
         // Try next sentence — don't give up on one failure.
         speakSentence(index + 1);
       };
@@ -796,6 +868,9 @@ export default function ChatPage() {
     };
 
     setIsSpeaking(true);
+    // The browser voice has no onplaying hook — wake the barge-in
+    // listener here so live mode can still hear the user over it.
+    startBargeInListener();
     speakSentence(0);
   }
 
@@ -811,7 +886,27 @@ export default function ChatPage() {
     setIsPreparingVoice(false);
   }
 
-  function speakWithBrowser(text: string) {
+  // THE hard stop (barge-in / tap-to-interrupt / «رکو» / chat switch):
+  // unlike stopSpeaking() — which only silences the sound of the current
+  // instant — this orphans the whole speech: the ticket bump means no
+  // queued chunk, no pending eager audio and no browser-voice sentence
+  // can ever start after this call, the speech span closes at once, and
+  // in live mode the mic is invited back so the user's new turn can be
+  // captured (the barge-in adoption path has already moved its session
+  // into continuousRecognitionRef, which this deliberately never stops).
+  function interruptSpeech() {
+    speechTicketRef.current += 1;
+    ttsPrefetchRef.current = null;
+    stopBargeInListener();
+    stopSpeaking();
+    ttsActiveRef.current = false;
+    currentSpeechTextRef.current = '';
+    lastSpokenRef.current = null; // the interrupted reply may be replayed fresh later
+    if (continuousIntendedRef.current) scheduleLiveMicReopen(500);
+  }
+
+  function speakWithBrowser(text: string, ticket?: number) {
+    if (ticket !== undefined && ticket !== speechTicketRef.current) return; // stopped before it began
     if (!('speechSynthesis' in window)) {
       ttsActiveRef.current = false;
       setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
@@ -840,12 +935,15 @@ export default function ChatPage() {
         if (settled) return;
         settled = true;
         window.speechSynthesis.removeEventListener('voiceschanged', go);
-        speakNow(text);
+        // The wait can outlive the reply (a stop within it must not
+        // resurrect the voice when the voices finally load).
+        if (ticket !== undefined && ticket !== speechTicketRef.current) return;
+        speakNow(text, ticket);
       };
       window.speechSynthesis.addEventListener('voiceschanged', go);
       setTimeout(go, 1500);
     } else {
-      speakNow(text);
+      speakNow(text, ticket);
     }
   }
 
@@ -860,8 +958,15 @@ export default function ChatPage() {
   }
 
   // Play a base64 audio chunk; resolves when playback ends or fails.
-  function playAudioChunk(audioBase64: string, mimeType: string): Promise<void> {
+  // When a speech ticket is supplied, a chunk whose ticket went stale
+  // (interrupted / superseded) NEVER starts — and if the ticket dies
+  // mid-play the chunk aborts at once instead of playing out.
+  function playAudioChunk(audioBase64: string, mimeType: string, ticket?: number): Promise<void> {
     return new Promise((resolve) => {
+      if (ticket !== undefined && ticket !== speechTicketRef.current) {
+        resolve();
+        return;
+      }
       try {
         const bytes = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
@@ -887,9 +992,19 @@ export default function ChatPage() {
         audio.playbackRate = TTS_PLAYBACK_RATE;
         serverAudioRef.current = audio;
         audio.onplaying = () => {
+          if (ticket !== undefined && ticket !== speechTicketRef.current) {
+            // Interrupted in the instant playback began — abort.
+            try { audio.pause(); } catch { /* ignore */ }
+            done();
+            return;
+          }
           playbackStartedRef.current = true;
           setIsPreparingVoice(false);
           setIsSpeaking(true);
+          // Sound is really coming out: in live mode the barge-in
+          // listener must be awake from this moment (this also covers
+          // the eager chunk, which plays before playAssistantMessage).
+          startBargeInListener();
         };
         const done = () => {
           setIsPreparingVoice(false);
@@ -1075,12 +1190,23 @@ export default function ChatPage() {
     return tryBoth();
   }
 
-  async function playAssistantMessage(text: string) {
+  async function playAssistantMessage(text: string, ticket: number = ++speechTicketRef.current) {
     setError('');
     if (!appSettings.voiceEnabled) {
       setIsPreparingVoice(false);
       return;
     }
+    // Orphaned before it began: an interrupt (or a newer speech) took
+    // the ticket while this reply was still streaming/fetching. Speak
+    // nothing — the interrupter owns the mic and the span state.
+    if (ticket !== speechTicketRef.current) {
+      if (continuousIntendedRef.current) pokeLiveListening();
+      return;
+    }
+    // One voice at a time across the app: silence the Quran reader if
+    // it is speaking (it does the same to us when it starts).
+    stopOtherAudio('chat');
+    const speechStale = () => ticket !== speechTicketRef.current;
     // Guard against double-speak: skip if the exact same text was already
     // spoken within the last few seconds (e.g. mic echo or double trigger).
     const now = Date.now();
@@ -1095,7 +1221,7 @@ export default function ChatPage() {
     // that started playing during streaming (only if it matches this reply).
     const prefetch = ttsPrefetchRef.current;
     ttsPrefetchRef.current = null; // consume once
-    const prefetchMatches = !!(prefetch && text.startsWith(prefetch.text) && prefetch.text.length >= 20);
+    const prefetchMatches = !!(prefetch && prefetch.ticket === ticket && text.startsWith(prefetch.text) && prefetch.text.length >= 20);
     const hasEagerAudio = !!(prefetchMatches && prefetch!.eagerPlayed && prefetch!.playPromise);
     if (!hasEagerAudio) {
       stopSpeaking(); // also stops any stale/non-matching eager audio
@@ -1107,6 +1233,11 @@ export default function ChatPage() {
     // even in the silent gaps between audio chunks while the remaining
     // chunks are still being synthesized (the on/off cycling fix).
     ttsActiveRef.current = true;
+    currentSpeechTextRef.current = text;
+    // From this moment, in live mode, the barge-in listener watches for
+    // the user starting to speak over the reply (it also (re)starts on
+    // the first chunk's onplaying and for the browser-voice path).
+    startBargeInListener();
     // Primary: server-side masculine Urdu voice (Gemini TTS) — same voice on every device.
     // Show "preparing" while the audio is fetched; isSpeaking flips on only
     // when playback actually begins (audio.onplaying below).
@@ -1139,25 +1270,28 @@ export default function ChatPage() {
         } else {
           // Eager didn't trigger (audio wasn't ready in time) — play first chunk now.
           const first = await pf.promise.catch(() => null);
-          if (first) {
-            await playAudioChunk(first.audioBase64, first.mimeType);
+          if (first && !speechStale()) {
+            await playAudioChunk(first.audioBase64, first.mimeType, ticket);
           }
         }
+        if (speechStale()) return; // barged in / stopped — the rest is never spoken
         const restResults = await Promise.all(restPromises.map((p) => p.catch(() => null)));
         let restSpokeAny = false;
         for (const r of restResults) {
+          if (speechStale()) return; // interrupted mid-reply: abandon the queue
           if (r) {
             restSpokeAny = true;
-            await playAudioChunk(r.audioBase64, r.mimeType);
+            await playAudioChunk(r.audioBase64, r.mimeType, ticket);
           }
         }
+        if (speechStale()) return;
         if (!restSpokeAny && restChunks.length > 0 && !hasEagerAudio) {
-          speakWithBrowser(text);
+          speakWithBrowser(text, ticket);
         } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
           // The phone blocked audio playback (autoplay policy) even though
           // synthesis succeeded — fall back to the browser voice so the
           // reply is still heard instead of going silent.
-          speakWithBrowser(text);
+          speakWithBrowser(text, ticket);
         }
         resumeContinuousAfterTts();
         return;
@@ -1178,19 +1312,22 @@ export default function ChatPage() {
       if (current.trim()) chunks.push(current.trim());
       let spokeAny = false;
       for (const chunk of chunks) {
+        if (speechStale()) return; // interrupted: not one more chunk is synthesized or played
         const out = await synthesizeWithTimeout(chunk);
+        if (speechStale()) return;
         if (out) {
           spokeAny = true;
-          await playAudioChunk(out.audioBase64, out.mimeType);
+          await playAudioChunk(out.audioBase64, out.mimeType, ticket);
         } else {
           break; // TTS failed — don't play partial garbage
         }
       }
+      if (speechStale()) return;
       if (!spokeAny) {
-        speakWithBrowser(text);
+        speakWithBrowser(text, ticket);
       } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
         // Same autoplay-block fallback as the prefetch path above.
-        speakWithBrowser(text);
+        speakWithBrowser(text, ticket);
       }
       resumeContinuousAfterTts();
       return;
@@ -1198,7 +1335,8 @@ export default function ChatPage() {
       // Server voice unavailable — fall back to the browser voice.
       setIsPreparingVoice(false);
     }
-    speakWithBrowser(text);
+    if (speechStale()) return;
+    speakWithBrowser(text, ticket);
   }
 
   // ------------------------------------------------------------------
@@ -1220,7 +1358,13 @@ export default function ChatPage() {
   useEffect(() => {
     sendMessageRef.current = sendMessage;
     voiceCommandRef.current = handleVoiceWebsiteCommand;
+    interruptSpeechRef.current = interruptSpeech;
   });
+
+  // Audio focus: when the Quran reader starts speaking it silences the
+  // chat voice through this registration (and playAssistantMessage does
+  // the same to it) — the two voices can never overlap again.
+  useEffect(() => registerAudioStop('chat', () => interruptSpeechRef.current()), []);
 
   function clearSilenceTimer() {
     if (silenceTimerRef.current !== null) {
@@ -1401,6 +1545,403 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busyState, isSpeaking, isPreparingVoice]);
 
+  // Shared by the normal live session AND an adopted barge-in session:
+  // accumulate one recognition event's results into the turn buffer and
+  // arm the platform's send scheduler. Behavior is exactly the original
+  // onresult body of startContinuousListening (moved, not changed).
+  function accumulateLiveResult(
+    event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> },
+    mobileTurn: boolean,
+    markFinal: () => void,
+  ) {
+    if (!mobileTurn) {
+      // DESKTOP (original flow): accumulate final text, send on silence.
+      let gotSpeech = false;
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        if (!result) continue;
+        gotSpeech = true;
+        if (result.isFinal) {
+          continuousTextRef.current += `${result[0]?.transcript ?? ''} `;
+        }
+      }
+      if (gotSpeech) {
+        setVoiceStatus('سن رہا ہوں…');
+        scheduleSilenceSend();
+      }
+      return;
+    }
+    // PHONE (turn-based, fixed 2026-10-21): a final result is only a
+    // FRAGMENT of the turn — Android splits one sentence into several
+    // finals. Accumulate from resultIndex (never re-read old results)
+    // and let the debounce in schedulePhoneTurnSend decide when the
+    // utterance is really over. Nothing is sent from here.
+    let gotFinal = false;
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      const result = event.results[i];
+      if (result?.isFinal) {
+        continuousTextRef.current += `${result[0]?.transcript ?? ''} `;
+        gotFinal = true;
+      }
+    }
+    if (gotFinal) {
+      markFinal();
+      phoneEmptyEndsRef.current = 0;
+      setVoiceStatus('سن رہا ہوں…');
+      schedulePhoneTurnSend();
+    }
+  }
+
+  // Shared session-end handling (the original onend body of
+  // startContinuousListening, moved verbatim): clear identity, then —
+  // when the app is idle and live mode still intends to listen — reopen
+  // the mic through the single scheduler with the phone flap backoff.
+  function finishLiveSession(recognition: BrowserSpeechRecognition, mobileTurn: boolean, sessionGotFinal: boolean) {
+    if (continuousRecognitionRef.current === recognition) {
+      continuousRecognitionRef.current = null;
+    }
+    // Desktop clears its silence timer here (original). The PHONE turn
+    // timer must survive session ends — fragments of one utterance
+    // arrive across several sessions, and clearing it on the first
+    // session end is exactly what used to split them apart.
+    if (!mobileTurn) clearSilenceTimer();
+    // Session ended with nothing sent (silence): keep waiting for the
+    // user to speak, as long as live mic is on and no turn is in flight.
+    // (turnInFlight only ever becomes true on the phone path; on the
+    // desktop path this is the original auto-restart, just quicker.)
+    if (
+      continuousIntendedRef.current &&
+      !turnInFlightRef.current &&
+      !isSpeakingRef.current &&
+      !isPreparingVoiceRef.current &&
+      !busyRef.current
+    ) {
+      // PHONE: when this session's speech is already waiting to be
+      // sent (turn timer armed / fragments accumulated), do NOT
+      // reopen here at all — the dispatch → reply → resume chain
+      // owns the next opening. The old restart (400ms) always beat
+      // the send timer (1400ms), so the mic blinked open and shut
+      // around every single turn and could catch the reply's start.
+      if (mobileTurn && (phoneTurnTimerRef.current !== null || continuousTextRef.current.trim())) {
+        return;
+      }
+      // PHONE flap guard: Android ends silent single-shot sessions
+      // every few seconds, and restarting instantly makes the mic
+      // blink on/off forever without ever settling (the user's
+      // complaint). While sessions keep ending EMPTY, back the
+      // restart off (up to 3s); real speech resets it to instant.
+      // Desktop keeps its original 400ms restart, untouched.
+      let restartDelay = 400;
+      if (mobileTurn) {
+        if (!sessionGotFinal && !continuousTextRef.current.trim()) {
+          phoneEmptyEndsRef.current += 1;
+        }
+        restartDelay = Math.min(400 + phoneEmptyEndsRef.current * 800, 3000);
+      }
+      scheduleLiveMicReopen(restartDelay);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // BARGE-IN (2026-10-22): while a reply speaks in live mode, a separate
+  // listen-only recognition watches for the user starting to talk. The
+  // detection bar is deliberately conservative — tuned to NEVER kill a
+  // reply over a stray word or the AI's own echo:
+  //   • speech must be SUSTAINED (>= 450ms of arriving results), and
+  //   • at least 3 words, of which at least 2 do NOT appear in the
+  //     reply being spoken and >= 34% are novel (echo of the AI's own
+  //     voice through the speakers transcribes the reply's own words —
+  //     novelty is what separates the user from the echo), or
+  //   • a FINAL result of >= 4 words that is >= 50% novel (finals are
+  //     the engine's settled verdict — trusted sooner).
+  // A candidate decays if results stop arriving for > 1200ms, so stray
+  // fragments never accumulate into a false trigger. On confirmation
+  // the SAME recognition is adopted as the live session (mode flips to
+  // 'capture') and everything already heard is seeded into the turn —
+  // nothing the user said is lost, and the turn dispatches exactly once
+  // through the normal machinery. If the platform refuses to listen
+  // during playback (errors / instant end loops), the listener gives up
+  // for the span and tap-to-interrupt remains as the guarantee.
+  // ------------------------------------------------------------------
+  const BARGE_MIN_SUSTAIN_MS = 450;
+  const BARGE_MIN_WORDS = 3;
+  const BARGE_MIN_NOVEL_WORDS = 2;
+  const BARGE_NOVEL_RATIO = 0.34;
+  const BARGE_FAST_FINAL_WORDS = 4;
+  const BARGE_FAST_FINAL_NOVEL_RATIO = 0.5;
+  const BARGE_GAP_RESET_MS = 1200;
+  const BARGE_MAX_RESTARTS = 12;
+  const BARGE_MAX_EMPTY_ENDS = 4;
+
+  function normalizeSpeechWords(text: string): string[] {
+    return text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+  }
+
+  function clearBargeInRestartTimer() {
+    if (bargeInRestartTimerRef.current !== null) {
+      window.clearTimeout(bargeInRestartTimerRef.current);
+      bargeInRestartTimerRef.current = null;
+    }
+  }
+
+  function stopBargeInListener() {
+    clearBargeInRestartTimer();
+    // Only a DETECTING listener is torn down here: after adoption the
+    // recognition lives in continuousRecognitionRef as the live session
+    // and is owned by the normal machinery — never stop it from here.
+    if (bargeInModeRef.current === 'detect') bargeInModeRef.current = 'off';
+    const rec = bargeInRecognitionRef.current;
+    bargeInRecognitionRef.current = null;
+    if (rec) {
+      try { rec.stop(); } catch { /* already stopped */ }
+    }
+    bargeInCandidateRef.current = { firstAt: 0, lastAt: 0, text: '', finals: '' };
+  }
+
+  function startBargeInListener() {
+    // Live mode only: outside it, tap-to-interrupt is the mechanism.
+    if (!continuousIntendedRef.current) return;
+    // Only while a reply's span is open (playing or being prepared).
+    if (!ttsActiveRef.current && !isPreparingVoiceRef.current && !isSpeakingRef.current) return;
+    // Never run two recognitions at once: the normal live session or
+    // the one-shot recorder owns the mic right now.
+    if (bargeInRecognitionRef.current || continuousRecognitionRef.current || recognitionRef.current) return;
+    if (bargeInModeRef.current !== 'off') return;
+    const browserWindow = window as SpeechRecognitionWindow;
+    const Recognition = browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      bargeInUnavailableRef.current = true; // tap-to-interrupt only
+      return;
+    }
+    // A new speech span resets the per-span verdicts.
+    if (bargeInSpanTicketRef.current !== speechTicketRef.current) {
+      bargeInSpanTicketRef.current = speechTicketRef.current;
+      bargeInRestartsRef.current = 0;
+      bargeInEmptyEndsRef.current = 0;
+      bargeInUnavailableRef.current = false;
+    }
+    if (bargeInUnavailableRef.current) return;
+
+    const mobileTurn = isMobileTurnMode();
+    const epoch = listenEpochRef.current;
+    bargeInEpochRef.current = epoch;
+    let captureGotFinal = false;
+    try {
+      const recognition = new Recognition();
+      recognition.lang = 'ur-PK';
+      // Continuous + interims on BOTH platforms while detecting: the
+      // detector needs the interim stream for its 450ms sustain window.
+      // (The capture phase only consumes finals, exactly like the
+      // normal sessions, whatever this session's interim setting is.)
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event) => {
+        if (!continuousIntendedRef.current) return;
+        if (bargeInModeRef.current === 'capture') {
+          // Adopted: this IS the live session now — feed the normal
+          // machinery. The epoch guard mirrors the normal sessions:
+          // pauseContinuousForTts (on dispatch) retires these callbacks.
+          if (epoch !== listenEpochRef.current) return;
+          accumulateLiveResult(event, mobileTurn, () => { captureGotFinal = true; });
+          return;
+        }
+        if (bargeInModeRef.current !== 'detect') return;
+        if (bargeInRecognitionRef.current !== recognition) return; // stale instance
+        bargeInGotResultRef.current = true;
+        bargeInEmptyEndsRef.current = 0;
+        const now = Date.now();
+        const candidate = bargeInCandidateRef.current;
+        if (candidate.lastAt && now - candidate.lastAt > BARGE_GAP_RESET_MS) {
+          // A long silence since the last fragment: whatever came
+          // before was a stray blip, not sustained speech — start over.
+          candidate.firstAt = 0;
+          candidate.text = '';
+          candidate.finals = '';
+        }
+        // Rebuild the candidate from the session's cumulative results:
+        // the freshest hypothesis of everything heard in this window.
+        let heard = '';
+        let heardFinals = '';
+        let gotFinalNow = false;
+        for (let i = 0; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          if (!result) continue;
+          const transcript = result[0]?.transcript ?? '';
+          heard += `${transcript} `;
+          if (result.isFinal) {
+            heardFinals += `${transcript} `;
+            if (i >= event.resultIndex) gotFinalNow = true;
+          }
+        }
+        candidate.text = heard;
+        candidate.finals = heardFinals;
+        if (!candidate.firstAt) candidate.firstAt = now;
+        candidate.lastAt = now;
+
+        const words = normalizeSpeechWords(candidate.text);
+        if (words.length < BARGE_MIN_WORDS) return;
+        const spokenWords = new Set(normalizeSpeechWords(currentSpeechTextRef.current));
+        const novelWords = words.filter((w) => !spokenWords.has(w)).length;
+        const novelRatio = novelWords / words.length;
+        const sustained = now - candidate.firstAt >= BARGE_MIN_SUSTAIN_MS;
+        const genuineSpeech = novelWords >= BARGE_MIN_NOVEL_WORDS && novelRatio >= BARGE_NOVEL_RATIO;
+        const trustedFinal = gotFinalNow
+          && words.length >= BARGE_FAST_FINAL_WORDS
+          && novelWords >= BARGE_MIN_NOVEL_WORDS
+          && novelRatio >= BARGE_FAST_FINAL_NOVEL_RATIO;
+        if ((sustained && genuineSpeech) || trustedFinal) {
+          confirmBargeIn(recognition, mobileTurn, () => { captureGotFinal = true; });
+        }
+      };
+
+      recognition.onerror = (event) => {
+        if (bargeInModeRef.current === 'capture') {
+          // Adopted session: mirror the normal live session's verdicts.
+          if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+            continuousIntendedRef.current = false;
+            setContinuousVoice(false);
+            setVoiceStatus('');
+            setError('مائیکروفون کی اجازت دیں، پھر مسلسل آواز دوبارہ چالو کریں۔');
+          }
+          return;
+        }
+        if (bargeInRecognitionRef.current !== recognition) return;
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          // The platform will not listen while audio plays (or the mic
+          // permission is gone): give up for this span — quietly. The
+          // tap-to-interrupt fallback still guarantees an exit.
+          bargeInUnavailableRef.current = true;
+          stopBargeInListener();
+        }
+        // 'no-speech' / 'aborted' / 'network': onend applies the
+        // bounded-restart policy below.
+      };
+
+      recognition.onend = () => {
+        if (bargeInModeRef.current === 'capture' && continuousRecognitionRef.current === recognition) {
+          // The adopted session has ended while still the live session:
+          // hand its ending to the shared session-end machinery and
+          // release the barge-in mode so the NEXT reply can be watched.
+          bargeInModeRef.current = 'off';
+          if (epoch !== listenEpochRef.current) return; // retired by a pause, like normal sessions
+          finishLiveSession(recognition, mobileTurn, captureGotFinal);
+          return;
+        }
+        if (bargeInRecognitionRef.current === recognition) {
+          bargeInRecognitionRef.current = null;
+        }
+        if (bargeInModeRef.current !== 'detect') return;
+        // The span closed (or live mode ended) while we listened: done.
+        if (!continuousIntendedRef.current) return;
+        if (!ttsActiveRef.current && !isPreparingVoiceRef.current && !isSpeakingRef.current) return;
+        if (bargeInUnavailableRef.current) return;
+        // Android ends recognition sessions on its own schedule — while
+        // the reply still speaks, reopen the watch, but BOUNDED: a
+        // platform that kills sessions instantly (empty ends, no error)
+        // must degrade to tap-to-interrupt, never spin in a loop.
+        if (!bargeInGotResultRef.current) {
+          bargeInEmptyEndsRef.current += 1;
+          if (bargeInEmptyEndsRef.current >= BARGE_MAX_EMPTY_ENDS) {
+            bargeInUnavailableRef.current = true;
+            return;
+          }
+        }
+        bargeInGotResultRef.current = false;
+        bargeInRestartsRef.current += 1;
+        if (bargeInRestartsRef.current > BARGE_MAX_RESTARTS) {
+          bargeInUnavailableRef.current = true;
+          return;
+        }
+        clearBargeInRestartTimer();
+        bargeInRestartTimerRef.current = window.setTimeout(() => {
+          bargeInRestartTimerRef.current = null;
+          if (bargeInModeRef.current === 'detect' && !bargeInRecognitionRef.current) {
+            startBargeInListener();
+          }
+        }, 250);
+      };
+
+      bargeInRecognitionRef.current = recognition;
+      bargeInModeRef.current = 'detect';
+      bargeInGotResultRef.current = false;
+      bargeInCandidateRef.current = { firstAt: 0, lastAt: 0, text: '', finals: '' };
+      recognition.start();
+    } catch {
+      bargeInRecognitionRef.current = null;
+      if (bargeInModeRef.current === 'detect') bargeInModeRef.current = 'off';
+      bargeInUnavailableRef.current = true; // construction refused — tap only
+    }
+  }
+
+  // Detection confirmed: the user is speaking over the reply. Adopt the
+  // running recognition as the live session (he is mid-sentence — a
+  // restart would eat his words), seed the turn with the finals already
+  // heard, then silence the reply for good. The adopted session's later
+  // results flow through accumulateLiveResult, so the turn dispatches
+  // exactly once via dispatchContinuousTurn / scheduleSilenceSend.
+  function confirmBargeIn(
+    recognition: BrowserSpeechRecognition,
+    mobileTurn: boolean,
+    markCaptureFinal: () => void,
+  ) {
+    const candidate = bargeInCandidateRef.current;
+    bargeInModeRef.current = 'capture';
+    clearBargeInRestartTimer();
+    if (bargeInRecognitionRef.current === recognition) {
+      bargeInRecognitionRef.current = null;
+    }
+    continuousRecognitionRef.current = recognition;
+    // Finals heard during detection are the head of this turn.
+    const finals = candidate.finals.trim();
+    if (finals) {
+      continuousTextRef.current += `${finals} `;
+      markCaptureFinal();
+      phoneEmptyEndsRef.current = 0;
+      // Arm the send scheduler NOW: even if this session ends before
+      // another final lands, the utterance still dispatches once.
+      if (mobileTurn) schedulePhoneTurnSend();
+      else scheduleSilenceSend();
+    }
+    bargeInCandidateRef.current = { firstAt: 0, lastAt: 0, text: '', finals: '' };
+    setVoiceStatus('سن رہا ہوں…');
+    // Silence the reply and kill its queue. interruptSpeech never stops
+    // continuousRecognitionRef, so the adopted session survives; its
+    // scheduled reopen also no-ops while this session exists.
+    interruptSpeech();
+  }
+
+  // Nudge the live mic open, retrying briefly: right after an interrupt
+  // the app can still be busy (the old reply's fetch finishing), and
+  // startContinuousListening rightly refuses then — a bounded retry
+  // carries the opening across that window instead of losing it.
+  function pokeLiveListening(attemptsLeft = 4) {
+    if (!continuousIntendedRef.current) return;
+    if (continuousRecognitionRef.current || bargeInRecognitionRef.current) return;
+    startContinuousListening();
+    if (!continuousRecognitionRef.current && attemptsLeft > 0) {
+      window.setTimeout(() => pokeLiveListening(attemptsLeft - 1), 700);
+    }
+  }
+
+  // TAP-TO-INTERRUPT (the guaranteed fallback, every voice mode): the
+  // user tapped the mic or the orb while the AI was speaking — silence
+  // everything at once and open the mic for his new turn.
+  function interruptSpeechAndListen() {
+    const wasLive = continuousIntendedRef.current;
+    interruptSpeech();
+    if (wasLive) {
+      turnInFlightRef.current = false;
+      pokeLiveListening();
+    } else if (!recording) {
+      void toggleRecording();
+    }
+  }
+
   function startContinuousListening() {
     if (!continuousIntendedRef.current) return;
     // Don't listen while a reply is playing or a turn is being answered —
@@ -1412,6 +1953,10 @@ export default function ChatPage() {
     // stay shut for exactly those gaps too.
     if (isSpeakingRef.current || busyRef.current || turnInFlightRef.current || isPreparingVoiceRef.current || ttsActiveRef.current) return;
     if (continuousRecognitionRef.current) return; // already running
+    // Never run beside the barge-in watch: it owns the mic for the
+    // reply's span, and the normal session may only start once the span
+    // has ended — resumeContinuousAfterTts stops the watch first.
+    if (bargeInRecognitionRef.current) return;
 
     const browserWindow = window as SpeechRecognitionWindow;
     const Recognition = browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition;
@@ -1441,42 +1986,7 @@ export default function ChatPage() {
       recognition.onresult = (event) => {
         if (epoch !== listenEpochRef.current) return; // dead session
         if (!continuousIntendedRef.current) return;
-        if (!mobileTurn) {
-          // DESKTOP (original flow): accumulate final text, send on silence.
-          let gotSpeech = false;
-          for (let i = event.resultIndex; i < event.results.length; i += 1) {
-            const result = event.results[i];
-            if (!result) continue;
-            gotSpeech = true;
-            if (result.isFinal) {
-              continuousTextRef.current += `${result[0]?.transcript ?? ''} `;
-            }
-          }
-          if (gotSpeech) {
-            setVoiceStatus('سن رہا ہوں…');
-            scheduleSilenceSend();
-          }
-          return;
-        }
-        // PHONE (turn-based, fixed 2026-10-21): a final result is only a
-        // FRAGMENT of the turn — Android splits one sentence into several
-        // finals. Accumulate from resultIndex (never re-read old results)
-        // and let the debounce in schedulePhoneTurnSend decide when the
-        // utterance is really over. Nothing is sent from here.
-        let gotFinal = false;
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const result = event.results[i];
-          if (result?.isFinal) {
-            continuousTextRef.current += `${result[0]?.transcript ?? ''} `;
-            gotFinal = true;
-          }
-        }
-        if (gotFinal) {
-          sessionGotFinal = true;
-          phoneEmptyEndsRef.current = 0;
-          setVoiceStatus('سن رہا ہوں…');
-          schedulePhoneTurnSend();
-        }
+        accumulateLiveResult(event, mobileTurn, () => { sessionGotFinal = true; });
       };
 
       recognition.onerror = (event) => {
@@ -1493,49 +2003,7 @@ export default function ChatPage() {
 
       recognition.onend = () => {
         if (epoch !== listenEpochRef.current) return; // dead session
-        if (continuousRecognitionRef.current === recognition) {
-          continuousRecognitionRef.current = null;
-        }
-        // Desktop clears its silence timer here (original). The PHONE turn
-        // timer must survive session ends — fragments of one utterance
-        // arrive across several sessions, and clearing it on the first
-        // session end is exactly what used to split them apart.
-        if (!mobileTurn) clearSilenceTimer();
-        // Session ended with nothing sent (silence): keep waiting for the
-        // user to speak, as long as live mic is on and no turn is in flight.
-        // (turnInFlight only ever becomes true on the phone path; on the
-        // desktop path this is the original auto-restart, just quicker.)
-        if (
-          continuousIntendedRef.current &&
-          !turnInFlightRef.current &&
-          !isSpeakingRef.current &&
-          !isPreparingVoiceRef.current &&
-          !busyRef.current
-        ) {
-          // PHONE: when this session's speech is already waiting to be
-          // sent (turn timer armed / fragments accumulated), do NOT
-          // reopen here at all — the dispatch → reply → resume chain
-          // owns the next opening. The old restart (400ms) always beat
-          // the send timer (1400ms), so the mic blinked open and shut
-          // around every single turn and could catch the reply's start.
-          if (mobileTurn && (phoneTurnTimerRef.current !== null || continuousTextRef.current.trim())) {
-            return;
-          }
-          // PHONE flap guard: Android ends silent single-shot sessions
-          // every few seconds, and restarting instantly makes the mic
-          // blink on/off forever without ever settling (the user's
-          // complaint). While sessions keep ending EMPTY, back the
-          // restart off (up to 3s); real speech resets it to instant.
-          // Desktop keeps its original 400ms restart, untouched.
-          let restartDelay = 400;
-          if (mobileTurn) {
-            if (!sessionGotFinal && !continuousTextRef.current.trim()) {
-              phoneEmptyEndsRef.current += 1;
-            }
-            restartDelay = Math.min(400 + phoneEmptyEndsRef.current * 800, 3000);
-          }
-          scheduleLiveMicReopen(restartDelay);
-        }
+        finishLiveSession(recognition, mobileTurn, sessionGotFinal);
       };
 
       continuousRecognitionRef.current = recognition;
@@ -1553,6 +2021,10 @@ export default function ChatPage() {
     // *intention* so it resumes afterwards.
     clearSilenceTimer();
     clearLiveReopenTimer(); // no pending reopen may fire into the pause
+    // If the session being retired here is an ADOPTED barge-in capture,
+    // its watch is over — release the mode (its onend arrives retired
+    // and must not be the only place that could free it).
+    if (bargeInModeRef.current === 'capture') bargeInModeRef.current = 'off';
     // Invalidate the current session's late callbacks (stop() is async —
     // its queued results must not dispatch a duplicate turn). The phone
     // turn timer is deliberately NOT cleared here: dispatch consumes the
@@ -1563,13 +2035,18 @@ export default function ChatPage() {
     if (rec) {
       try { rec.stop(); } catch { /* already stopped */ }
     }
-    if (continuousIntendedRef.current) setVoiceStatus('جواب سن رہے ہیں…');
+    if (continuousIntendedRef.current) setVoiceStatus('جواب سن رہے ہیں… بولیں گے تو رک جاؤں گا');
   }
 
   function resumeContinuousAfterTts() {
-    // The reply's speech span is over — close it FIRST so the reopen
-    // below (and any recovery-effect reopen) is allowed through.
+    // The reply's speech span is over: the barge-in watch ends with it
+    // (if it had confirmed, the session was adopted and this is a no-op
+    // for it — stopBargeInListener never touches an adopted session).
+    stopBargeInListener();
+    // Close the span FIRST so the reopen below (and any recovery-effect
+    // reopen) is allowed through.
     ttsActiveRef.current = false;
+    currentSpeechTextRef.current = '';
     if (!continuousIntendedRef.current) return;
     setVoiceStatus('سن رہا ہوں…');
     // Small delay so the mic doesn't catch the tail of the TTS audio —
@@ -1579,6 +2056,11 @@ export default function ChatPage() {
 
   function stopContinuousListening() {
     continuousIntendedRef.current = false;
+    // Turning live mode OFF must also silence a reply in flight — before
+    // this, the reply kept talking to the end over a mode the user had
+    // just switched off. (interruptSpeech's reopen checks the intended
+    // flag, already false here, so nothing reopens.)
+    interruptSpeech();
     turnInFlightRef.current = false;
     ttsActiveRef.current = false;
     phoneEmptyEndsRef.current = 0;
@@ -1592,6 +2074,9 @@ export default function ChatPage() {
     if (rec) {
       try { rec.stop(); } catch { /* already stopped */ }
     }
+    // Live mode is fully torn down: no barge-in state may survive it
+    // (an adopted capture session was stopped just above).
+    bargeInModeRef.current = 'off';
     setVoiceStatus('');
   }
 
@@ -1606,7 +2091,7 @@ export default function ChatPage() {
     setError('');
     // The one-shot mic and continuous mode must not run together.
     if (recording) toggleRecording();
-    stopSpeaking();
+    interruptSpeech();
     continuousIntendedRef.current = true;
     setContinuousVoice(true);
     setAppSettings((s: any) => (s.continuousVoice ? s : { ...s, continuousVoice: true }));
@@ -1795,10 +2280,20 @@ export default function ChatPage() {
       return;
     }
 
+    // In live mode the hero mic is never a second, competing recorder:
+    // a tap while live means "stop talking and listen to me" (or, when
+    // already listening, nothing new — the live session owns the mic).
+    if (continuousIntendedRef.current) {
+      interruptSpeechAndListen();
+      return;
+    }
+
     setError('');
     // Stop any playing reply before listening — otherwise the mic can pick
-    // up the speaker and the two voices overlap.
-    stopSpeaking();
+    // up the speaker and the two voices overlap. The HARD stop: the old
+    // stopSpeaking() left the reply's remaining chunks queued behind
+    // the recording, ready to resume over the user.
+    interruptSpeech();
 
     // PHONE start: chained single-shot sessions (see above). Desktop
     // falls through to the original code below, unchanged.
@@ -1893,7 +2388,7 @@ export default function ChatPage() {
             <button
               className="history-select"
               dir="auto"
-              onClick={() => { setActiveId(conversation.id); setShowHistory(false); }}
+              onClick={() => { interruptSpeech(); setActiveId(conversation.id); setShowHistory(false); }}
               data-testid={`button-open-conversation-${conversation.id}`}
               title={conversation.title}
             >
@@ -2098,8 +2593,16 @@ export default function ChatPage() {
 
         {/* CENTER: hero orb + waveform + input */}
         <section className="jarvis-center" aria-label="Unique AI">
-          <div className="hero-orb-wrap">
-            <AiOrb isSpeaking={isSpeaking} isThinking={busy || isPreparingVoice} size={180} />
+          <div
+            className={`hero-orb-wrap${isSpeaking || isPreparingVoice ? ' tappable' : ''}`}
+            onClick={() => {
+              // Tap the orb while it speaks = "stop, listen to me" —
+              // works even where recognition barge-in is unavailable.
+              if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
+            }}
+            title={isSpeaking || isPreparingVoice ? 'رکنے کے لیے دبائیں' : undefined}
+          >
+            <AiOrb isSpeaking={isSpeaking} isThinking={busy || isPreparingVoice} size={212} />
           </div>
           <div className="hero-name">
             <span className="hero-name-text">Unique AI</span>
@@ -2135,8 +2638,15 @@ export default function ChatPage() {
           <div className="hero-composer">
             <button
               className={`hero-mic${recording ? ' recording' : ''}`}
-              onClick={() => void toggleRecording()}
-              disabled={busy}
+              onClick={() => {
+                // While the AI speaks, the mic button is the interrupt:
+                // silence it instantly and take the user's new turn.
+                // (During streaming `busy` is true, so the button must
+                // stay enabled exactly while speech is in flight.)
+                if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
+                else void toggleRecording();
+              }}
+              disabled={busy && !isSpeaking && !isPreparingVoice}
               aria-label={recording ? 'ریکارڈنگ روکیں' : 'آواز ریکارڈ کریں'}
               data-testid="button-microphone"
             >
@@ -2203,6 +2713,7 @@ export default function ChatPage() {
           settings={appSettings}
           onSettingsChange={setAppSettings}
           onClearChat={() => {
+            interruptSpeech(); // the cleared chat's reply stops with it
             if (activeConversation) {
               // Clear messages of active conversation
               setConversations(prev => prev.map(c =>
@@ -2239,7 +2750,7 @@ export default function ChatPage() {
             {focusView === 'quran' && <QuranReader autoplaySignal={quranAutoplay} />}
             {focusView === 'tools' && (
               <ToolsPanel
-                onSelect={(tool) => { setFocusView(null); setMediaTool(tool); }}
+                onSelect={(tool) => { setFocusView(null); setToolSection(undefined); setMediaTool(tool); }}
                 onBrainTool={(example) => { setFocusView(null); setDraft(example); textareaRef.current?.focus(); }}
               />
             )}
@@ -2263,11 +2774,14 @@ export default function ChatPage() {
           }}
         />
       )}
-      {mediaTool && mediaTool !== 'video_creator' && (
-        <MediaTools tool={mediaTool} onClose={() => { setMediaTool(null); setToolPrefill(null); }} initialPhone={toolPrefill?.phone} />
-      )}
-      {mediaTool === 'video_creator' && (
-        <VideoCreator onClose={() => setMediaTool(null)} />
+      {mediaTool && (
+        <MediaTools
+          tool={mediaTool}
+          initialSection={toolSection}
+          initialPhone={toolPrefill?.phone}
+          onBrainTool={(example) => { setMediaTool(null); setToolPrefill(null); setToolSection(undefined); setDraft(example); textareaRef.current?.focus(); }}
+          onClose={() => { setMediaTool(null); setToolPrefill(null); setToolSection(undefined); }}
+        />
       )}
       {toolsPanelOpen && (
         <div className="tool-results" dir="rtl" data-testid="panel-tools" role="region" aria-label="ٹولز">
@@ -2279,7 +2793,7 @@ export default function ChatPage() {
           </div>
           <div className="tool-results-body">
             <ToolsPanel
-              onSelect={(tool) => { setToolsPanelOpen(false); setMediaTool(tool); }}
+              onSelect={(tool) => { setToolsPanelOpen(false); setToolSection(undefined); setMediaTool(tool); }}
               onBrainTool={(example) => { setToolsPanelOpen(false); setDraft(example); textareaRef.current?.focus(); }}
             />
           </div>

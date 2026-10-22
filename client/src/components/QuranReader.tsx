@@ -12,6 +12,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Loader2, Search, Volume2, Square, BookOpen, ArrowRight, ListMusic } from 'lucide-react';
 import { synthesizeMairaSpeech, synthesizeEdgeSpeech, TTS_PLAYBACK_RATE } from '@/lib/api';
 import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
+import { registerAudioStop, stopOtherAudio } from '@/lib/audio-bus';
 
 type SurahMeta = {
   number: number;
@@ -92,6 +93,12 @@ export default function QuranReader({ autoplaySignal }: { autoplaySignal?: numbe
     return () => stopAudio();
   }, []);
 
+  // Audio focus: when the chat voice starts speaking it silences this
+  // reader through the bus (and playUrdu silences the chat in return) —
+  // the two voices can never overlap. stopAudio is stable enough here:
+  // it only touches refs and state setters.
+  useEffect(() => registerAudioStop('quran', () => stopAudio()), []);
+
   function stopAudio() {
     stopAllRef.current = true;
     if (audioRef.current) {
@@ -120,6 +127,8 @@ export default function QuranReader({ autoplaySignal }: { autoplaySignal?: numbe
   }
 
   async function playUrdu(text: string): Promise<{ ok: boolean; errorType?: string }> {
+    // One voice at a time across the app: silence the chat voice first.
+    stopOtherAudio('quran');
     // One synthesis attempt with a hard 15s cap: a stalled synthesis must
     // surface as a timeout with a reason, never as endless silence.
     const withCap = (p: Promise<{ audioBase64: string; mimeType: string }>) => {

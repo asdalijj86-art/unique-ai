@@ -46,7 +46,7 @@ function Section({ title, children, copyText }: { title: string; children: React
   );
 }
 
-export default function VideoCreator({ onClose }: { onClose: () => void }) {
+export default function VideoCreator({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const [idea, setIdea] = useState('');
   const [platform, setPlatform] = useState<'youtube' | 'facebook' | 'both'>('both');
   const [language, setLanguage] = useState<'ur' | 'roman' | 'en' | 'ar'>('ur');
@@ -75,15 +75,10 @@ export default function VideoCreator({ onClose }: { onClose: () => void }) {
     }
   }
 
-  return (
-    <div className="tool-results" dir="rtl" data-testid="panel-video-creator" role="region" aria-label="ویڈیو بنانے والا">
-      <div className="tool-results-head">
-        <span className="tool-results-title">🎬 وائرل ویڈیو پیکج بنائیں</span>
-        <button type="button" className="tool-results-close" onClick={onClose} aria-label="بند کریں">
-          <X size={16} />
-        </button>
-      </div>
-      <div className="tool-results-body">
+  // The form/result markup is shared: standalone it gets its own panel
+  // chrome; embedded (inside the ویڈیو ٹولز hub) it renders bare.
+  const content = (
+    <>
         {!pkg && (
           <div>
             <div className="tool-label">اپنے ویڈیو کا آئیڈیا لکھیں:</div>
@@ -179,7 +174,22 @@ export default function VideoCreator({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         )}
+    </>
+  );
+
+  if (embedded) {
+    return <div data-testid="panel-video-creator">{content}</div>;
+  }
+
+  return (
+    <div className="tool-results" dir="rtl" data-testid="panel-video-creator" role="region" aria-label="ویڈیو بنانے والا">
+      <div className="tool-results-head">
+        <span className="tool-results-title">🎬 وائرل ویڈیو پیکج بنائیں</span>
+        <button type="button" className="tool-results-close" onClick={onClose} aria-label="بند کریں">
+          <X size={16} />
+        </button>
       </div>
+      <div className="tool-results-body">{content}</div>
     </div>
   );
 }

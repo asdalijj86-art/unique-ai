@@ -311,6 +311,7 @@ body {
   overflow: hidden; flex-shrink: 0;
 }
 .hero-orb-wrap { position: relative; display: flex; justify-content: center; }
+.hero-orb-wrap.tappable { cursor: pointer; }
 .hero-name { text-align: center; }
 .hero-name-text {
   display: block; font-size: 22px; font-weight: 700; letter-spacing: 0.6px; color: #f0fbff;
@@ -412,25 +413,39 @@ body {
   overflow: hidden;
   animation: orb-breathe 4s ease-in-out infinite;
 }
-.ai-orb-nucleus {
-  position: absolute; left: 50%; top: 50%; width: 34%; height: 34%;
-  transform: translate(-50%, -50%); border-radius: 50%;
-  background: radial-gradient(circle, #e0fbff 0%, #67e8f9 40%, rgba(34, 211, 238, 0.15) 75%);
-  filter: blur(1px);
-  animation: nucleus-pulse 4s ease-in-out infinite;
+/* The AI's face — the user's own particle portrait (avatar.webp): a young
+   man made of glowing blue/violet dots (دانے دانے والا چہرہ), sitting
+   large and clear in the globe's center. The wrapper's slight baked-in
+   scale (1.035) leaves a margin so the gentle idle float below can drift
+   a couple of px without ever revealing an edge; the base photo and the
+   lip patch share this wrapper so they can never drift apart. */
+.ai-orb-photo {
+  position: absolute; inset: 0; border-radius: 50%; overflow: hidden;
+  background: #040918; z-index: 1; pointer-events: none;
+  animation: orb-float 6.5s ease-in-out infinite alternate;
 }
-.ai-orb-particle { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: #a5f3fc; box-shadow: 0 0 8px #22d3ee; }
-.ai-orb-particle.p1 { animation: orbit 7s linear infinite; }
-.ai-orb-particle.p2 { animation: orbit 11s linear infinite reverse; width: 5px; height: 5px; }
-.ai-orb-particle.p3 { animation: orbit 9s linear infinite; animation-delay: -3s; width: 4px; height: 4px; }
-@keyframes orbit {
-  from { transform: rotate(0deg) translateX(44px) rotate(0deg); left: 50%; top: 50%; margin: -3px; }
-  to { transform: rotate(360deg) translateX(44px) rotate(-360deg); left: 50%; top: 50%; margin: -3px; }
+@keyframes orb-float {
+  from { transform: scale(1.035) translateY(1.5px); }
+  to { transform: scale(1.035) translateY(-2px); }
 }
-.ai-orb-arcs { position: absolute; inset: 8%; width: 84%; height: 84%; }
-.ai-orb-arcs .arc { stroke: rgba(165, 243, 252, 0.75); }
-.ai-orb-arcs .a1 { animation: orb-spin 12s linear infinite; transform-origin: 50% 50%; }
-.ai-orb-arcs .a2 { animation: orb-spin-rev 8s linear infinite; transform-origin: 50% 50%; }
+/* One photo layer: absolutely positioned square frame (geometry set
+   inline by AiOrb.tsx from the shared framing math). */
+.ai-orb-frame { position: absolute; display: block; }
+.ai-orb-frame img {
+  width: 100%; height: 100%; display: block; object-fit: fill;
+  user-select: none; -webkit-user-drag: none;
+}
+/* Lip patch: the same photo again, visible only through a soft ellipse
+   over the mouth (mask set inline); its frame is nudged by the JS lip
+   driver while the AI speaks. At rest the transform is identity, so the
+   patch's dots sit exactly on the base photo's dots — invisible. */
+.ai-orb-lips { position: absolute; inset: 0; pointer-events: none; }
+.ai-orb-lips-frame { will-change: transform; }
+/* Soft glass reflection over the globe's face. */
+.ai-orb-glass {
+  position: absolute; inset: 0; border-radius: 50%; pointer-events: none; z-index: 4;
+  background: radial-gradient(circle at 32% 22%, rgba(255, 255, 255, 0.20), transparent 42%);
+}
 .ai-orb-halo {
   position: absolute; inset: -22px; border-radius: 50%; pointer-events: none;
   background: radial-gradient(circle, rgba(34, 211, 238, 0.22), transparent 65%);
@@ -439,13 +454,16 @@ body {
 @keyframes orb-spin { to { transform: rotate(360deg); } }
 @keyframes orb-spin-rev { to { transform: rotate(-360deg); } }
 @keyframes orb-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
-@keyframes nucleus-pulse { 0%, 100% { opacity: 0.85; transform: translate(-50%, -50%) scale(1); } 50% { opacity: 1; transform: translate(-50%, -50%) scale(1.18); } }
-
 .ai-orb-thinking .ai-orb-ring { animation-duration: 2.5s; background: conic-gradient(from 0deg, #22d3ee, #a855f7, #ec4899, #22d3ee); }
 .ai-orb-thinking .ai-orb-core { animation-duration: 1.6s; }
 .ai-orb-speaking .ai-orb-core { box-shadow: inset 0 0 34px rgba(34, 211, 238, 0.6), 0 0 48px rgba(34, 211, 238, 0.6); }
-.ai-orb-speaking .ai-orb-nucleus { animation-duration: 0.9s; }
+.ai-orb-speaking .ai-orb-photo { filter: brightness(1.07) saturate(1.05); }
 .ai-orb-speaking .ai-orb-halo { animation-duration: 0.9s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-orb-ring, .ai-orb-ring2, .ai-orb-core, .ai-orb-halo, .ai-orb-shimmer,
+  .ai-orb-sparkle, .ai-orb-photo { animation: none !important; }
+}
 
 /* Sparkling lights around the globe — twinkling stars that catch the eye. */
 .ai-orb-sparkle {
@@ -717,8 +735,8 @@ body {
   }
   /* Compact pinned hero on phones so chat keeps usable space */
   .jarvis-center { grid-column: 1; grid-row: 1; gap: 6px; padding: 10px 8px; }
-  .hero-orb-wrap { height: 104px; overflow: hidden; }
-  .hero-orb-wrap .ai-orb { transform: scale(0.58); transform-origin: top center; }
+  .hero-orb-wrap { height: 118px; overflow: hidden; }
+  .hero-orb-wrap .ai-orb { transform: scale(0.557); transform-origin: top center; }
   .hero-wave { max-height: 54px; overflow: hidden; }
   .hero-caption { display: none; }
   .jarvis-chat { grid-column: 1; grid-row: 3; max-height: none; min-height: 0; height: 100%; }

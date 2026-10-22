@@ -6,26 +6,22 @@
 import type { MediaToolName } from './MediaTools';
 import { TOOL_TITLES } from './MediaTools';
 
+// All image features live inside the single 'image_tools' hub and all
+// video features inside 'video_tools' (user decision 2026-10-22).
 const MEDIA_TOOL_ORDER: MediaToolName[] = [
   'quran',
   'whatsapp_send',
   'phone_lookup',
-  'background_remover',
-  'ocr',
-  'upscaler',
-  'resize',
-  'image_compress',
+  'image_tools',
   'pdf',
   'audio_to_text',
   'email',
-  'video_upload',
-  'video_creator',
+  'video_tools',
   'password_gen',
   'emi_calc',
   'resume_builder',
   'invoice_gen',
   'assignment_maker',
-  'text_on_image',
 ];
 
 // Brain tools — triggered via chat. Clicking inserts an example query.
@@ -46,7 +42,7 @@ const BRAIN_TOOLS: { id: string; icon: string; title: string; example: string }[
   { id: 'qr_code', icon: '📱', title: 'QR کوڈ بنائیں', example: 'میرے نمبر کا QR کوڈ بناؤ' },
   { id: 'android_app', icon: '🤖', title: 'ایپ تجویز', example: 'اچھی قرآن ایپ بتاؤ' },
   { id: 'study', icon: '📚', title: 'پڑھائی مدد', example: 'فوٹو سنتھیسز کیا ہے؟ آسان الفاظ میں سمجھاؤ' },
-  { id: 'image_search', icon: '🖼️', title: 'تصویر تلاش', example: 'بلی کی تصویر دکھاؤ' },
+  // تصویر تلاش moved into the 🖼️ تصویر ٹولز hub as its image_search section.
 ];
 
 export default function ToolsPanel({ onSelect, onBrainTool }: {
@@ -63,7 +59,7 @@ export default function ToolsPanel({ onSelect, onBrainTool }: {
   return (
     <div dir="rtl" className="tools-panel">
       <div style={{ textAlign: 'center', marginBottom: 14 }}>
-        <div style={{ fontSize: 19, fontWeight: 800, color: '#e9d5ff' }}>🧰 ٹولز (35)</div>
+        <div style={{ fontSize: 19, fontWeight: 800, color: '#e9d5ff' }}>🧰 ٹولز ({MEDIA_TOOL_ORDER.length + BRAIN_TOOLS.length})</div>
         <div className="tool-small-note">کوئی ٹول چنیں</div>
       </div>
       <div style={{

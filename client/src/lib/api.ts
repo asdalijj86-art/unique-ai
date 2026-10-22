@@ -24,7 +24,9 @@ export type ChatAction =
   | { type: 'video_ideas'; ideas: string }
   | { type: 'world_clock'; city: string; time: string; date: string }
   | { type: 'page_summary'; url: string; title: string; summary: string }
-  | { type: 'open_tool'; tool: 'background_remover' | 'ocr' | 'upscaler' | 'pdf' | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload' | 'phone_lookup' | 'whatsapp_send'; phone?: string };
+  // The server still names the legacy image/video tools here; the client
+  // normalizes them onto the تصویر ٹولز / ویڈیو ٹولز hubs (resolveToolOpen).
+  | { type: 'open_tool'; tool: 'background_remover' | 'ocr' | 'upscaler' | 'resize' | 'image_compress' | 'text_on_image' | 'video_upload' | 'video_creator' | 'pdf' | 'audio_to_text' | 'email' | 'password_gen' | 'emi_calc' | 'resume_builder' | 'invoice_gen' | 'assignment_maker' | 'phone_lookup' | 'whatsapp_send' | 'quran'; phone?: string };
 
 export type ChatResponse = {
   text: string;

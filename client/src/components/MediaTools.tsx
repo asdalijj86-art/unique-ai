@@ -1,8 +1,12 @@
 // MediaTools — client-side media/productivity tools, all in Urdu.
+// Image features live in ONE hub tool (image_tools) with sections:
 // - background_remover: @imgly/background-removal (in-browser)
 // - ocr: tesseract.js (Urdu + English)
 // - upscaler: canvas 2x/4x with sharpening
 // - resize: canvas resize to chosen dimensions
+// - image_compress / text_on_image: canvas-based
+// - image_search: chat-based (inserts a search query into the draft)
+// Video features live in ONE hub tool (video_tools): upload + package maker.
 // - pdf: pdf-lib — images → PDF, merge PDFs
 // - audio_to_text: upload → /api/transcribe (Gemini)
 // - email: form → /api/draft-email (Gemini)
@@ -10,36 +14,84 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import VideoUpload from './VideoUpload';
+import VideoCreator from './VideoCreator';
 import WhatsAppSender from './WhatsAppSender';
 import QuranReader from './QuranReader';
 
 export type MediaToolName =
-  | 'background_remover' | 'ocr' | 'upscaler' | 'pdf'
-  | 'audio_to_text' | 'email' | 'resize' | 'video_creator' | 'video_upload'
-  | 'password_gen' | 'emi_calc' | 'image_compress' | 'resume_builder' | 'invoice_gen'
-  | 'phone_lookup' | 'whatsapp_send' | 'quran' | 'assignment_maker' | 'text_on_image';
+  | 'image_tools' | 'video_tools' | 'pdf'
+  | 'audio_to_text' | 'email'
+  | 'password_gen' | 'emi_calc' | 'resume_builder' | 'invoice_gen'
+  | 'phone_lookup' | 'whatsapp_send' | 'quran' | 'assignment_maker';
 
 export const TOOL_TITLES: Record<MediaToolName, string> = {
-  background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
-  ocr: '📝 تصویر سے متن نکالیں',
-  upscaler: '🔍 تصویر صاف کریں (HD)',
+  image_tools: '🖼️ تصویر ٹولز',
+  video_tools: '🎬 ویڈیو ٹولز',
   pdf: '📄 پی ڈی ایف ٹولز',
   audio_to_text: '🎤 آڈیو سے متن',
   email: '✉️ ای میل لکھوائیں',
-  resize: '📐 تصویر ری سائز کریں',
-  video_upload: '🎬 ویڈیو اپلوڈ اور وائرل تیاری',
   password_gen: '🔐 پاس ورڈ بنائیں',
   emi_calc: '💰 قرض کی قسط نکالیں',
-  image_compress: '🗜️ تصویر چھوٹی کریں',
   resume_builder: '📄 ریزیومے (CV) بنائیں',
   invoice_gen: '🧾 انوائس بنائیں',
   phone_lookup: '📞 نمبر سے شہر معلوم کریں',
   whatsapp_send: '💬 WhatsApp پیغام بھیجیں',
-  video_creator: '🎬 ویڈیو پیکج بنائیں',
   quran: '📖 قرآن پاک (ترجمے کے ساتھ)',
   assignment_maker: '📚 اسائنمنٹ بنائیں',
-  text_on_image: '✍️ تصویر پر متن لکھیں',
 };
+
+// Sections inside the تصویر ٹولز hub — these are NOT standalone tools any
+// more. The ids are kept identical to the old tool ids so that anything
+// still referencing them (server open_tool actions, old saved state)
+// resolves onto the matching hub section instead of breaking.
+export type ImageSection =
+  | 'background_remover' | 'ocr' | 'upscaler' | 'resize'
+  | 'image_compress' | 'text_on_image' | 'image_search';
+
+export const IMAGE_SECTION_TITLES: Record<ImageSection, string> = {
+  background_remover: '🖼️ بیک گراؤنڈ ہٹائیں',
+  ocr: '📝 تصویر سے متن نکالیں',
+  upscaler: '🔍 تصویر صاف کریں (HD)',
+  resize: '📐 تصویر ری سائز کریں',
+  image_compress: '🗜️ تصویر چھوٹی کریں',
+  text_on_image: '✍️ تصویر پر متن لکھیں',
+  image_search: '🔍 تصویر تلاش',
+};
+
+export const IMAGE_SECTIONS: ImageSection[] = [
+  'background_remover', 'ocr', 'upscaler', 'resize',
+  'image_compress', 'text_on_image', 'image_search',
+];
+
+// Sections inside the ویڈیو ٹولز hub — same consolidation as the image hub.
+export type VideoSection = 'video_upload' | 'video_creator';
+
+export const VIDEO_SECTION_TITLES: Record<VideoSection, string> = {
+  video_upload: '🎬 ویڈیو اپلوڈ اور وائرل تیاری',
+  video_creator: '🎬 ویڈیو پیکج بنائیں',
+};
+
+export const VIDEO_SECTIONS: VideoSection[] = ['video_upload', 'video_creator'];
+
+export type HubSection = ImageSection | VideoSection;
+
+/**
+ * Resolve any tool id (current or legacy) to what should actually open.
+ * Legacy image/video tool ids land on their hub + matching section;
+ * unknown ids return null so callers can ignore them gracefully.
+ */
+export function resolveToolOpen(raw: string): { tool: MediaToolName; section?: HubSection } | null {
+  if ((IMAGE_SECTIONS as string[]).includes(raw)) {
+    return { tool: 'image_tools', section: raw as ImageSection };
+  }
+  if ((VIDEO_SECTIONS as string[]).includes(raw)) {
+    return { tool: 'video_tools', section: raw as VideoSection };
+  }
+  if (raw in TOOL_TITLES) {
+    return { tool: raw as MediaToolName };
+  }
+  return null;
+}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -1360,35 +1412,137 @@ function PhoneLookup({ initialNumber }: { initialNumber?: string }) {
   );
 }
 
+// --- hub: section tabs ---------------------------------------------------------
+function SectionTabs<T extends string>({ sections, titles, active, onChange }: {
+  sections: T[];
+  titles: Record<T, string>;
+  active: T;
+  onChange: (s: T) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+      {sections.map((s) => (
+        <button
+          key={s}
+          type="button"
+          className={`tool-action-button${active === s ? ' active' : ''}`}
+          onClick={() => onChange(s)}
+        >
+          {titles[s]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// --- hub: image search section ---------------------------------------------------
+// Image search is chat-based (same as the old تصویر تلاش grid button):
+// the button drops the example query into the chat draft via onBrainTool.
+function ImageSearchSection({ onBrainTool }: { onBrainTool?: (example: string) => void }) {
+  return (
+    <div>
+      <div className="tool-small-note" style={{ textAlign: 'right', marginBottom: 10 }}>
+        تصویر تلاش چیٹ سے ہوتی ہے — نیچے بٹن دبائیں، مثال چیٹ میں لکھ جائے گی؛ پھر اپنی پسند کی تصویر کا نام لکھ کر بھیج دیں۔
+      </div>
+      {onBrainTool && (
+        <button type="button" className="tool-action-button" onClick={() => onBrainTool('بلی کی تصویر دکھاؤ')}>
+          🔍 چیٹ میں تصویر تلاش کریں
+        </button>
+      )}
+    </div>
+  );
+}
+
+// --- hub: ALL image tools in one ---------------------------------------------------
+function ImageToolsHub({ initialSection, onBrainTool }: {
+  initialSection?: string;
+  onBrainTool?: (example: string) => void;
+}) {
+  const [section, setSection] = useState<ImageSection>(
+    (IMAGE_SECTIONS as string[]).includes(initialSection || '')
+      ? (initialSection as ImageSection)
+      : 'background_remover',
+  );
+  return (
+    <div>
+      <SectionTabs sections={IMAGE_SECTIONS} titles={IMAGE_SECTION_TITLES} active={section} onChange={setSection} />
+      {section === 'background_remover' && <BackgroundRemover />}
+      {section === 'ocr' && <OcrTool />}
+      {section === 'upscaler' && <Upscaler />}
+      {section === 'resize' && <ResizeTool />}
+      {section === 'image_compress' && <ImageCompressor />}
+      {section === 'text_on_image' && <TextOnImage />}
+      {section === 'image_search' && <ImageSearchSection onBrainTool={onBrainTool} />}
+    </div>
+  );
+}
+
+// --- hub: ALL video tools in one ---------------------------------------------------
+function VideoToolsHub({ initialSection }: { initialSection?: string }) {
+  const [section, setSection] = useState<VideoSection>(
+    (VIDEO_SECTIONS as string[]).includes(initialSection || '')
+      ? (initialSection as VideoSection)
+      : 'video_upload',
+  );
+  return (
+    <div>
+      <SectionTabs sections={VIDEO_SECTIONS} titles={VIDEO_SECTION_TITLES} active={section} onChange={setSection} />
+      {section === 'video_upload' && <VideoUpload />}
+      {section === 'video_creator' && <VideoCreator embedded onClose={() => { /* hub header closes */ }} />}
+    </div>
+  );
+}
+
 // --- main -------------------------------------------------------------------------------
-export default function MediaTools({ tool, onClose, initialPhone }: { tool: MediaToolName; onClose: () => void; initialPhone?: string }) {
+export default function MediaTools({ tool, onClose, initialPhone, initialSection, onBrainTool }: {
+  tool: MediaToolName;
+  onClose: () => void;
+  initialPhone?: string;
+  initialSection?: string;
+  onBrainTool?: (example: string) => void;
+}) {
+  // Defensive: a legacy/unknown id (e.g. from the server's open_tool action
+  // or old saved state) resolves to its hub — never a crash or blank panel.
+  const open = resolveToolOpen(tool);
+  if (!open) {
+    return (
+      <div className="tool-results" dir="rtl" data-testid="panel-media-tools" role="region" aria-label="میڈیا ٹولز">
+        <div className="tool-results-head">
+          <span className="tool-results-title">🧰 ٹولز</span>
+          <button type="button" className="tool-results-close" onClick={onClose} aria-label="بند کریں">
+            ✕
+          </button>
+        </div>
+        <div className="tool-results-body">
+          <div className="tool-small-note">یہ ٹول اب دستیاب نہیں ہے۔</div>
+        </div>
+      </div>
+    );
+  }
+  const activeTool = open.tool;
+  const section = initialSection ?? open.section;
   return (
     <div className="tool-results" dir="rtl" data-testid="panel-media-tools" role="region" aria-label="میڈیا ٹولز">
       <div className="tool-results-head">
-        <span className="tool-results-title">{TOOL_TITLES[tool]}</span>
+        <span className="tool-results-title">{TOOL_TITLES[activeTool]}</span>
         <button type="button" className="tool-results-close" onClick={onClose} aria-label="بند کریں">
           ✕
         </button>
       </div>
       <div className="tool-results-body">
-        {tool === 'background_remover' && <BackgroundRemover />}
-        {tool === 'ocr' && <OcrTool />}
-        {tool === 'upscaler' && <Upscaler />}
-        {tool === 'resize' && <ResizeTool />}
-        {tool === 'pdf' && <PdfTools />}
-        {tool === 'audio_to_text' && <AudioToText />}
-        {tool === 'email' && <EmailHelper />}
-        {tool === 'video_upload' && <VideoUpload />}
-        {tool === 'password_gen' && <PasswordGenerator />}
-        {tool === 'emi_calc' && <EmiCalculator />}
-        {tool === 'image_compress' && <ImageCompressor />}
-        {tool === 'resume_builder' && <ResumeBuilder />}
-        {tool === 'invoice_gen' && <InvoiceGenerator />}
-        {tool === 'assignment_maker' && <AssignmentMaker />}
-        {tool === 'phone_lookup' && <PhoneLookup initialNumber={initialPhone} />}
-        {tool === 'whatsapp_send' && <WhatsAppSender />}
-        {tool === 'quran' && <QuranReader />}
-        {tool === 'text_on_image' && <TextOnImage />}
+        {activeTool === 'image_tools' && <ImageToolsHub initialSection={section} onBrainTool={onBrainTool} />}
+        {activeTool === 'video_tools' && <VideoToolsHub initialSection={section} />}
+        {activeTool === 'pdf' && <PdfTools />}
+        {activeTool === 'audio_to_text' && <AudioToText />}
+        {activeTool === 'email' && <EmailHelper />}
+        {activeTool === 'password_gen' && <PasswordGenerator />}
+        {activeTool === 'emi_calc' && <EmiCalculator />}
+        {activeTool === 'resume_builder' && <ResumeBuilder />}
+        {activeTool === 'invoice_gen' && <InvoiceGenerator />}
+        {activeTool === 'assignment_maker' && <AssignmentMaker />}
+        {activeTool === 'phone_lookup' && <PhoneLookup initialNumber={initialPhone} />}
+        {activeTool === 'whatsapp_send' && <WhatsAppSender />}
+        {activeTool === 'quran' && <QuranReader />}
       </div>
     </div>
   );
