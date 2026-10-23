@@ -5,8 +5,12 @@
  * to his reference video (components/FloorScene). Every check this
  * file made — presence honesty, real working state, file handoffs,
  * board deliveries, hosts duo, mobile — is covered, in floor form,
- * by server/cdp-verify-floor.mjs. This pointer simply runs it so
- * old invocations keep verifying the CURRENT office.
+ * by server/cdp-verify-floor.mjs — which since the 2026-10-24
+ * visual round proves CARTOON HUMANS (robots retired per the
+ * user's «یہ روبوٹ نہیں»), computers in front of every character,
+ * one brand color family and one shared office uniform. This
+ * pointer simply runs it so old invocations keep verifying the
+ * CURRENT office.
  */
 import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';

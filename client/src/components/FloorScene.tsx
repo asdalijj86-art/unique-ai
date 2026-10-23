@@ -11,11 +11,20 @@
  * like the video's FOUNDER corner, desks for the seven agents,
  * حمزہ's media corner, احمد's build corner with server racks,
  * یوسف's green Quran corner, a meeting table, a coffee corner and
- * a central plaza where آج کا بورڈ hangs on a kiosk. The robot-boy
- * characters (CabinRobot figures) LIVE on this floor: each has a
- * floating name label, sits at his desk, strolls inside his own
- * zone when free — and when real work moves, he physically WALKS
- * it across the floor.
+ * a central plaza where آج کا بورڈ hangs on a kiosk. The CARTOON
+ * HUMAN characters (FloorPerson figures — user, 2026-10-23 23:43:
+ * «یہ روبوٹ نہیں — کارٹون لگاؤ، انسان جیسے دکھائی دیں، خوبصورت
+ * چہرے ہوں»; the robots are retired) LIVE on this floor: each has
+ * a floating name label, sits at his desk WITH A COMPUTER RIGHT IN
+ * FRONT of him (user, 23:41: «ان کے سامنے کمپیوٹر رکھو»), strolls
+ * inside his own zone when free — and when real work moves, he
+ * physically WALKS it across the floor.
+ *
+ * رنگ و وردی (user, 2026-10-24 00:03): the whole floor wears ONE
+ * color family — Unique AI's blue/violet brand — zones, desks,
+ * plaques and glows alike; and all seven agents wear the SAME
+ * office uniform (FloorPerson), individual only in face/hair/name.
+ * یونیک keeps his boss look; یونیکا keeps her gold distinction.
  *
  * Motion honesty (the standing rule, tightened for walking):
  *  - WORKING (real AgentTaskState / live build): the agent walks
@@ -41,7 +50,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { AGENT_DEFS, type AgentTaskState } from '@/lib/agent-team';
-import { CabinRobot, robotTintFor } from './CabinRobot';
+import { FloorPerson } from './FloorPerson';
 import type { BoardEntry } from '@/lib/task-board';
 import { planFlights, type Flight, type OfficeSnapshot } from '@/lib/office-handoff';
 import {
@@ -51,6 +60,14 @@ import {
 import type { Persona } from '@/lib/persona';
 
 type CharKey = string; // 'unique' | 'uniqa' | agent key
+
+/** Label/ring accent per character — all inside the ONE brand
+ *  family (user, 2026-10-24: zones and cast take Unique's own
+ *  blue/violet; یونیکا alone keeps gold, as his standing rule). */
+const CHAR_NEON: Record<string, string> = { unique: '#38bdf8', uniqa: '#fde047' };
+const neonFor = (key: string): string => CHAR_NEON[key] || '#a78bfa';
+/** Every agent zone's rug/plaque/glow color: the one brand violet. */
+const ZONE_NEON = '#a78bfa';
 
 const pctX = (x: number) => `${(x / FLOOR_W) * 100}%`;
 const pctY = (y: number) => `${(y / FLOOR_H) * 100}%`;
@@ -281,7 +298,6 @@ export function FloorScene(props: FloorSceneProps) {
     key: CharKey,
     name: string,
     role: string | null,
-    tint: string,
   ) => {
     const p = positions[key];
     const status = charStatus(key);
@@ -294,6 +310,7 @@ export function FloorScene(props: FloorSceneProps) {
         className={[
           'floor-char',
           `floor-char-${status}`,
+          `floor-char-${key}`,
           isWalking ? 'floor-char-walking' : '',
           isCarrying ? 'floor-char-carrying' : '',
           receiving.has(key) ? 'floor-char-receive' : '',
@@ -304,7 +321,7 @@ export function FloorScene(props: FloorSceneProps) {
           top: pctY(p.y),
           zIndex: 10 + Math.round(p.y),
           transitionDuration: `${durations[key] || 0}ms`,
-          '--neon': tint,
+          '--neon': neonFor(key),
         } as React.CSSProperties}
         onClick={() => onSelect(selectedKey === key ? null : key)}
         data-testid={`floor-char-${key}`}
@@ -321,7 +338,7 @@ export function FloorScene(props: FloorSceneProps) {
           {status === 'failed' && <span className="floor-char-state floor-char-state-failed">ناکام</span>}
         </span>
         <span className="floor-char-body">
-          <CabinRobot tint={tint} />
+          <FloorPerson personKey={key} />
           {status === 'working' && <span className="floor-char-ring" aria-hidden="true" />}
           {isCarrying && <span className="floor-char-doc" aria-hidden="true">📄</span>}
         </span>
@@ -368,25 +385,45 @@ export function FloorScene(props: FloorSceneProps) {
         />
       ))}
 
-      {/* Desk front bars OVER the seated characters (the seated
-          illusion: the desk hides the sitter's legs). */}
-      {FLOOR_ZONES.filter((z) => z.desk).map((zone) => (
-        <span
-          key={`bar-${zone.key}`}
-          className="floor-deskbar"
-          style={{
-            left: pctX(zone.desk!.x),
-            top: pctY(zone.desk!.y + 2.7),
-            zIndex: 10 + Math.round(zone.desk!.y + 3),
-          }}
-          aria-hidden="true"
-        />
-      ))}
+      {/* Desk furniture OVER the seated characters: the desk front
+          bar (hides the sitter's legs) AND — user, 2026-10-23 23:41
+          «ان کے سامنے کمپیوٹر رکھو» — a COMPUTER MONITOR directly
+          in front of each seated character, standing on the desk's
+          front half (its base at chair + 2.9 units) so the screen
+          covers his CHEST while his face stays visible above it:
+          unmistakably «he is working at his computer». The monitor
+          belongs to the DESK: it stays (dim idle glow) when he
+          walks away, and brightens while he REALLY works. Hosts get
+          one each (boss + manager seat). */}
+      {FLOOR_ZONES.filter((z) => z.desk).map((zone) => {
+        const barZ = 10 + Math.round(zone.desk!.y + 3);
+        if (zone.key === 'hosts') {
+          return (
+            <span key="bar-hosts">
+              <span className="floor-deskbar" style={{ left: pctX(zone.desk!.x), top: pctY(zone.desk!.y + 2.7), zIndex: barZ }} aria-hidden="true" />
+              <FloorPC pcKey="unique" x={HOST_SEATS.unique.x} y={HOST_SEATS.unique.y + 2.9} z={barZ + 1} on />
+              <FloorPC pcKey="uniqa" x={HOST_SEATS.uniqa.x} y={HOST_SEATS.uniqa.y + 2.9} z={barZ + 1} on={persona === 'uniqa'} />
+            </span>
+          );
+        }
+        return (
+          <span key={`bar-${zone.key}`}>
+            <span className="floor-deskbar" style={{ left: pctX(zone.desk!.x), top: pctY(zone.desk!.y + 2.7), zIndex: barZ }} aria-hidden="true" />
+            <FloorPC
+              pcKey={zone.key}
+              x={zone.desk!.x}
+              y={(zone.chair?.y ?? zone.desk!.y + 1.2) + 2.9}
+              z={barZ + 1}
+              on={stateByKey.get(zone.key)?.status === 'working'}
+            />
+          </span>
+        );
+      })}
 
       {/* Characters: hosts first (boss + manager), then the team. */}
-      {renderChar('unique', 'یونیک', 'باس', robotTintFor('hub'))}
+      {renderChar('unique', 'یونیک', 'باس')}
       {persona === 'uniqa'
-        ? renderChar('uniqa', 'یونیکا', 'مینیجر', robotTintFor('uniqa'))
+        ? renderChar('uniqa', 'یونیکا', 'مینیجر')
         : (
           <span
             className="floor-empty-chair"
@@ -401,14 +438,34 @@ export function FloorScene(props: FloorSceneProps) {
             </span>
           </span>
         )}
-      {AGENT_DEFS.map((d) => renderChar(d.key, d.person, null, robotTintFor(d.key)))}
+      {AGENT_DEFS.map((d) => renderChar(d.key, d.person, null))}
 
       {/* Org line inlaid in the bottom walkway (user, 2026-10-23
           21:56): یونیک سب کا باس, یونیکا سات ایجنٹوں کی مینیجر. */}
       <div className="office-orgline floor-orgline" aria-hidden="true">
-        👑 باس: یونیک <span className="office-orgline-sep">•</span> 💛 مینیجر: یونیکا <span className="office-orgline-sep">•</span> 🤖 ٹیم: 7 ایجنٹ
+        👑 باس: یونیک <span className="office-orgline-sep">•</span> 💛 مینیجر: یونیکا <span className="office-orgline-sep">•</span> 👥 ٹیم: 7 ایجنٹ
       </div>
     </div>
+  );
+}
+
+/** A desk computer: bezel + softly glowing screen + stand, drawn
+ *  in the furniture layer (over the sitter's legs, under his torso)
+ *  so it sits ON the desk right in front of its character. `on` =
+ *  its person is really working there (screen bright); otherwise a
+ *  dim idle glow — the screen never pretends work. */
+function FloorPC({ pcKey, x, y, z, on }: { pcKey: string; x: number; y: number; z: number; on: boolean }) {
+  return (
+    <span
+      className={`floor-pc${on ? ' floor-pc-on' : ''}`}
+      style={{ left: pctX(x), top: pctY(y), zIndex: z }}
+      data-testid={`floor-pc-${pcKey}`}
+      data-on={on ? 'true' : 'false'}
+      aria-hidden="true"
+    >
+      <span className="floor-pc-screen"><span className="cabin-screen-lines" /></span>
+      <span className="floor-pc-stand" />
+    </span>
   );
 }
 
@@ -428,7 +485,7 @@ function FloorZoneView({
   const style = {
     left: pctX(rect.x), top: pctY(rect.y),
     width: pctX(rect.w), height: pctY(rect.h),
-    '--neon': zone.key === 'hosts' ? (duo ? '#fde047' : '#7dd3fc') : robotTintFor(zone.key),
+    '--neon': zone.key === 'hosts' ? (duo ? '#fde047' : '#7dd3fc') : ZONE_NEON,
   } as React.CSSProperties;
   const local = (p: FloorPoint) => ({
     left: `${((p.x - rect.x) / rect.w) * 100}%`,
@@ -450,18 +507,13 @@ function FloorZoneView({
     >
       <span className="floor-zone-label">{zone.label}</span>
 
-      {zone.desk && (
-        <span className="floor-desk" style={local(zone.desk)} aria-hidden="true">
-          <span className="floor-monitors">
-            <span className="floor-screen"><span className="cabin-screen-lines" /></span>
-            <span className="floor-screen"><span className="cabin-screen-lines" /></span>
-          </span>
-        </span>
-      )}
+      {/* No monitors in the zone layer anymore: each desk's
+          computer stands IN FRONT of its character in the scene's
+          furniture layer (see FloorPC) — the user's 23:41 order. */}
 
       {isHosts && (
         <>
-          <span className="floor-hosts-mic" style={local({ x: 12.75, y: 22.6 })} aria-hidden="true">🎙️</span>
+          <span className="floor-hosts-mic" style={local({ x: 12.75, y: 26.4 })} aria-hidden="true">🎙️</span>
           <span className="floor-hosts-status" aria-hidden="true">
             {persona === 'uniqa' ? 'دونوں حاضر ہیں 💛' : 'یونیک حاضر ہے'}
           </span>

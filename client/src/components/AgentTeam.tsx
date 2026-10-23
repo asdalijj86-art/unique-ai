@@ -34,13 +34,17 @@
  * sender's own character physically WALKS the 📄 across the floor
  * (lib/floor-layout waypoints). Idle = nobody carries anything.
  *
- * کردار (user specs, 2026-10-23): the robot-BOYS (components/
- * CabinRobot) live on the floor with floating name labels — باس
- * یونیک and مینیجر یونیکا seated together at the hosts' desk
- * (her seat empty unless she is the summoned persona), the seven
- * agents at theirs. They breathe + blink at rest, stroll inside
- * their own zone when free, type at the desk while REALLY
- * working, and hop when work lands. Same real state, no theatre.
+ * کردار (user specs, 2026-10-23 23:43 + 2026-10-24 00:03): the
+ * CARTOON HUMANS (components/FloorPerson — the robots were
+ * rejected: «یہ روبوٹ نہیں») live on the floor with floating name
+ * labels — باس یونیک and مینیجر یونیکا seated together at the
+ * hosts' desk (her seat empty unless she is the summoned
+ * persona), the seven agents at theirs, each with a computer
+ * right in front of him, ALL in the same office uniform and the
+ * office in ONE brand color family. They breathe + blink at rest,
+ * stroll inside their own zone when free, type at the computer
+ * while REALLY working, and hop when work lands. Same real state,
+ * no theatre.
  */
 import { useState } from 'react';
 import { AGENT_DEFS, agentLabel, type AgentTaskState } from '@/lib/agent-team';
@@ -55,7 +59,7 @@ export function AgentTeamStrip({ tasks, onClose }: { tasks: AgentTaskState[]; on
   return (
     <div className="agent-team-strip" dir="rtl" data-testid="panel-agent-team" role="region" aria-label="ایجنٹ ٹیم">
       <div className="agent-team-head">
-        <span className="agent-team-title">🤖 ایجنٹ ٹیم {anyWorking ? '— کام جاری ہے' : ''}</span>
+        <span className="agent-team-title">👥 ایجنٹ ٹیم {anyWorking ? '— کام جاری ہے' : ''}</span>
         <button type="button" className="tool-results-close" onClick={onClose} aria-label="بند کریں">
           ✕
         </button>
@@ -176,8 +180,9 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
 
       {/* ① زندہ فرش + ③ آرام — Round 4: the cabin grid is GONE.
           One illustrated floor (components/FloorScene) built to
-          the user's reference video: labeled zones, the robot
-          boys at their desks, strolling in their zones when free,
+          the user's reference video: labeled zones, cartoon
+          people at their desks (computer in front of each),
+          strolling in their zones when free,
           and physically WALKING the 📄 across the floor on real
           handoffs (flights still planned by lib/office-handoff
           from real snapshot diffs — the scene just walks them). */}

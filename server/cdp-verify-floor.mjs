@@ -6,30 +6,45 @@
  * «ایسا کیبن نہیں تھا بنانا»), driven in headless Chromium over
  * CDP against the REAL built app + server.
  *
- * Proves:
+ * VISUAL ROUND (2026-10-24) additions — the user's orders:
+ * «یہ روبوٹ نہیں — کارٹون لگاؤ، انسان جیسے دکھائی دیں، خوبصورت
+ * چہرے ہوں» (23:43), «ان کے سامنے کمپیوٹر رکھو» (23:41) and the
+ * color+uniform decision (00:03: ONE brand color family for the
+ * whole office; ONE identical office uniform for all 7 agents).
+ * This verifier now proves HUMANS, not robots:
  *  A) On load, the main-screen panel shows ONE floor scene: the
  *     «Unique AI» sign on the window wall, the org line, 11 labeled
- *     zones, the آج کا بورڈ block + plaza kiosk, and 8 robot-boy
- *     characters (باس یونیک at the hosts' desk + 7 agents) each
- *     with a floating NAME label. Uniqa's manager chair stands
- *     EMPTY while she is not summoned. Idle honesty sampler: no
- *     character carries a 📄, none glows «working», and every
- *     character stays inside his own zone.
+ *     zones, the آج کا بورڈ block + plaza kiosk, and 8 CARTOON HUMAN
+ *     characters (باس یونیک at the hosts' desk + 7 agents) — each a
+ *     person SVG with face + hair (person-eyes/person-head present),
+ *     each with a floating NAME label. ZERO robot markup anywhere
+ *     in the office panel and no 🤖 inside the scene. All 7 agents
+ *     wear the IDENTICAL uniform (same blazer + tie fills in every
+ *     agent SVG); every agent zone wears the SAME brand border
+ *     color; and every desk — 7 agents + boss + manager seat — has
+ *     a COMPUTER (floor-pc) standing at the exact in-front-of-seat
+ *     point from lib/floor-layout, inside its zone. Uniqa's manager
+ *     chair stands EMPTY while she is not summoned, but HER
+ *     computer already waits at her seat (dim). Idle honesty
+ *     sampler: no character carries a 📄, none glows «working»,
+ *     and every character stays inside his own zone.
  *  B) A two-agent request (weather + currency) held at the network
  *     seam: حسن + عمر go «working» AT their desks (computed arm
- *     animation = robot-type, zones glow); then the DISPATCH — the
- *     boss's own character picks up the 📄 at the hosts' desk and
- *     WALKS it across the floor to حسن's doorstep (three position
- *     phases sampled: far / mid-floor walking / arrived); then
- *     حسن carries it on to عمر (handoff).
+ *     animation = person-type, zones glow, their desk computers
+ *     switch ON/bright); then the DISPATCH — the boss's own
+ *     character picks up the 📄 at the hosts' desk and WALKS it
+ *     across the floor to حسن's doorstep (three position phases
+ *     sampled: far / mid-floor walking / arrived); then حسن
+ *     carries it on to عمر (handoff).
  *  C) Releasing the request pins both completions on the board;
  *     the agents WALK their files to the plaza board (kiosk glows
  *     on delivery) and settle «done» at their desks.
- *  D) The ⤢ overlay shows the same big floor; clicking دانیال's
- *     character opens his close-up card.
- *  E) persona=uniqa: Uniqa's golden robot sits at the hosts' desk
- *     beside the boss (hosts zone glows gold); removing the
- *     persona empties her chair again.
+ *  D) The ⤢ overlay shows the same big floor (8 people, 9+
+ *     computers); clicking دانیال's character opens his close-up.
+ *  E) persona=uniqa: Uniqa — a GIRL (long-hair person SVG) — sits
+ *     golden at the hosts' desk beside the boss, her computer ON
+ *     (hosts zone glows gold); removing the persona empties her
+ *     chair again and her computer dims.
  *  F) Phone width: chat stays usable and the floor lives below it.
  *
  * TRANSPORT NOTE (environment, 2026-10-23): this sandbox's Chromium
@@ -43,7 +58,7 @@
  * answered with exact ChatAction shapes) — the same model seam the
  * other verifiers stub, since no Gemini key exists in the sandbox.
  *
- * Screenshots land in the goal's office-floor-verify folder.
+ * Screenshots land in the goal's office-people-verify folder.
  * Prereqs: client built (server/dist), chrome at /opt/meta-chromium/chrome.
  * Run: node server/cdp-verify-floor.mjs   (from repo root)
  */
@@ -57,7 +72,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = 5221;
 const CDP_PORT = 9341;
 const APP = `http://127.0.0.1:${APP_PORT}`;
-const OUT = '/home/hatch/workspace/goals/unique-ai-project-completion/hidden_files/office-floor-verify';
+const OUT = '/home/hatch/workspace/goals/unique-ai-project-completion/hidden_files/office-people-verify';
 mkdirSync(OUT, { recursive: true });
 
 let failed = 0;
@@ -226,6 +241,15 @@ try {
   await sleep(2500);
 
   // ================= A) the floor on load =================
+  // Desk geometry from lib/floor-layout (the map the scene renders):
+  // each staffed desk's computer stands at (desk.x, chair.y + 2.9) —
+  // on the desk's front half, directly IN FRONT of the seat (screen
+  // over his chest, face visible above it); hosts' seats likewise.
+  const DESKS = {
+    talash: [33.25, 19.5, 20.7], 'khabar-mausam': [49.25, 19.5, 20.7], likhai: [65.25, 19.5, 20.7],
+    media: [86.5, 21, 22.2], 'quran-namaz': [86.5, 44, 45.2],
+    'hisab-kitab': [34, 65.5, 66.7], builder: [74, 65, 66.2],
+  };
   const a = await ev(`(() => {
     const q = (s) => document.querySelector('${SCOPE}' + s);
     const qa = (s) => [...document.querySelectorAll('${SCOPE}' + s)];
@@ -233,15 +257,80 @@ try {
     const org = q('.office-orgline');
     const hosts = q('[data-testid="office-hosts-cabin"]');
     const uniq = q('[data-testid="floor-char-unique"]');
+    const panel = document.querySelector('[data-testid="panel-office-main"]');
+    const scene = q('.floor-scene');
+    const sr = scene.getBoundingClientRect();
+    const fpt = (fx, fy) => ({ x: sr.left + (fx / 100) * sr.width, y: sr.top + (fy / 75) * sr.height });
+    const personOf = (el) => {
+      const svg = el.querySelector('.floor-person-svg');
+      if (!svg) return null;
+      return {
+        eyes: !!svg.querySelector('.person-eyes'),
+        head: !!svg.querySelector('.person-head'),
+        hairMarkup: svg.querySelector('.person-head').innerHTML.length,
+        markup: svg.innerHTML,
+      };
+    };
     const chars = {};
     for (const [k] of ${JSON.stringify(AGENTS)}) {
       const el = q('[data-testid="floor-char-' + k + '"]');
       chars[k] = el ? {
-        robot: !!el.querySelector('.cabin-robot-svg'),
+        person: personOf(el),
         name: el.querySelector('.floor-char-name')?.textContent.trim() || null,
         status: el.getAttribute('data-status'),
       } : null;
     }
+    // Computers in front: the monitor STANDS on the desk at the
+    // floor point (its box is bottom-anchored there), so its
+    // bottom-center must land on the expected in-front-of-seat
+    // point, inside the zone.
+    const pcAt = (pcSel, fx, fy, zoneSel) => {
+      const pc = q(pcSel);
+      if (!pc) return null;
+      const r = pc.getBoundingClientRect();
+      const c = { x: r.left + r.width / 2, y: r.bottom };
+      const want = fpt(fx, fy);
+      const zone = q(zoneSel);
+      const zr = zone ? zone.getBoundingClientRect() : null;
+      return {
+        on: pc.getAttribute('data-on'),
+        dist: Math.hypot(c.x - want.x, c.y - want.y),
+        tol: Math.max(4, sr.width * 0.012),
+        insideZone: zr ? (c.x >= zr.left && c.x <= zr.right && c.y >= zr.top && c.y <= zr.bottom) : false,
+        wFrac: r.width / sr.width,
+      };
+    };
+    const pcs = {};
+    for (const [k, [dx, dy, cy]] of Object.entries(${JSON.stringify(DESKS)})) {
+      pcs[k] = pcAt('[data-testid="floor-pc-' + k + '"]', dx, cy + 2.9, '[data-testid="floor-zone-' + k + '"]');
+    }
+    pcs.unique = pcAt('[data-testid="floor-pc-unique"]', 10.4, 21.4 + 2.9, '[data-testid="office-hosts-cabin"]');
+    pcs.uniqa = pcAt('[data-testid="floor-pc-uniqa"]', 15.1, 21.4 + 2.9, '[data-testid="office-hosts-cabin"]');
+    // FACE CLEAR of the screen: for every character seated at his
+    // chair right now, his EYES must sit ABOVE his monitor's top
+    // edge — the computer is in front of his chest, never his face.
+    const faceClear = {};
+    const seatCheck = (charSel, pcSel, fx, fy) => {
+      const ch = q(charSel); const pc = q(pcSel);
+      if (!ch || !pc) return null;
+      const cr = ch.getBoundingClientRect();
+      const feetP = { x: cr.left + cr.width / 2, y: cr.top + cr.height * 0.86 };
+      const want = fpt(fx, fy);
+      if (Math.hypot(feetP.x - want.x, feetP.y - want.y) > sr.width * 0.03) return 'away';
+      const eyes = ch.querySelector('.person-eyes');
+      if (!eyes) return null;
+      const er = eyes.getBoundingClientRect();
+      const pr = pc.getBoundingClientRect();
+      return er.bottom <= pr.top + 3;
+    };
+    for (const [k, [dx, dy, cy]] of Object.entries(${JSON.stringify(DESKS)})) {
+      faceClear[k] = seatCheck('[data-testid="floor-char-' + k + '"]', '[data-testid="floor-pc-' + k + '"]', dx, cy);
+    }
+    faceClear.unique = seatCheck('[data-testid="floor-char-unique"]', '[data-testid="floor-pc-unique"]', 10.4, 21.4);
+    const zoneBorder = (k) => {
+      const z = q('[data-testid="floor-zone-' + k + '"]');
+      return z ? getComputedStyle(z).borderTopColor : null;
+    };
     return {
       sign: sign ? sign.textContent.trim() : null,
       org: org ? org.textContent.replace(/\\s+/g, ' ').trim() : null,
@@ -250,13 +339,18 @@ try {
       hostsAnchor: hosts ? hosts.getAttribute('data-handoff-anchor') : null,
       hostsDuo: hosts ? hosts.className.includes('floor-zone-duo') : null,
       uniq: uniq ? {
-        robot: !!uniq.querySelector('.cabin-robot-svg'),
+        person: personOf(uniq),
         name: uniq.querySelector('.floor-char-name')?.textContent.trim() || null,
         role: uniq.querySelector('.floor-char-role')?.textContent.trim() || null,
       } : null,
       uniqaChar: !!q('[data-testid="floor-char-uniqa"]'),
       emptySeat: !!q('[data-testid="office-uniqa-seat"]'),
       chars,
+      pcs,
+      faceClear,
+      robotMarkup: panel ? panel.querySelectorAll('.cabin-robot, .cabin-robot-svg, [class*="robot"]').length : -1,
+      robotEmojiInScene: scene ? scene.textContent.includes('🤖') : null,
+      agentZoneBorders: ['talash', 'khabar-mausam', 'media', 'builder'].map(zoneBorder),
       board: !!q('[data-testid="office-board"]'),
       kiosk: (() => { const k = q('[data-testid="floor-board-kiosk"]'); return k ? k.getAttribute('data-handoff-anchor') : null; })(),
       workingChars: qa('.floor-char-working').length,
@@ -271,16 +365,37 @@ try {
     `zones=${a.zones} labels=${a.zoneLabels.join('/')}`);
   check('hosts zone is the dispatch hub (data-handoff-anchor=hub), not golden while Uniqa is away',
     a.hostsAnchor === 'hub' && a.hostsDuo === false);
-  check('باس یونیک: robot-boy at the hosts desk with floating name + باس role label',
-    !!a.uniq && a.uniq.robot && a.uniq.name === 'یونیک' && a.uniq.role === 'باس', JSON.stringify(a.uniq));
+  check('ZERO robots: no robot markup anywhere in the office panel, no 🤖 inside the scene',
+    a.robotMarkup === 0 && a.robotEmojiInScene === false, `robotMarkup=${a.robotMarkup} robotEmoji=${a.robotEmojiInScene}`);
+  check('باس یونیک: CARTOON HUMAN at the hosts desk (face + hair person SVG), floating name + باس role label',
+    !!a.uniq && !!a.uniq.person && a.uniq.person.eyes && a.uniq.person.head && a.uniq.name === 'یونیک' && a.uniq.role === 'باس',
+    JSON.stringify(a.uniq && { name: a.uniq.name, role: a.uniq.role, person: !!a.uniq.person }));
   check('Uniqa NOT summoned: NO character for her — her manager chair stands EMPTY (presence honesty)',
     a.uniqaChar === false && a.emptySeat === true);
-  check('all 7 agents on the floor: robot-boy + floating NAME label each, none working while idle',
+  check('all 7 agents on the floor: cartoon HUMAN (eyes+head+hair) + floating NAME label each, none working while idle',
     AGENTS.every(([k, person]) => {
       const c = a.chars[k];
-      return c && c.robot && c.name === person && c.status !== 'working';
+      return c && c.person && c.person.eyes && c.person.head && c.person.hairMarkup > 60 && c.name === person && c.status !== 'working';
     }) && a.workingChars === 0 && a.workingZones === 0,
     JSON.stringify(Object.fromEntries(Object.entries(a.chars).map(([k, v]) => [k, v && v.name]))));
+  check('UNIFORM: all 7 agents wear the IDENTICAL office uniform (same blazer #2b3a6e + tie #7c3aed in every SVG)',
+    AGENTS.every(([k]) => {
+      const m = a.chars[k] && a.chars[k].person && a.chars[k].person.markup;
+      return !!m && m.includes('#2b3a6e') && m.includes('#7c3aed');
+    }));
+  check('BOSS look distinct: یونیک suit is NOT the agent uniform (deep-blue #1d3160, no uniform blazer)',
+    !!a.uniq && !!a.uniq.person && a.uniq.person.markup.includes('#1d3160') && !a.uniq.person.markup.includes('#2b3a6e'));
+  check('ONE brand color: every agent zone wears the SAME border color (talash = khabar = media = builder)',
+    a.agentZoneBorders.every((b) => b && b === a.agentZoneBorders[0]), a.agentZoneBorders.join(' | '));
+  check('COMPUTERS IN FRONT: all 9 desk monitors (7 agents + boss + manager seat) stand at the in-front-of-seat point, inside their zones',
+    Object.entries(a.pcs).every(([, p]) => p && p.dist <= p.tol && p.insideZone && p.wFrac > 0.03 && p.wFrac < 0.085),
+    JSON.stringify(Object.fromEntries(Object.entries(a.pcs).map(([k, p]) => [k, p && Math.round(p.dist)]))));
+  check('FACES CLEAR: every seated character\'s EYES are above his monitor\'s top edge (computer at his chest, not his face)',
+    Object.entries(a.faceClear).every(([, v]) => v === true || v === 'away') && a.faceClear.unique === true,
+    JSON.stringify(a.faceClear));
+  check('idle computers: agents\' monitors dim (data-on=false); the boss\'s is on; Uniqa\'s waits dim at her empty seat',
+    AGENTS.every(([k]) => a.pcs[k] && a.pcs[k].on === 'false') && a.pcs.unique.on === 'true' && a.pcs.uniqa.on === 'false',
+    JSON.stringify(Object.fromEntries(Object.entries(a.pcs).map(([k, p]) => [k, p && p.on]))));
   check('آج کا بورڈ block + plaza kiosk (data-handoff-anchor=board) present', a.board && a.kiosk === 'board');
 
   // Idle honesty sampler (~2.6s): nothing carried, nobody leaves his zone.
@@ -329,8 +444,12 @@ try {
     const feet = (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height * 0.86 }; };
     const st = (k) => q('[data-testid="floor-char-' + k + '"]');
     const uniq = st('unique'); const hasan = st('khabar-mausam'); const umar = st('hisab-kitab');
-    const arm = hasan ? hasan.querySelector('.robot-arm-l') : null;
+    const arm = hasan ? hasan.querySelector('.person-arm-l') : null;
+    const hasanPc = q('[data-testid="floor-pc-khabar-mausam"]');
+    const umarPc = q('[data-testid="floor-pc-hisab-kitab"]');
     return {
+      hasanPcOn: hasanPc ? hasanPc.getAttribute('data-on') : null,
+      umarPcOn: umarPc ? umarPc.getAttribute('data-on') : null,
       uniqPos: uniq ? feet(uniq) : null,
       uniqCarrying: uniq ? uniq.getAttribute('data-carrying') === 'true' : false,
       uniqWalking: uniq ? uniq.className.includes('floor-char-walking') : false,
@@ -346,6 +465,7 @@ try {
   })()`;
   let farSeen = false; let midSeen = false; let arrivedSeen = false;
   let workingSeen = false; let armAnim = null; let hasanCarrySeen = false;
+  let pcsOnSeen = false; let shotWorkingClose = false;
   let shotA = false; let shotB = false; let shotC = false;
   let firstDist = null;
   // Screenshots fire WITHOUT awaiting inside the poll loop: an
@@ -358,6 +478,13 @@ try {
     const p = await ev(probeB);
     if (p.hasanStatus === 'working' && p.umarStatus === 'working' && p.hasanZoneWorking && p.umarZoneWorking) {
       workingSeen = true; armAnim = p.armAnim;
+      if (p.hasanPcOn === 'true' && p.umarPcOn === 'true') {
+        pcsOnSeen = true;
+        if (!shotWorkingClose) {
+          shotWorkingClose = true;
+          pendingShots.push(shotEl('02b-working-computer.png', '.office-panel-main .floor-zone-khabar-mausam'));
+        }
+      }
     }
     if (p.hasanCarrying) hasanCarrySeen = true;
     if (p.uniqPos && p.hasanFront) {
@@ -380,7 +507,8 @@ try {
   await Promise.allSettled(pendingShots);
   check('chat request reached the network seam and is held', !!heldChatRequestId);
   check('حسن + عمر «working» at their desks, their ZONES glowing', workingSeen);
-  check('working agent REALLY typing (computed arm animation = robot-type)', armAnim === 'robot-type', String(armAnim));
+  check('working agent REALLY typing AT his computer (computed arm animation = person-type)', armAnim === 'person-type', String(armAnim));
+  check('working agents\' desk computers switched ON/bright (data-on=true)', pcsOnSeen);
   check('DISPATCH: باس یونیک carried the 📄 himself — phase 1: still far from حسن (near hosts)', farSeen);
   check('DISPATCH phase 2: boss seen WALKING mid-floor with the file', midSeen);
   check('DISPATCH phase 3: boss ARRIVED at حسن doorstep with the file', arrivedSeen);
@@ -455,13 +583,16 @@ try {
     return {
       scene: !!s.querySelector('.floor-scene'),
       chars: s.querySelectorAll('.floor-char').length,
+      persons: s.querySelectorAll('.floor-person-svg').length,
+      pcs: s.querySelectorAll('.floor-pc').length,
+      robots: s.querySelectorAll('.cabin-robot, .cabin-robot-svg').length,
       zones: s.querySelectorAll('.floor-zone').length,
       sign: !!s.querySelector('.office-sign-brand'),
       emptySeat: !!s.querySelector('[data-testid="office-uniqa-seat"]'),
     };
   })()`);
-  check('overlay: the SAME big floor — 8 characters, 11 zones, sign, Uniqa chair empty',
-    !!d && d.scene && d.chars === 8 && d.zones === 11 && d.sign && d.emptySeat, JSON.stringify(d));
+  check('overlay: the SAME big floor — 8 PEOPLE (person SVGs), 9 desk computers, ZERO robots, 11 zones, sign, Uniqa chair empty',
+    !!d && d.scene && d.chars === 8 && d.persons === 8 && d.pcs === 9 && d.robots === 0 && d.zones === 11 && d.sign && d.emptySeat, JSON.stringify(d));
   await shot('06-desktop-modal-closeup.png');
   await ev(`document.querySelector('[data-testid="panel-agent-team-scene"] [data-testid="floor-char-talash"]').click()`);
   await sleep(600);
@@ -486,18 +617,23 @@ try {
     const q = (s) => document.querySelector('${SCOPE}' + s);
     const u = q('[data-testid="floor-char-uniqa"]');
     const hosts = q('[data-testid="office-hosts-cabin"]');
+    const pc = q('[data-testid="floor-pc-uniqa"]');
+    const svg = u ? u.querySelector('.floor-person-svg') : null;
     return {
       char: !!u,
-      robot: u ? !!u.querySelector('.cabin-robot-svg') : false,
+      person: !!svg,
+      eyes: svg ? !!svg.querySelector('.person-eyes') : false,
+      girlLook: svg ? svg.innerHTML.includes('#7a5b16') && svg.innerHTML.includes('#fde047') : false,
       name: u ? u.querySelector('.floor-char-name')?.textContent.trim() || null : null,
       role: u ? u.querySelector('.floor-char-role')?.textContent.trim() || null : null,
       goldTint: u ? (u.getAttribute('style') || '').includes('fde047') : false,
+      pcOn: pc ? pc.getAttribute('data-on') : null,
       duo: hosts ? hosts.className.includes('floor-zone-duo') : false,
       emptySeat: !!q('[data-testid="office-uniqa-seat"]'),
     };
   })()`);
-  check('Uniqa summoned: golden robot SEATED at the hosts desk, name + مینیجر label, hosts zone golden',
-    !!e && e.char && e.robot && e.name === 'یونیکا' && e.role === 'مینیجر' && e.goldTint && e.duo && !e.emptySeat,
+  check('Uniqa summoned: golden GIRL (person SVG, gold outfit) SEATED at the hosts desk, her computer ON, name + مینیجر label, hosts zone golden',
+    !!e && e.char && e.person && e.eyes && e.girlLook && e.name === 'یونیکا' && e.role === 'مینیجر' && e.goldTint && e.pcOn === 'true' && e.duo && !e.emptySeat,
     JSON.stringify(e));
   await shotEl('08-hosts-duo.png', '.office-panel-main .floor-scene');
   await ev(`localStorage.removeItem('unique-ai-persona')`);
