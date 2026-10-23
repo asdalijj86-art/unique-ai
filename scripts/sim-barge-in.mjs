@@ -518,6 +518,61 @@ async function scenario10() {
   check('remaining chunks never played', W.chunksStarted.length === 2);
 }
 
+// ---- Scenario 11: stop during prefetch (dropout-hardening queue) -------------
+async function scenario11() {
+  console.log('Scenario 11: stop during prefetch — prefetched audio is discarded unheard');
+  now = 0; timers.clear();
+  const { W, interruptSpeech } = makeWorld();
+  // Miniature of the lib/tts-chunks queue wired into playAssistantMessage
+  // (2026-10-23 dropout hardening): chunk N+1 synthesizes into a
+  // prefetch slot WHILE chunk N plays, so inter-chunk gaps vanish —
+  // and a stop (ticket bump) must orphan that prefetched, not-yet-
+  // played audio exactly like a queued chunk. (The REAL queue code is
+  // proven against stubs in scripts/test-tts-chunks.mjs; this mirrors
+  // its ticket semantics in the sim's idiom.)
+  const readySet = new Set();
+  const synthStarts = [];
+  const synthP = (chunk) => {
+    synthStarts.push(chunk);
+    return new Promise((res) => setT(() => { readySet.add(chunk); res(chunk); }, 300));
+  };
+  let releasePlay = null;
+  const playP = (chunk, ticket) => {
+    if (ticket !== W.ticket) return Promise.resolve(); // stale: never starts
+    W.chunksStarted.push(chunk);
+    return new Promise((res) => {
+      releasePlay = res; // the scenario resolves it on interrupt (pause -> onended)
+      setT(res, 1000); // natural end if never interrupted
+    });
+  };
+  const queue = (async () => {
+    const ticket = ++W.ticket;
+    W.ttsActive = true;
+    const outcomes = [synthP('c1'), synthP('c2'), null]; // c1 + immediate prefetch of c2
+    for (let i = 0; i < 3; i++) {
+      if (ticket !== W.ticket) return 'aborted';
+      await outcomes[i];
+      if (ticket !== W.ticket) return 'aborted';
+      if (i + 1 < 3 && !outcomes[i + 1]) outcomes[i + 1] = synthP(`c${i + 2}`);
+      await playP(`c${i + 1}`, ticket);
+      if (ticket !== W.ticket) return 'aborted';
+    }
+    W.ttsActive = false;
+    return 'completed';
+  })();
+  await run(500); // c1 synthesized at 300 and is playing; c2 prefetched
+  check('prefetch happened: c2 synthesized while c1 plays', synthStarts.includes('c2'), `synth=${synthStarts.join(',')}`);
+  check('prefetched c2 is READY (audio in hand) before the stop', readySet.has('c2'));
+  check('only c1 has started playing', W.chunksStarted.join(',') === 'c1', `started=${W.chunksStarted.join(',')}`);
+  interruptSpeech(); // the user barges in / taps stop
+  releasePlay(); // the real element's pause() resolves the play promise
+  await settle();
+  check('queue aborted by the stop', (await queue) === 'aborted');
+  await run(4000);
+  check('prefetched c2 NEVER played after the stop', W.chunksStarted.join(',') === 'c1', `started=${W.chunksStarted.join(',')}`);
+  check('no chunk of the dead reply ever started again', W.chunksStarted.length === 1);
+}
+
 await scenario1();
 await scenario2();
 await scenario3();
@@ -528,6 +583,7 @@ await scenario7();
 await scenario8();
 await scenario9();
 await scenario10();
+await scenario11();
 
 console.log(failures === 0 ? '\nALL SCENARIOS PASSED' : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

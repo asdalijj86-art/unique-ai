@@ -1781,18 +1781,10 @@ const EDGE_TTS_VOICE = "ur-IN-SalmanNeural";
 // HER turns. The default — and every Unique turn — stays Salman.
 const EDGE_TTS_VOICE_UNIQA = "ur-PK-UzmaNeural";
 
-app.post("/api/tts/edge", async (req, res) => {
-  const { text, voice } = req.body ?? {};
-  if (typeof text !== "string" || text.trim().length === 0) {
-    res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
-    return;
-  }
-  const edgeVoice = voice === "uniqa" ? EDGE_TTS_VOICE_UNIQA : EDGE_TTS_VOICE;
-
-  // The client already chunks replies by sentences; cap a single chunk so
-  // one request can never balloon.
-  const ttsText = text.slice(0, 1500);
-
+// One synthesis attempt on a FRESH MsEdgeTTS connection. The 20s race
+// cap is per attempt: a stalled synthesis fails fast with a classified
+// network error instead of hanging the voice pipeline.
+async function synthesizeEdgeOnce(edgeVoice, ttsText) {
   let tts;
   try {
     const agent = process.env.EDGE_TTS_PROXY
@@ -1811,8 +1803,6 @@ app.post("/api/tts/edge", async (req, res) => {
     // If the timeout below wins the race, this promise may reject later —
     // swallow that late rejection so it can never crash the process.
     synth.catch(() => {});
-    // Hard 20s cap: a stalled synthesis fails fast with a classified
-    // network error instead of hanging the voice pipeline.
     let timer;
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error("Edge TTS timed out after 20s")), 20000);
@@ -1821,19 +1811,64 @@ app.post("/api/tts/edge", async (req, res) => {
     if (!audioBuffer || audioBuffer.length < 100) {
       throw new Error("Edge TTS returned empty audio");
     }
-    res.json({
-      audioBase64: audioBuffer.toString("base64"),
-      mimeType: "audio/mpeg",
-    });
-  } catch (err) {
-    console.error("Edge TTS failed", err);
-    res.status(502).json({
-      error: "آواز تیار نہیں ہو سکی۔",
-      errorType: "network",
-    });
+    return audioBuffer;
   } finally {
     try { tts?.close(); } catch { /* ignore */ }
   }
+}
+
+const edgeSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+app.post("/api/tts/edge", async (req, res) => {
+  const { text, voice } = req.body ?? {};
+  if (typeof text !== "string" || text.trim().length === 0) {
+    res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
+    return;
+  }
+  const edgeVoice = voice === "uniqa" ? EDGE_TTS_VOICE_UNIQA : EDGE_TTS_VOICE;
+
+  // The client already chunks replies by sentences; cap a single chunk so
+  // one request can never balloon.
+  const ttsText = text.slice(0, 1500);
+
+  // DROPOUT HARDENING (2026-10-23, his on-device report «کبھی کبھی آواز
+  // تھوڑی missing ہو جاتی ہے»): Microsoft's endpoint fails INTERMITTENTLY
+  // from this datacenter IP — live probes the same evening saw 502s on
+  // both voices while launch-hour probes were 200. A single attempt
+  // turned every transient failure into a lost chunk on the device, so
+  // synthesis now retries on a FRESH connection with backoff + jitter:
+  // up to 3 attempts (~0.4s, then ~1.1s between them). Most observed
+  // failures answer fast (network reject, not a 20s stall), so a retry
+  // normally lands well inside the client's own 20s budget for this
+  // leg. The response contract and the final 502 shape are unchanged.
+  const EDGE_TTS_MAX_ATTEMPTS = 3;
+  const EDGE_TTS_BACKOFF_MS = [400, 1100];
+  let lastErr;
+  for (let attempt = 1; attempt <= EDGE_TTS_MAX_ATTEMPTS; attempt++) {
+    try {
+      const audioBuffer = await synthesizeEdgeOnce(edgeVoice, ttsText);
+      if (attempt > 1) {
+        console.log(`Edge TTS recovered on attempt ${attempt} (voice: ${edgeVoice})`);
+      }
+      res.json({
+        audioBase64: audioBuffer.toString("base64"),
+        mimeType: "audio/mpeg",
+      });
+      return;
+    } catch (err) {
+      lastErr = err;
+      console.error(`Edge TTS attempt ${attempt}/${EDGE_TTS_MAX_ATTEMPTS} failed`, err);
+      if (attempt < EDGE_TTS_MAX_ATTEMPTS) {
+        const jitter = Math.floor(Math.random() * 250);
+        await edgeSleep(EDGE_TTS_BACKOFF_MS[attempt - 1] + jitter);
+      }
+    }
+  }
+  console.error("Edge TTS failed after all attempts", lastErr);
+  res.status(502).json({
+    error: "آواز تیار نہیں ہو سکی۔",
+    errorType: "network",
+  });
 });
 
 // ---------------------------------------------------------------------------

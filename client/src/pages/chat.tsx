@@ -20,6 +20,7 @@ import {
   TTS_PLAYBACK_RATE,
 } from '@/lib/api';
 import { synthesizeSalmanClientSide, synthesizeUniqaClientSide } from '@/lib/edge-tts';
+import { speakChunksInOrder, synthesizeChunkResilient } from '@/lib/tts-chunks';
 import {
   type Persona,
   type ToneMode,
@@ -1756,6 +1757,79 @@ export default function ChatPage() {
     }
   }
 
+  // Per-CHUNK browser-voice rescue (dropout hardening, 2026-10-23):
+  // when one chunk's server chain fails even after its retry, THAT
+  // chunk alone is spoken by the browser voice of the SAME persona —
+  // the reply never loses the chunk's words and later chunks still get
+  // their server voice. Promise-based (unlike the whole-reply
+  // speakWithBrowser) so the caller's chunk queue waits for the chunk
+  // to finish before moving on. Resolves false when no qualifying
+  // voice exists on this device (the standing notice below explains
+  // why) or when the speech ticket died mid-chunk. The picker is the
+  // same STRICT one speakNow uses — the other gender never speaks.
+  function speakChunkWithBrowserVoice(text: string, female: boolean, ticket: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (ticket !== speechTicketRef.current) { resolve(false); return; }
+      if (!('speechSynthesis' in window)) { resolve(false); return; }
+      const synth = window.speechSynthesis;
+      const stale = () => ticket !== speechTicketRef.current;
+      const speak = () => {
+        if (stale()) { resolve(false); return; }
+        const voice = female ? pickUrduFemaleVoice() : pickUrduMaleVoice();
+        if (!voice) {
+          // No voice of THIS persona's gender on this device — silence
+          // with the reason on screen beats the wrong-gender voice.
+          setError(female
+            ? 'یونیکا کی آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اس کے لیے اردو آواز انسٹال نہیں۔ Settings میں key چیک کریں۔'
+            : 'مردانہ آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اردو آواز انسٹال نہیں۔ Settings میں key دوبارہ چیک کریں۔');
+          resolve(false);
+          return;
+        }
+        const sentences = text.match(/[^۔.!?\n]+[۔.!?\n]*/g)?.map((s) => s.trim()).filter(Boolean) || [text.trim()];
+        let idx = 0;
+        let spoke = false;
+        const next = () => {
+          if (stale() || idx >= sentences.length) { resolve(spoke); return; }
+          const utterance = new SpeechSynthesisUtterance(sentences[idx]);
+          idx += 1;
+          utterance.lang = voice.lang || 'ur-PK';
+          utterance.rate = 1.25;
+          utterance.volume = 1;
+          utterance.pitch = female ? 1.0 : 0.9; // same settings as speakNow
+          utterance.voice = voice;
+          utterance.onend = () => { spoke = true; next(); };
+          utterance.onerror = () => {
+            // A stop cancels synthesis (interruptSpeech → cancel()):
+            // that is the ticket dying, not a per-sentence failure.
+            if (stale()) { resolve(false); return; }
+            next(); // one bad sentence never swallows the chunk
+          };
+          try { synth.resume(); } catch { /* ignore */ }
+          synth.speak(utterance);
+        };
+        // Live mode must hear the user over a browser-voice chunk
+        // exactly as over the server voice (same hook as speakNow).
+        startBargeInListener();
+        next();
+      };
+      // Chrome loads voices asynchronously; the list is often empty on
+      // the first call — wait for it once, like speakWithBrowser does.
+      if (synth.getVoices().length === 0) {
+        let settled = false;
+        const onVoices = () => {
+          if (settled) return;
+          settled = true;
+          synth.removeEventListener('voiceschanged', onVoices);
+          speak();
+        };
+        synth.addEventListener('voiceschanged', onVoices);
+        setTimeout(onVoices, 1500);
+      } else {
+        speak();
+      }
+    });
+  }
+
   // Extract the first speakable chunk (ending with ۔ ! ? . or newline) for TTS prefetch.
   // Triggers early (~20 chars + sentence boundary) so voice starts ASAP.
   // Falls back to first 120 chars if no sentence boundary found yet.
@@ -2164,24 +2238,58 @@ export default function ChatPage() {
         if (rc.trim()) restChunks.push(rc.trim());
         // Start synthesizing all rest chunks immediately (in background).
         const restPromises = restChunks.map((c) => synthesizeWithTimeout(c, 12000, female));
+        const chunkDeps = {
+          synthesize: (c: string) => synthesizeWithTimeout(c, 12000, female),
+          isStale: speechStale,
+        };
+        let restSpokeAny = false;
         if (hasEagerAudio && pf.playPromise) {
           // First chunk already playing via eager playback — wait for it to finish.
           await pf.playPromise.catch(() => {});
+          restSpokeAny = true;
         } else {
           // Eager didn't trigger (audio wasn't ready in time) — play first chunk now.
           const first = await pf.promise.catch(() => null);
-          if (first && !speechStale()) {
+          if (speechStale()) return; // barged in / stopped — nothing more is spoken
+          if (first) {
+            restSpokeAny = true;
             await playAudioChunk(first.audioBase64, first.mimeType, ticket);
+          } else {
+            // The prefetched FIRST chunk's synthesis failed: rescue the
+            // head of the reply per-chunk (retry, then browser voice)
+            // instead of silently starting the reply from chunk two.
+            const head = await synthesizeChunkResilient(pf.text, chunkDeps);
+            if (speechStale() || head.kind === 'stale') return;
+            if (head.kind === 'audio') {
+              restSpokeAny = true;
+              await playAudioChunk(head.audio.audioBase64, head.audio.mimeType, ticket);
+            } else if (await speakChunkWithBrowserVoice(pf.text, female, ticket)) {
+              restSpokeAny = true;
+            }
           }
         }
         if (speechStale()) return; // barged in / stopped — the rest is never spoken
         const restResults = await Promise.all(restPromises.map((p) => p.catch(() => null)));
-        let restSpokeAny = false;
-        for (const r of restResults) {
+        for (let ri = 0; ri < restResults.length; ri++) {
           if (speechStale()) return; // interrupted mid-reply: abandon the queue
+          const r = restResults[ri];
           if (r) {
             restSpokeAny = true;
             await playAudioChunk(r.audioBase64, r.mimeType, ticket);
+            continue;
+          }
+          // This chunk's synthesis failed — per-chunk rescue: one retry
+          // through the chain, then the browser voice for THIS chunk
+          // alone. Its words are never just skipped (the old loop
+          // dropped failed chunks silently — the «کبھی کبھی آواز
+          // missing» the user heard), and later chunks still play.
+          const rescued = await synthesizeChunkResilient(restChunks[ri], chunkDeps);
+          if (speechStale() || rescued.kind === 'stale') return;
+          if (rescued.kind === 'audio') {
+            restSpokeAny = true;
+            await playAudioChunk(rescued.audio.audioBase64, rescued.audio.mimeType, ticket);
+          } else if (await speakChunkWithBrowserVoice(restChunks[ri], female, ticket)) {
+            restSpokeAny = true;
           }
         }
         if (speechStale()) return;
@@ -2210,19 +2318,21 @@ export default function ChatPage() {
         }
       }
       if (current.trim()) chunks.push(current.trim());
-      let spokeAny = false;
-      for (const chunk of chunks) {
-        if (speechStale()) return; // interrupted: not one more chunk is synthesized or played
-        const out = await synthesizeWithTimeout(chunk, 12000, female);
-        if (speechStale()) return;
-        if (out) {
-          spokeAny = true;
-          await playAudioChunk(out.audioBase64, out.mimeType, ticket);
-        } else {
-          break; // TTS failed — don't play partial garbage
-        }
-      }
-      if (speechStale()) return;
+      // Per-chunk resilience (dropout hardening, lib/tts-chunks): each
+      // chunk retries its chain once, then falls to the browser voice
+      // for THAT chunk alone — a failed chunk never ends the reply
+      // early or swallows its words (the old loop BROKE on the first
+      // failure and every remaining chunk was lost), and the next
+      // chunk synthesizes while the current one plays (no gaps). A
+      // stop orphans the queue AND its prefetched audio at once.
+      const queue = await speakChunksInOrder(chunks, {
+        synthesize: (c) => synthesizeWithTimeout(c, 12000, female),
+        isStale: speechStale,
+        playAudio: (a) => playAudioChunk(a.audioBase64, a.mimeType, ticket),
+        speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
+      });
+      const spokeAny = queue.spokeAny;
+      if (queue.stopped || speechStale()) return;
       if (!spokeAny) {
         speakWithBrowser(text, ticket, female);
       } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
