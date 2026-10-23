@@ -9,48 +9,44 @@
  *    actions come back. Rendered only for genuine multi-action
  *    replies; never decorative.
  *  - AgentOfficePanel: the OFFICE ON THE MAIN SCREEN (user decision,
- *    2026-10-23: «دفتر مین اسکرین پر ہی سامنے رہے — ایک طرف چیٹ،
- *    دوسری طرف کیبن روشن ہوتے ہوئے»). A persistent column beside the
- *    chat: the seven cabins + Uniqa's corner + آج کا بورڈ, visible on
- *    load, lighting up with the same real work. On phones it becomes
- *    a full-width section below the status panel.
+ *    2026-10-23: «دفتر مین اسکرین پر ہی سامنے رہے»). A persistent
+ *    column beside the chat holding the living floor + آج کا بورڈ,
+ *    visible on load, lighting up with the same real work. On
+ *    phones it becomes a full-width section below the chat.
  *  - AgentTeamScene: the same office as a large overlay (the 🤖 rail
  *    button / the panel's ⤢ button) — the close-up view.
  *
  * OfficeSceneContent is the single shared body of the two office
- * views (Master Plan Phase 4 — his six approved مناظر, 2026-10-23):
- * the seven agents in cabins. A cabin is LIT only when that agent
- * holds a REAL live task state — the very same AgentTaskState[] the
- * strip renders, plus احمد's live build — never fake activity.
- * Tapping a cabin zooms to that agent (current task + today's
- * completed work from the task board). When nobody works, the office
- * rests (warm light, tea, evening). When 2+ work together, light
- * lines link their cabins. At the head of the floor sits the joint
- * hosts' cabin — باس یونیک at his desk, and یونیکا's مینیجر seat
- * beside him, occupied only while she is the present persona. The
- * wall board lists today's
- * real completions. Each cabin is lived in by the agent's robot-boy
- * (CabinRobot) at his desk — an occupied cabin, not an empty black
- * screen. CSS/SVG only — no image assets — so it stays smooth on a
- * low-end Chromebook.
+ * views: the board + the team-link bar + the FLOOR (components/
+ * FloorScene — Round 4, built to the user's reference video after
+ * he rejected the round-3 cabin grid). A zone lights and its agent
+ * types at his desk ONLY when that agent holds a REAL live task
+ * state — the very same AgentTaskState[] the strip renders, plus
+ * احمد's live build — never fake activity. Tapping a character
+ * zooms to him (current task + today's completed work from the
+ * task board). When nobody works, the office rests (warm light,
+ * tea). When 2+ work together, the team bar links them.
  *
- * فائل ہینڈ آف (user refinement, 2026-10-23): a 📄 visibly passes
- * between cabins on REAL transitions only — planned purely from
- * snapshot diffs by lib/office-handoff (dispatch from Unique's hub
- * when work starts, cabin→cabin when agents activate in sequence,
- * cabin→board when a completion is pinned). Idle = no motion.
+ * فائل ہینڈ آف (user refinement, 2026-10-23): on REAL transitions
+ * only — planned purely from snapshot diffs by lib/office-handoff
+ * (dispatch when work starts, agent→agent as they activate in
+ * sequence, agent→board when a completion is pinned) — the
+ * sender's own character physically WALKS the 📄 across the floor
+ * (lib/floor-layout waypoints). Idle = nobody carries anything.
  *
- * روبوٹ لڑکے (user spec, 2026-10-23 21:43): every cabin is lived in
- * by a small robot-BOY (components/CabinRobot) — he breathes and
- * blinks at rest, paces + types while his agent REALLY works, hops
- * twice when it lands, and a clone of him CARRIES the 📄 on every
- * flight above. Same real state, no theatre.
+ * کردار (user specs, 2026-10-23): the robot-BOYS (components/
+ * CabinRobot) live on the floor with floating name labels — باس
+ * یونیک and مینیجر یونیکا seated together at the hosts' desk
+ * (her seat empty unless she is the summoned persona), the seven
+ * agents at theirs. They breathe + blink at rest, stroll inside
+ * their own zone when free, type at the desk while REALLY
+ * working, and hop when work lands. Same real state, no theatre.
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { AGENT_DEFS, agentLabel, type AgentTaskState } from '@/lib/agent-team';
-import { CabinRobot, robotSVG, robotTintFor } from './CabinRobot';
+import { FloorScene } from './FloorScene';
 import { formatBoardTime, type BoardEntry } from '@/lib/task-board';
-import { planFlights, type Flight, type OfficeSnapshot } from '@/lib/office-handoff';
+import type { OfficeSnapshot } from '@/lib/office-handoff';
 import type { Persona } from '@/lib/persona';
 
 export function AgentTeamStrip({ tasks, onClose }: { tasks: AgentTaskState[]; onClose: () => void }) {
@@ -100,10 +96,6 @@ export type OfficeStateProps = {
 
 export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, compact = false }: OfficeStateProps & { compact?: boolean }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const layerRef = useRef<HTMLDivElement>(null);
-  const prevSnapshotRef = useRef<OfficeSnapshot | null>(null);
-  const flightRunRef = useRef(0);
 
   const stateByKey = new Map<string, AgentTaskState>();
   for (const t of tasks || []) stateByKey.set(t.key, t);
@@ -124,7 +116,10 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
   const workingDefs = AGENT_DEFS.filter((d) => stateByKey.get(d.key)?.status === 'working');
   const anyWorking = workingDefs.length > 0;
   const teamMode = workingDefs.length >= 2;
-  const selected = selectedKey ? AGENT_DEFS.find((d) => d.key === selectedKey) : undefined;
+  // Floor characters are selectable too: 'unique' / 'uniqa' open
+  // the hosts' close-up; agent keys open the agent's close-up.
+  const selectedHost = selectedKey === 'unique' ? 'unique' : selectedKey === 'uniqa' ? 'uniqa' : null;
+  const selected = selectedKey && !selectedHost ? AGENT_DEFS.find((d) => d.key === selectedKey) : undefined;
   const selectedState = selected ? stateByKey.get(selected.key) : undefined;
   const selectedDone = selected ? boardEntries.filter((e) => e.agentKey === selected.key) : [];
   const boardRecent = [...boardEntries].slice(-8).reverse();
@@ -144,30 +139,8 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
   };
   const snapshotSig = `${workingOrder.join(',')}#${boardEntries.length}#${boardEntries.length ? boardEntries[boardEntries.length - 1].at : ''}`;
 
-  useEffect(() => {
-    const prev = prevSnapshotRef.current;
-    prevSnapshotRef.current = snapshot;
-    if (!prev) return; // first sight of the office: never perform past activity
-    const flights = planFlights(prev, snapshot);
-    if (!flights.length) return;
-    // Reduced motion: the robots stay still and flights become a
-    // gentle fade at the destination (handled inside flyFileOnce).
-    const reducedMotion = typeof window !== 'undefined'
-      && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const run = ++flightRunRef.current;
-    void (async () => {
-      for (const flight of flights) {
-        if (flightRunRef.current !== run) return;
-        await flyFileOnce(wrapRef.current, layerRef.current, flight, reducedMotion);
-      }
-    })();
-    // The signature fully captures the snapshot's flight-relevant
-    // content; the snapshot object itself is rebuilt every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshotSig]);
-
   return (
-    <div className="office-content" ref={wrapRef}>
+    <div className="office-content">
       {/* ⑥ آج کا بورڈ — the office wall board: today's REAL
           completions, pinned with their times. */}
       <div className="office-board" data-testid="office-board">
@@ -201,136 +174,66 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
         </div>
       )}
 
-      {/* ① مرکزی آفس + ③ آرام + ⑤ یونیکا کا کونا */}
-      <div
-        className={`office-floor${anyWorking ? '' : ' office-resting'}${teamMode ? ' office-teamwork' : ''}`}
-        data-testid="office-floor"
-      >
-        {/* داخلی بورڈ — the entrance sign over the office floor
-            (user's reference image, 2026-10-23 — with OUR brand:
-            «Unique AI», not the picture's "Hello AI"). */}
-        <div className="office-sign" aria-hidden="true">
-          <span className="office-sign-plant">🪴</span>
-          <span className="office-sign-text">
-            <span className="office-sign-brand" dir="ltr">Unique AI</span>
-            <span className="office-sign-sub">آفس اسسٹنٹ — ایجنٹ ٹیم</span>
-          </span>
-          <span className="office-sign-plant">🪴</span>
+      {/* ① زندہ فرش + ③ آرام — Round 4: the cabin grid is GONE.
+          One illustrated floor (components/FloorScene) built to
+          the user's reference video: labeled zones, the robot
+          boys at their desks, strolling in their zones when free,
+          and physically WALKING the 📄 across the floor on real
+          handoffs (flights still planned by lib/office-handoff
+          from real snapshot diffs — the scene just walks them). */}
+      {!anyWorking && (
+        <div className="office-rest-row" aria-hidden="true">
+          <span className="office-rest-caption">☕ دفتر آرام کر رہا ہے — حکم دیں، ٹیم جاگ جائے گی</span>
         </div>
-        {/* تنظیمی لکیر — the org chart in one line (user, 2026-10-23
-            21:56): یونیک سب کا باس, یونیکا سات ایجنٹوں کی مینیجر. */}
-        <div className="office-orgline" aria-hidden="true">
-          👑 باس: یونیک <span className="office-orgline-sep">•</span> 💛 مینیجر: یونیکا <span className="office-orgline-sep">•</span> 🤖 ٹیم: 7 ایجنٹ
-        </div>
-        {!anyWorking && (
-          <div className="office-rest-details" aria-hidden="true">
-            <span className="office-window">🌆</span>
-            <span className="office-rest-caption">☕ دفتر آرام کر رہا ہے — حکم دیں، ٹیم جاگ جائے گی</span>
-          </div>
-        )}
-        {/* میزبان کیبن — the JOINT hosts' cabin at the head of the
-            floor (user spec, 2026-10-23 21:55): Unique and Uniqa
-            seated side by side at ONE desk, a microphone in front
-            of them and a computer on the desk. This cabin IS the
-            dispatch hub — every file flight starts from here.
-            Presence honesty: Uniqa's robot sits here ONLY while
-            she is the present persona (her golden-corner rule,
-            moved into this cabin); otherwise her seat is empty
-            and Unique hosts alone. */}
-        <div
-          className={`office-hosts${persona === 'uniqa' ? ' office-hosts-duo' : ''}`}
-          data-testid="office-hosts-cabin"
-          data-handoff-anchor="hub"
-          aria-label={persona === 'uniqa' ? 'میزبان کیبن — یونیک اور یونیکا دونوں حاضر ہیں' : 'میزبان کیبن — یونیک حاضر ہے، یونیکا بلانے پر آتی ہے'}
-        >
-          <span className="cabin-plaque">
-            <span className="cabin-neon-disc" aria-hidden="true">🎙️</span>
-            <span className="cabin-plaque-text">
-              <span className="cabin-plate">یونیک + یونیکا</span>
-              <span className="cabin-duty">میزبان — مرکزی کیبن</span>
-            </span>
-          </span>
-          <span className="hosts-stage" aria-hidden="true">
-            <span className="hosts-seat hosts-seat-unique">
-              <CabinRobot tint={robotTintFor('hub')} />
-              <span className="hosts-role hosts-role-boss">باس — یونیک</span>
-            </span>
-            <span className="hosts-seat hosts-seat-uniqa" data-testid="office-uniqa-seat">
-              {persona === 'uniqa'
-                ? <CabinRobot tint={robotTintFor('uniqa')} />
-                : <span className="hosts-seat-empty" />}
-              <span className="hosts-role hosts-role-manager">مینیجر — یونیکا</span>
-            </span>
-            <span className="hosts-desk">
-              <span className="hosts-desk-row">
-                <span className="hosts-monitor"><span className="cabin-screen-lines" /></span>
-                <span className="hosts-mic">🎙️</span>
-              </span>
-              <span className="hosts-deskbar" />
-            </span>
-          </span>
-          <span className="cabin-status">
-            {persona === 'uniqa' ? 'دونوں حاضر ہیں 💛' : 'یونیک حاضر ہے'}
-          </span>
-          <span className="cabin-plant" aria-hidden="true">🪴</span>
-        </div>
-        <div className="office-cabins">
-          {AGENT_DEFS.map((def) => {
-            const state = stateByKey.get(def.key);
-            const status = state?.status || 'idle';
-            return (
-              <button
-                key={def.key}
-                type="button"
-                style={{ '--neon': robotTintFor(def.key) } as CSSProperties}
-                className={`office-cabin office-cabin-${status}${selectedKey === def.key ? ' office-cabin-selected' : ''}`}
-                onClick={() => setSelectedKey(selectedKey === def.key ? null : def.key)}
-                data-testid={`office-cabin-${def.key}`}
-                aria-pressed={selectedKey === def.key}
-                aria-label={`${agentLabel(def)} — ${status === 'working' ? 'کام کر رہا ہے' : status === 'done' ? 'کام مکمل' : 'فارغ'}`}
-              >
-                {/* تختی — the neon plaque ABOVE the cabin (user's
-                    reference image, 2026-10-23): a glowing icon disc
-                    over the door, with his NAME and DUTY written on
-                    the board — «ہر کیبن کے اوپر ان کا نام ہو اور ان
-                    کا کام کا شعبہ لکھا ہو». */}
-                <span className="cabin-plaque">
-                  <span className="cabin-neon-disc" aria-hidden="true">{def.icon}</span>
-                  <span className="cabin-plaque-text">
-                    <span className="cabin-plate">{def.person}</span>
-                    <span className="cabin-duty">{def.duty}</span>
-                  </span>
-                </span>
-                <span className="cabin-robot-stage" aria-hidden="true">
-                  <CabinRobot tint={robotTintFor(def.key)} />
-                  {status === 'working' && <span className="cabin-avatar-ping" />}
-                </span>
-                <span className="cabin-deskline" aria-hidden="true">
-                  <span className="cabin-monitors">
-                    <span className="cabin-screen"><span className="cabin-screen-lines" /></span>
-                    <span className="cabin-screen"><span className="cabin-screen-lines" /></span>
-                  </span>
-                  <span className="cabin-desk" />
-                </span>
-                <span className="cabin-plant" aria-hidden="true">🪴</span>
-                <span className="cabin-status">
-                  {status === 'working' && 'کام کر رہا ہے…'}
-                  {status === 'done' && 'ہو گیا ✓'}
-                  {status === 'failed' && 'ناکام'}
-                  {status === 'idle' && 'فارغ'}
-                </span>
-                {!anyWorking && <span className="cabin-tea" aria-hidden="true">☕</span>}
-              </button>
-            );
-          })}
-          {/* ⑤ یونیکا no longer keeps a separate corner: she sits
-              in the joint hosts' cabin above (her مینیجر seat),
-              present only while summoned — see office-hosts. */}
-        </div>
-      </div>
+      )}
+      <FloorScene
+        tasks={tasks}
+        persona={persona}
+        boardEntries={boardEntries}
+        buildLive={buildLive}
+        stateByKey={stateByKey}
+        snapshot={snapshot}
+        snapshotSig={snapshotSig}
+        compact={compact}
+        selectedKey={selectedKey}
+        onSelect={setSelectedKey}
+      />
 
-      {/* ② قریبی منظر — the tapped agent, up close: what he is on
-          right now + his today's completed work (same board store). */}
+      {/* ② قریبی منظر — the tapped character, up close. Hosts
+          first: باس یونیک / مینیجر یونیکا, then the agent view
+          below (his current task + today's work, same board). */}
+      {selectedHost && (
+        <div className="office-closeup" data-testid="office-closeup">
+          <div className="office-closeup-head">
+            <span className="agent-card-icon">{selectedHost === 'unique' ? '👑' : '💛'}</span>
+            <span className="agent-card-name">
+              {selectedHost === 'unique' ? 'یونیک — باس' : 'یونیکا — مینیجر'}
+            </span>
+            <button type="button" className="tool-results-close" onClick={() => setSelectedKey(null)} aria-label="قریبی منظر بند کریں">
+              ✕
+            </button>
+          </div>
+          <div className="tool-small-note">
+            {selectedHost === 'unique'
+              ? 'پورے دفتر کا باس — ہر حکم یہیں سے ٹیم تک جاتا ہے؛ فائل لے کر خود ایجنٹ کے پاس جاتا ہے۔'
+              : 'سات ایجنٹوں کی مینیجر — صرف نام لے کر بلانے پر حاضر ہوتی ہے؛ اس وقت ' + (persona === 'uniqa' ? 'حاضر ہے 💛' : 'موجود نہیں — «یونیکا» کہہ کر بلائیں۔')}
+          </div>
+          <div className="office-closeup-done-title">آج کے مکمل کام — پوری ٹیم ({boardEntries.length})</div>
+          {boardEntries.length === 0 ? (
+            <div className="tool-small-note">آج ابھی کوئی کام مکمل نہیں ہوا۔</div>
+          ) : (
+            <ul className="office-board-list">
+              {[...boardEntries].slice(-5).reverse().map((entry, i) => (
+                <li key={`${entry.at}-${i}`} className="office-board-row">
+                  <span className="office-board-time" dir="ltr">{formatBoardTime(entry.at)}</span>
+                  <span className="office-board-agent">{entry.icon} {entry.person}</span>
+                  <span className="office-board-label">{entry.label}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {selected && (
         <div className="office-closeup" data-testid="office-closeup">
           <div className="office-closeup-head">
@@ -365,91 +268,11 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
 
       {!compact && (
         <div className="tool-small-note">
-          کیبن صرف تب روشن ہوتا ہے جب وہ ایجنٹ اصل میں کام کر رہا ہو — یہ سین اسی اصل حالت کو دکھاتا ہے جو چیٹ کے کارڈز میں چل رہی ہوتی ہے۔
+          ایجنٹ صرف تب اپنے ڈیسک پر کام کرتا نظر آتا ہے جب وہ اصل میں کام کر رہا ہو — یہ فرش اسی اصل حالت کو دکھاتا ہے جو چیٹ کے کارڈز میں چل رہی ہوتی ہے۔
         </div>
       )}
-
-      {/* The file-flight layer: chips are created imperatively by
-          flyFileOnce for planned REAL transitions only. */}
-      <div className="office-fly-layer" ref={layerRef} aria-hidden="true" />
     </div>
   );
-}
-
-/** Animate ONE handoff inside the office: a little robot-BOY
- *  (the sender's own tint; Unique's sky boy for hub dispatches)
- *  CARRIES the 📄 from a cabin/hub to a cabin/board, and the
- *  receiver answers with a small bounce. Coordinates come from the
- *  elements' real rects; a missing endpoint (view not mounted)
- *  simply skips the flight. Reduced motion: no travel — the
- *  traveler just fades in at the destination and away. */
-async function flyFileOnce(
-  wrap: HTMLDivElement | null,
-  layer: HTMLDivElement | null,
-  flight: Flight,
-  reducedMotion = false,
-): Promise<void> {
-  if (!wrap || !layer) return;
-  const fromEl = flight.from === 'hub'
-    ? wrap.querySelector('[data-handoff-anchor="hub"]')
-    : wrap.querySelector(`[data-testid="office-cabin-${flight.from}"]`);
-  const toEl = flight.to === 'board'
-    ? wrap.querySelector('[data-testid="office-board"]')
-    : wrap.querySelector(`[data-testid="office-cabin-${flight.to}"]`);
-  if (!fromEl || !toEl) return;
-  const wrapRect = wrap.getBoundingClientRect();
-  const center = (el: Element) => {
-    const r = el.getBoundingClientRect();
-    return { x: r.left - wrapRect.left + r.width / 2, y: r.top - wrapRect.top + r.height / 2 };
-  };
-  const a = center(fromEl);
-  const b = center(toEl);
-  const mid = { x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - 34 };
-  const chip = document.createElement('div');
-  chip.className = 'office-fly-file office-fly-robot';
-  chip.setAttribute('data-testid', 'office-fly-file');
-  chip.dataset.from = String(flight.from);
-  chip.dataset.to = String(flight.to);
-  chip.dataset.kind = flight.kind;
-  // The traveler IS the sender's robot boy, file in his hands.
-  const tint = robotTintFor(flight.from === 'hub' ? 'hub' : String(flight.from));
-  chip.innerHTML = `${robotSVG(tint)}<span class="office-fly-doc" aria-hidden="true">📄</span>`;
-  layer.appendChild(chip);
-  const T = (p: { x: number; y: number }, s: number) =>
-    `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) scale(${s})`;
-  try {
-    const anim = reducedMotion
-      ? chip.animate(
-        [
-          { transform: T(b, 0.9), opacity: 0 },
-          { transform: T(b, 0.9), opacity: 1, offset: 0.35 },
-          { transform: T(b, 0.9), opacity: 1, offset: 0.7 },
-          { transform: T(b, 0.9), opacity: 0 },
-        ],
-        { duration: 700, easing: 'ease-in-out' },
-      )
-      : chip.animate(
-        [
-          { transform: T(a, 0.6), opacity: 0 },
-          { transform: T(a, 0.85), opacity: 1, offset: 0.18 },
-          { transform: T(mid, 1.12), opacity: 1, offset: 0.55 },
-          { transform: T(b, 0.9), opacity: 1, offset: 0.85 },
-          { transform: T(b, 0.55), opacity: 0 },
-        ],
-        { duration: 880, easing: 'ease-in-out' },
-      );
-    await anim.finished;
-  } catch {
-    // animation cancelled (view closed mid-flight) — the chip is
-    // removed below either way.
-  }
-  chip.remove();
-  // وصولی — the receiver's little bounce: the cabin's robot hops;
-  // for a delivery the board itself glows once. Pure presentation
-  // of a handoff that really just happened.
-  const receiveClass = flight.to === 'board' ? 'office-board-receive' : 'cabin-receive';
-  toEl.classList.add(receiveClass);
-  window.setTimeout(() => toEl.classList.remove(receiveClass), 750);
 }
 
 /**
