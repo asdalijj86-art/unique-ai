@@ -39,6 +39,7 @@ export const BACKUP_EXCLUDED_KEYS = [
 
 const CONVERSATIONS_KEY = 'maira-ai-conversations-v1';
 const NOTES_KEY = 'unique-ai-notes';
+const LEARNINGS_KEY = 'unique-ai-learnings';
 
 export type StorageLike = {
   getItem: (key: string) => string | null;
@@ -159,6 +160,10 @@ export function parseBackup(text: string): ParseResult {
 export type BackupSummary = {
   conversations: number;
   notes: number;
+  /** Learned facts about the person (Round 5 — lib/learnings). The
+   *  learnings key rides the backup like every other brain key; only
+   *  the summary counts it separately, for the confirm dialog/reply. */
+  learnings: number;
   totalEntries: number;
   createdAt: string;
 };
@@ -176,6 +181,7 @@ export function summarizeBackup(data: BrainBackup): BackupSummary {
   return {
     conversations: countArrayEntry(data.entries, CONVERSATIONS_KEY),
     notes: countArrayEntry(data.entries, NOTES_KEY),
+    learnings: countArrayEntry(data.entries, LEARNINGS_KEY),
     totalEntries: Object.keys(data.entries).length,
     createdAt: data.createdAt,
   };

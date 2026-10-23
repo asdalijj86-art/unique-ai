@@ -64,7 +64,7 @@ export const TTS_PLAYBACK_RATE = 1.1;
  */
 export function useSendMairaChatMessage() {
   return useMutation({
-    mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void; language?: string; persona?: string; tone?: string } }) => {
+    mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void; language?: string; persona?: string; tone?: string; memory?: string } }) => {
       const { onDelta, ...body } = data;
 
       // One chat attempt with HARD timeouts. Previously this fetch had no

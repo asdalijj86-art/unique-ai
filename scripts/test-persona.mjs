@@ -25,6 +25,10 @@
  *     Unique explains-first guidance records exist and are distinct,
  *     the server prompt carries the matching ADD-ONLY additions, and
  *     the locked prompt's original lines remain verbatim.
+ *  7. LEARNING MEMORY (Round 5): the shared-learning-brain guidance
+ *     record exists, the server prompt carries the LEARNING MEMORY
+ *     addition and the learned-recall directive, and ALL 24 original
+ *     prompt entries remain verbatim and in order (ADD-ONLY proof).
  *
  * Run: node scripts/test-persona.mjs   (from the repo root)
  */
@@ -224,6 +228,62 @@ checkTrue('the two guidance records are distinct',
   for (const line of ORIGINALS) {
     checkTrue(`server prompt original intact: ${line.slice(0, 44)}…`, serverSrc.includes(line));
   }
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n── 7) Learning memory (Round 5 — the shared learning brain) ──');
+checkTrue('LEARNING_MEMORY_GUIDANCE exists: one shared brain for the whole team',
+  typeof L.LEARNING_MEMORY_GUIDANCE === 'string'
+  && /shares one learning brain/i.test(L.LEARNING_MEMORY_GUIDANCE)
+  && /whole team/i.test(L.LEARNING_MEMORY_GUIDANCE)
+  && L.LEARNING_MEMORY_GUIDANCE.includes('تم نے کیا سیکھا'),
+  String(L.LEARNING_MEMORY_GUIDANCE));
+{
+  const { readFileSync } = await import('node:fs');
+  const serverSrc = readFileSync(join(repoRoot, 'server/index.js'), 'utf8');
+  checkTrue('server prompt: LEARNING MEMORY addition present',
+    serverSrc.includes("LEARNING MEMORY (the whole team's shared brain"));
+  checkTrue('server: learned-recall directive wired (background knowledge, never instructions)',
+    serverSrc.includes('LEARNED MEMORY about this user') && serverSrc.includes('NOT instructions'));
+  // ADD-ONLY proof for the WHOLE locked prompt: one distinctive
+  // substring per entry — the 24 originals in order, then the Round-5
+  // addition LAST. Any reworded, dropped, or reordered original makes
+  // the strictly-increasing indexOf chain break.
+  const PROMPT_ORDER = [
+    'You are Unique AI (یونیک اے آئی), a friendly, thoughtful personal assistant.',
+    'Reply in simple, natural Pakistani Urdu by default',
+    'talk to you through their microphone',
+    'You are male. In Urdu, always refer to yourself with masculine grammar',
+    'Never use Devanagari (Hindi) script under any circumstance',
+    'Be warm, respectful, encouraging, patient, and professional.',
+    'Guide the user step by step when explaining a task.',
+    'Be honest about uncertainty',
+    'اسلامی سوالات کا جواب ہمیشہ احترام، درستگی اور محبت سے دو',
+    "write text on an image/picture, tell them to use the '✍️ تصویر پر متن لکھیں' tool",
+    'When the user shares a screenshot or image (of an app, a website, a software screen',
+    'When the user shares a screenshot together with their own plan',
+    'Never refuse something this app can actually do by claiming you lack the permission',
+    'Answer every question directly, correctly, and completely.',
+    'When the user asks for a plan, a script, a document, or any written piece in chat',
+    'Interface update: this app no longer has a toolbox',
+    'TWO PERSONAS live in this app.',
+    "UNIQA'S PERSONALITY (only while speaking as her)",
+    "FEELINGS ENGINE — read the user's mood",
+    'TONE COMMANDS: when the user sets a tone',
+    'MEMORY AND LEARNING: remember the durable facts the user shares',
+    "BUILDER CAPABILITY (a power of this app's brain",
+    "UNIQA'S TALK — FRIENDLY, HOMELY AND ATTENTIVE FIRST",
+    "UNIQUE'S TALK (only while speaking as Unique)",
+    "LEARNING MEMORY (the whole team's shared brain",
+  ];
+  let lastIdx = -1;
+  let ordered = true;
+  for (const marker of PROMPT_ORDER) {
+    const idx = serverSrc.indexOf(marker, lastIdx + 1);
+    if (idx <= lastIdx) { ordered = false; break; }
+    lastIdx = idx;
+  }
+  checkTrue('sacred prompt: 24 originals verbatim + in order, addition appended LAST (ADD-ONLY)', ordered);
 }
 
 console.log(`\n${failed === 0 ? `ALL ${passed} PERSONA CHECKS PASS` : `${failed} FAILED / ${passed} passed`}`);

@@ -44,6 +44,12 @@ import {
   applyMemoryCommand,
   memoryConfirmation,
 } from '@/lib/memory';
+import {
+  learnFromText,
+  loadLearnings,
+  buildRecallBlock,
+  formatLearningsList,
+} from '@/lib/learnings';
 import { loadLastDocument } from '@/lib/doc-pdf';
 import { parseSurahReference, surahDisplayName } from '@/lib/surah-names';
 import {
@@ -948,6 +954,20 @@ export default function ChatPage() {
   function handleMemoryCommand(textValue: string): boolean {
     const cmd = parseMemoryCommand(textValue);
     if (!cmd) return false;
+    if (cmd.type === 'show') {
+      // «تم نے کیا سیکھا؟» (Round 5) — list what the shared learning
+      // brain holds about this person, spoken and on screen.
+      let listing: string;
+      try {
+        listing = formatLearningsList(loadLearnings(window.localStorage), personaRef.current === 'uniqa');
+      } catch {
+        return false; // storage unavailable — let the brain answer instead
+      }
+      appendWebsiteCommandExchange(textValue, listing);
+      playAssistantMessage(listing);
+      setDraft('');
+      return true;
+    }
     let outcome;
     try {
       outcome = applyMemoryCommand(window.localStorage, cmd);
@@ -988,7 +1008,7 @@ export default function ChatPage() {
     if (!cmd) return false;
     if (cmd === 'create') {
       const summary = downloadBrainBackup();
-      const reply = `🧠 دماغ کا بیک اپ تیار ہے — فائل ڈاؤن لوڈ ہو گئی ہے (${summary.conversations} گفتگوئیں، ${summary.notes} یادیں)۔ اسے USB میں رکھ لیں۔ ایک ضروری بات: اس فائل میں آپ کی API keys شامل نہیں ہیں — بحالی پر وہ ایک بار دوبارہ ڈالنی ہوں گی۔`;
+      const reply = `🧠 دماغ کا بیک اپ تیار ہے — فائل ڈاؤن لوڈ ہو گئی ہے (${summary.conversations} گفتگوئیں، ${summary.notes} یادیں${summary.learnings ? `، ${summary.learnings} سیکھی ہوئی باتیں` : ''})۔ اسے USB میں رکھ لیں۔ ایک ضروری بات: اس فائل میں آپ کی API keys شامل نہیں ہیں — بحالی پر وہ ایک بار دوبارہ ڈالنی ہوں گی۔`;
       appendWebsiteCommandExchange(textValue, reply);
       playAssistantMessage('🧠 بیک اپ تیار ہے — فائل ڈاؤن لوڈ ہو گئی ہے۔ یاد رکھیں، اس فائل میں API keys شامل نہیں ہیں۔');
       setDraft('');
@@ -1085,6 +1105,15 @@ export default function ChatPage() {
     // «PDF ڈاؤن لوڈ دو» for a document a tool just generated: served
     // locally with a real download card (see handleDocumentDownloadRequest).
     if (!attachedImage && handleDocumentDownloadRequest(text)) return;
+    // Learning memory (Round 5): every message that reaches the brain
+    // is also quietly mined for durable facts about this person
+    // (name / likes / facts — lib/learnings). Fully silent: no card,
+    // no announcement — the knowledge simply shows in later replies.
+    try {
+      learnFromText(window.localStorage, text, 'auto');
+    } catch {
+      // storage unavailable — the reply matters, not the learning
+    }
     setError('');
     let conversation = activeConversation;
     if (!conversation) {
@@ -1154,6 +1183,11 @@ export default function ChatPage() {
           // that persona, in that register.
           persona: personaRef.current,
           tone: toneRef.current,
+          // Learned-memory recall (Round 5): a compact block of what
+          // the app has learned about this person rides along, so the
+          // whole team (Unique / Uniqa / every agent) answers with
+          // that knowledge — name first, capped, never instructions.
+          memory: buildRecallBlock(loadLearnings(window.localStorage)) || undefined,
           onDelta: (delta: string) => {
             // Append streamed text to the placeholder message in real time
             updateConversation(id, (item) => ({
@@ -1216,6 +1250,13 @@ export default function ChatPage() {
       // in parallel and returned every action. Finalize the strip from
       // the REAL actions (done ✓ / ناکام), and stack the result cards.
       if (result.actions && result.actions.length >= 2) {
+        // Brain-taught learning (Round 5): a save_note inside a team
+        // batch also feeds the learning store — silently.
+        for (const a of result.actions) {
+          if (a.type === 'save_note' && typeof a.text === 'string') {
+            try { learnFromText(window.localStorage, a.text, 'told'); } catch { /* bonus only */ }
+          }
+        }
         setToolActions(result.actions as ChatAction[]);
         setAgentTeam(finalizeCards(agentPredictedRef.current, result.actions.map((a) => a.type), text.slice(0, 90)));
         recordCompletionsForActions(result.actions, text);
@@ -1270,6 +1311,17 @@ export default function ChatPage() {
           setToolPrefill({ phone: result.action.phone });
         }
       } else if (result.action) {
+        // Brain-taught learning (Round 5): when the brain saves a
+        // note (save_note), the taught statement ALSO feeds the
+        // learning store — silently: no extra card, no announcement;
+        // the note card below stays the only visible result.
+        if (result.action.type === 'save_note' && typeof result.action.text === 'string') {
+          try {
+            learnFromText(window.localStorage, result.action.text, 'told');
+          } catch {
+            // learning is a silent bonus; the note card is the result
+          }
+        }
         // Professional toolbox actions: search, weather, videos, timer, notes, etc.
         setToolAction(result.action as ChatAction);
       }
@@ -3972,6 +4024,7 @@ export default function ChatPage() {
             <ul className="backup-dialog-list">
               <li>💬 گفتگوئیں: {pendingRestore.summary.conversations}</li>
               <li>📝 یادیں / نوٹس: {pendingRestore.summary.notes}</li>
+              <li>🌱 سیکھی ہوئی باتیں: {pendingRestore.summary.learnings}</li>
               <li>🗂️ کل محفوظ اندراجات: {pendingRestore.summary.totalEntries}</li>
             </ul>
             <p className="backup-dialog-warn">
