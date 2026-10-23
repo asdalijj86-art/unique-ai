@@ -27,6 +27,14 @@ const VOICE_NAME = 'ur-IN-SalmanNeural';
 // Inferred from the voice name by the library's locale regex
 // (/\b[a-z]{2,}-[A-Z]{2}\b/ on "ur-IN-SalmanNeural").
 const VOICE_LOCALE = 'ur-IN';
+// UNIQA (Phase 2): the female companion's OWN Edge voice. The wire
+// protocol is voice-agnostic — the voice rides inside each request's
+// SSML — so one shared socket serves both personas. Her chain NEVER
+// falls back to Salman's name (see chat.tsx): if her voice cannot be
+// synthesized, the next leg (server Edge with her voice, then Gemini's
+// female voice) speaks instead.
+export const UNIQA_VOICE_NAME = 'ur-PK-UzmaNeural';
+export const UNIQA_VOICE_LOCALE = 'ur-PK';
 // OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3 in the library.
 const OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3';
 // Prosody defaults from the library's ProsodyOptions class.
@@ -115,9 +123,9 @@ function escapeXml(text: string): string {
 
 // The SSML document, byte-for-byte as the library's _SSMLTemplate
 // builds it (Prosody defaults, voice locale as xml:lang).
-function buildSSML(input: string): string {
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${VOICE_LOCALE}">
-                <voice name="${VOICE_NAME}">
+function buildSSML(input: string, voiceName: string = VOICE_NAME, voiceLocale: string = VOICE_LOCALE): string {
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${voiceLocale}">
+                <voice name="${voiceName}">
                     <prosody pitch="${PROSODY_PITCH}" rate="${PROSODY_RATE}" volume="${PROSODY_VOLUME}">
                         ${input}
                     </prosody> 
@@ -324,9 +332,11 @@ function ensureSocket(): Promise<WebSocket> {
  * call (connect + synthesis); a timed-out request never poisons the
  * shared socket or other pending requests.
  */
-export async function synthesizeSalmanClientSide(
+async function synthesizeEdgeVoiceClientSide(
   text: string,
-  timeoutMs = 12000,
+  voiceName: string,
+  voiceLocale: string,
+  timeoutMs: number,
 ): Promise<EdgeTtsResult> {
   const deadline = Date.now() + timeoutMs;
   const remaining = () => deadline - Date.now();
@@ -355,7 +365,7 @@ export async function synthesizeSalmanClientSide(
   const requestId = randomHex(16);
   const frame =
     `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n` +
-    buildSSML(escapeXml(text)).trim();
+    buildSSML(escapeXml(text), voiceName, voiceLocale).trim();
 
   return new Promise<EdgeTtsResult>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -370,4 +380,25 @@ export async function synthesizeSalmanClientSide(
       reject(networkError());
     }
   });
+}
+
+/** Unique's voice — Salman (ur-IN-SalmanNeural), synthesized in-browser. */
+export async function synthesizeSalmanClientSide(
+  text: string,
+  timeoutMs = 12000,
+): Promise<EdgeTtsResult> {
+  return synthesizeEdgeVoiceClientSide(text, VOICE_NAME, VOICE_LOCALE, timeoutMs);
+}
+
+/**
+ * Uniqa's voice — Uzma (ur-PK-UzmaNeural, female), synthesized
+ * in-browser over the same shared socket. Used ONLY for Uniqa's turns;
+ * her chain never substitutes Salman's voice (chat.tsx enforces the
+ * separation; lib/persona.ts holds the picker proofs).
+ */
+export async function synthesizeUniqaClientSide(
+  text: string,
+  timeoutMs = 12000,
+): Promise<EdgeTtsResult> {
+  return synthesizeEdgeVoiceClientSide(text, UNIQA_VOICE_NAME, UNIQA_VOICE_LOCALE, timeoutMs);
 }

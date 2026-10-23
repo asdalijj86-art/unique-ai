@@ -23,6 +23,17 @@ const MAX_MESSAGE_BYTES = 200 * 1024;
 
 const COMMAND_ACTIONS = new Set(["open_quran", "open_map", "open_tools", "open_tool"]);
 
+// Call signalling (Phase 4 — «کال»): a TURN-BASED voice link between
+// the two linked app instances (phone = remote mic+speaker for the
+// laptop's Unique). The relay stays a dumb, honest pipe: it validates
+// the call message shapes and delivers them in order; the call state
+// machine (ringing, the ~30s no-answer timeout, accept/reject) lives
+// in the clients. call_utterance / call_reply carry one spoken turn's
+// TEXT each — no audio crosses the relay, ever.
+const CALL_TYPES = new Set(["call_invite", "call_accept", "call_reject", "call_end", "call_utterance", "call_reply"]);
+const CALL_TEXT_TYPES = new Set(["call_utterance", "call_reply"]);
+const MAX_CALL_TEXT_CHARS = 8000;
+
 function cleanDevice(input) {
   const name = String(input?.name || "").trim().slice(0, 40) || "ڈیوائس";
   const type = String(input?.type || "").trim().slice(0, 20) || "device";
@@ -144,9 +155,18 @@ export function createPairingRelay(now = () => Date.now()) {
     const id = String(deviceId || "");
     const session = getSession(sessionId, id);
     if (!session) return { ok: false, error: "session_closed" };
-    if (kind !== "conversation" && kind !== "command") return { ok: false, error: "bad_kind" };
+    if (kind !== "conversation" && kind !== "command" && kind !== "call") return { ok: false, error: "bad_kind" };
     if (kind === "command" && !COMMAND_ACTIONS.has(String(payload?.action || ""))) {
       return { ok: false, error: "bad_action" };
+    }
+    if (kind === "call") {
+      const callType = String(payload?.type || "");
+      if (!CALL_TYPES.has(callType)) return { ok: false, error: "bad_call_type" };
+      if (CALL_TEXT_TYPES.has(callType)) {
+        if (typeof payload?.text !== "string" || payload.text.length > MAX_CALL_TEXT_CHARS) {
+          return { ok: false, error: "bad_payload" };
+        }
+      }
     }
     let serialized;
     try {

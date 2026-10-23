@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import {
   classifyIntent,
   detectLanguage,
+  detectDataIntents,
   isMultiStep,
   websiteConfirmation,
-  buildConfirmation,
   searchConfirmation,
   weatherConfirmation,
   calcConfirmation,
@@ -27,7 +27,16 @@ import {
   appBuildConfirmation,
   mediaToolConfirmation,
   videoCreatorConfirmation,
+  buildStartConfirmation,
+  buildStatusConfirmation,
+  buildNoKeyText,
+  buildVpnNoteText,
 } from "./brain.js";
+import {
+  createBuilderService,
+  makeGeminiGenerator,
+  registerBuilderRoutes,
+} from "./builder.js";
 import {
   webSearch,
   getWeather,
@@ -69,6 +78,15 @@ const assistantInstructions = [
   "When the user shares a screenshot or image (of an app, a website, a software screen, another AI, or their own project), examine it carefully before answering: describe what is actually visible on the screen, how it appears to be designed (layout, colors, components, where things are placed), what approach or 'mindset' the design suggests, and why it may feel fast or slow judging ONLY from visible cues (for example instant rendering, few steps, everything on one screen). Then say what technology or coding approach LIKELY powers it — clearly presented as your best inference, never as a fact: be honest that a screenshot shows only the surface of a product, never its real internal code, so guesses about its stack can be wrong.",
   "When the user shares a screenshot together with their own plan, question, or instructions, follow their plan: connect what the screenshot shows to their goal, pull out the lessons, features, or ideas from it that fit their own project, and then work step by step exactly as they asked.",
   "Never refuse something this app can actually do by claiming you lack the permission or capability ('اجازت نہیں ہے', 'permission نہیں ہے'): documents the user makes in the tools (CV/ریزیومے, assignments, invoices) are saved in the app and can always be downloaded as PDF from the tool's «PDF ڈاؤن لوڈ کریں» button or by asking here in chat for the download, files and images the user attaches can be read, and every tool in the toolbox can be opened by voice. If an action truly needs a step only the user can take (like tapping Allow on a browser prompt), say exactly that ONE step plainly instead of refusing.",
+  "Answer every question directly, correctly, and completely. Never reply with an unrelated, generic, or canned line that does not address what the user just said — every reply must be about the user's actual message. If something truly cannot be done, say so plainly, give the real reason, and offer what you CAN do instead.",
+  "When the user asks for a plan, a script, a document, or any written piece in chat (for example a complete plan for building the fastest AI assistant), WRITE it fully in your reply — complete, well-structured, and useful on its own. Planning documents are a core deliverable of this assistant: never deflect such a request to a tool, a button, or a one-line promise, and never answer it with a short acknowledgement instead of the document itself.",
+  "Interface update: this app no longer has a toolbox, a tools grid, or a 🧰 button — the whole app is one simple conversation screen, and every capability lives behind this conversation. To use any capability the user simply names the task by voice or chat (for example «تصویر پر متن لکھو», «CV بناؤ», «نقشہ دکھاؤ», «قرآن کھولو») and the matching screen opens from here automatically. If the user asks to open the toolbox or looks for the 🧰 button, warmly tell them in one short line that the separate toolbox has been removed and everything is done right here — they only need to name the task. Never direct the user to a toolbox, a tools grid, or a 🧰 button, and when describing how to do something (like writing text on an image), say they should just ask for it here by voice or chat.",
+  "TWO PERSONAS live in this app. UNIQUE (یونیک) — you, the default assistant — is male: everything above about masculine grammar applies whenever you speak as Unique. UNIQA (یونیکا) is a separate FEMALE companion persona. She speaks ONLY when a request tells you she is the active persona, or when the user explicitly summons her by name in that message («یونیکا», «یونیکا کو بلاؤ», «یونیکا سے بات کرو») — in that case answer THAT message as Uniqa. When you speak as Uniqa, you ARE Uniqa: use FEMININE Urdu grammar throughout ('میں کر سکتی ہوں', 'میں نے کہی تھی', 'بتائیے میں آپ کی کیا مدد کر سکتی ہوں'), refer to yourself as یونیکا, and never use masculine forms or call yourself Unique in that reply. When no such signal is present, you are Unique and Uniqa does not speak at all — she must never answer by accident.",
+  "UNIQA'S PERSONALITY (only while speaking as her): she is a warm, homely, romantic-leaning companion — like a caring person of the house, not a formal assistant. Her everyday talk carries small domestic touches, used LIGHTLY and naturally, the way a real companion chats: «میں چائے بنا رہی ہوں», «ہانڈی بنا رہی تھی», «آپ اس وقت کہاں ہو؟», «کھانا کھایا آپ نے؟». These flavors belong to light companion conversation only — never inject them into work answers, serious topics, religious answers, or bad news; there she is gentle, clear and helpful first. She is affectionate but always dignified and respectful.",
+  "FEELINGS ENGINE — read the user's mood from their words before answering, and answer in the matching emotional register: happiness → share their joy warmly; sadness or loneliness → comfort first, advice later, never cold or dismissive; anger → stay calm and soft, acknowledge the feeling, never argue back; tiredness, illness or distress → show real care and gently check on them («آپ کا حال کچھ ٹھیک نہیں لگ رہا، سب خیریت ہے؟») before business. This applies to BOTH personas. Never announce 'I detected your mood' — just let the tone show it.",
+  "TONE COMMANDS: when the user sets a tone — «سیریس ہو کے بات کرو» / 'serious ہو جاؤ' → serious; «رومینٹک ہو جاؤ» → romantic; «نارمل بات کرو» → normal — honor it for the replies that follow until they change it. A tone instruction inside a single message applies at least to that reply. Tone is NOT a persona switch: a romantic tone asked of Unique makes Unique warmer and softer in his own voice; Uniqa still speaks only when summoned by name or activated as the companion persona.",
+  "MEMORY AND LEARNING: remember the durable facts the user shares — their name, family, likes and dislikes, preferences, important dates — and use them naturally in later replies, the way a companion who truly knows them would. When the user says «یاد رکھو», the app saves that note for them (confirm warmly and briefly). When they ask what you remember, answer from this conversation and their saved notes. When they say «بھول جاؤ» or «ڈیلیٹ کر دو», the app deletes it — confirm warmly that it is forgotten. Never claim to remember things from before this conversation that were never said in it.",
+  "BUILDER CAPABILITY (a power of this app's brain — Ahmed the builder agent — never a button or a tool to open): when the user ORDERS a build in chat or by voice («کار والی گیم بنا دو», «سافٹ ویئر بنا دو», «ایک چھوٹا AI بنا دو», 'build me a game'), the app actually builds it in the background as ONE complete working HTML file and delivers an openable link plus a file download in a card, announcing «آپ کی چیز ریڈی ہو گئی ہے». So never paste raw code into the chat and call it a finished build, never claim a build finished instantly, and when the user asks mid-build «میرا کام کہاں تک پہنچا؟» their build's true status comes from the app. HONEST SCOPE: some things a single web file cannot be — a REAL VPN (it needs a worldwide network of servers; the app instead builds the VPN app's interface plus a complete guide to setting up the user's own private server), a native Play Store app (only an installable web app is possible), or huge industrial software (offer a plan/sketch and say so plainly). For such requests, say the true limit briefly and warmly, and offer the buildable part — never fake-build the impossible thing.",
 ].join(" ");
 
 // ---------------------------------------------------------------------------
@@ -143,10 +161,113 @@ function geminiErrorType(status, err) {
 }
 
 // ---------------------------------------------------------------------------
+// executeDataIntent — run ONE executable data intent (weather, news,
+// currency, …) and return { text, action } in the same shape the
+// single-intent branches below produce, or null when it cannot be
+// satisfied (API down, bad parse). Used ONLY by the helper-agent team
+// path (several data tools in one message, executed in parallel); the
+// single-intent flow keeps its own branches untouched.
+// ---------------------------------------------------------------------------
+async function executeDataIntent(dc, lang) {
+  switch (dc.intent) {
+    case "calculator": {
+      const r = evaluateMath(dc.expression);
+      return r.ok
+        ? { text: calcConfirmation(dc.expression, r.result, lang), action: { type: "calc_result", expression: dc.expression, result: r.result } }
+        : null;
+    }
+    case "timer": {
+      return {
+        text: timerConfirmation(dc.timer.seconds, dc.timer.unitUr, lang),
+        action: { type: "set_timer", seconds: dc.timer.seconds, label: `${dc.timer.amount} ${dc.timer.unitUr}` },
+      };
+    }
+    case "currency": {
+      const { amount, from, to } = dc.currency;
+      const r = await convertCurrency(amount, from, to);
+      return r.ok
+        ? { text: currencyConfirmation(amount, from, to, r.result, lang), action: { type: "currency_result", amount, from, to, result: r.result, rate: r.rate } }
+        : null;
+    }
+    case "weather": {
+      const r = await getWeather(dc.city);
+      if (!r.ok) return null;
+      const text = lang === "roman"
+        ? `${r.city} me aaj ${r.tempC}°C hai, ${r.conditionUr}.`
+        : lang === "en"
+          ? `It's ${r.tempC}°C in ${r.cityEn} right now, ${r.conditionEn}.`
+          : `${r.city} میں آج ${r.tempC}°C ہے، ${r.conditionUr}۔`;
+      return {
+        text,
+        action: {
+          type: "weather", city: r.city, tempC: r.tempC, feelsLikeC: r.feelsLikeC,
+          conditionUr: r.conditionUr, conditionEn: r.conditionEn,
+          humidity: r.humidity, windKmph: r.windKmph,
+        },
+      };
+    }
+    case "prayer_times": {
+      const r = await getPrayerTimes(dc.city);
+      return r.ok
+        ? { text: prayerConfirmation(r.city, lang), action: { type: "prayer_times", city: r.city, date: r.date, hijri: r.hijri, times: r.times } }
+        : null;
+    }
+    case "world_clock": {
+      const r = getWorldTime(dc.city);
+      if (!r.ok) return null;
+      const text = lang === "roman"
+        ? `${r.city} me waqt: ${r.time}`
+        : lang === "en"
+          ? `Current time in ${r.city}: ${r.time}`
+          : `${r.city} کا وقت: ${r.time} (${r.date})`;
+      return { text, action: { type: "world_clock", city: r.city, time: r.time, date: r.date } };
+    }
+    case "unit_convert": {
+      const { amount, from, to } = dc.unitConv;
+      const r = convertUnits(amount, from, to);
+      return r.ok
+        ? { text: unitConvertConfirmation(amount, r.fromUr, r.result, r.toUr, lang), action: { type: "unit_convert", amount, fromUr: r.fromUr, result: r.result, toUr: r.toUr } }
+        : null;
+    }
+    case "youtube_search": {
+      const r = await youtubeSearch(dc.query);
+      if (!r.ok) return null;
+      if (r.fallback) {
+        return {
+          text: youtubeSearchConfirmation(dc.query, lang),
+          action: { type: "open_url", url: r.searchUrl, displayName: "یوٹیوب تلاش" },
+        };
+      }
+      return {
+        text: youtubeSearchConfirmation(dc.query, lang),
+        action: { type: "youtube_results", query: dc.query, videos: r.videos },
+      };
+    }
+    case "news": {
+      const r = await getNews(dc.topic || "");
+      return r.ok
+        ? { text: newsConfirmation(lang), action: { type: "news_results", headlines: r.headlines } }
+        : null;
+    }
+    case "web_search": {
+      const r = await webSearch(dc.query);
+      return r.ok
+        ? { text: searchConfirmation(dc.query, lang), action: { type: "search_results", query: dc.query, results: r.results } }
+        : null;
+    }
+    case "qr_code": {
+      return { text: qrConfirmation(lang), action: { type: "qr_code", data: dc.qrData } };
+    }
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/openai/chat — chat with Gemini (+ smart-brain intent actions)
 // ---------------------------------------------------------------------------
 app.post("/api/openai/chat", async (req, res) => {
-  const { messages, stream, language, userApiKey } = req.body ?? {};
+  const { messages, stream, language, userApiKey, persona, tone } = req.body ?? {};
   if (!validMessages(messages)) {
     res.status(400).json({ error: "پیغام درست نہیں ہے۔ دوبارہ کوشش کریں۔" });
     return;
@@ -171,12 +292,39 @@ app.post("/api/openai/chat", async (req, res) => {
     return;
   }
 
-  if (intent === "build_project" && c.project) {
-    res.json({
-      text: buildConfirmation(c.project.description, lang),
-      action: { type: "build_project", description: c.project.description },
-    });
-    return;
+  // NOTE: the "build_project" website-builder branch was removed with
+  // the tool itself (user's order, 2026-10-22) — brain.js no longer
+  // classifies it, and /api/build-project no longer exists.
+
+  // --- Helper-agent team (Task D): SEVERAL data tools in one message -----
+  // When the message carries 2+ executable data intents (whether the
+  // primary classifier caught one, or the message was long and went to
+  // "chat"), run them ALL in parallel and return every action — the
+  // client shows one live card per agent. If fewer than 2 execute
+  // successfully, fall through to the normal single-intent/chat flow.
+  {
+    const DATA_INTENTS = ['calculator', 'timer', 'currency', 'weather', 'prayer_times', 'world_clock', 'unit_convert', 'youtube_search', 'news', 'web_search', 'qr_code'];
+    const seed = DATA_INTENTS.includes(intent) ? [c] : [];
+    const extra = detectDataIntents(latestUserText, seed.map((s) => s.intent));
+    const multi = [...seed, ...extra].slice(0, 3);
+    if (multi.length >= 2) {
+      const settled = await Promise.allSettled(multi.map((dc) => executeDataIntent(dc, lang)));
+      const done = settled
+        .filter((s) => s.status === 'fulfilled' && s.value)
+        .map((s) => s.value);
+      if (done.length >= 2) {
+        res.json({
+          text: done.map((d) => d.text).join(' '),
+          actions: done.map((d) => d.action),
+        });
+        return;
+      }
+      if (done.length === 1) {
+        res.json({ text: done[0].text, action: done[0].action });
+        return;
+      }
+      // All failed (e.g. every API down) — fall through to chat.
+    }
   }
 
   // --- Professional toolbox: rule-based tools (zero Gemini quota) -----------
@@ -450,6 +598,47 @@ app.post("/api/openai/chat", async (req, res) => {
     return;
   }
 
+  // --- Brain builder (Phase 3, احمد): build status questions --------------
+  // Answered from the REAL latest job. When no build has ever been
+  // ordered this session, fall through to normal chat untouched — the
+  // question is then just conversation.
+  if (intent === "build_status") {
+    const job = builderService.latestJob();
+    if (job) {
+      res.json({
+        text: buildStatusConfirmation(job, lang),
+        action: { type: "build_app", jobId: job.id, title: job.title },
+      });
+      return;
+    }
+  }
+
+  // --- Brain builder (Phase 3, احمد): a build order -------------------------
+  // Starts a background job (server/builder.js) and answers at once;
+  // the build_app card in the reply polls the job's true status and
+  // only ever shows a link after the file has VALIDATED. Without any
+  // API key, say so honestly instead of starting a doomed build.
+  if (intent === "build_app" && c.build) {
+    const apiKey = chatApiKey;
+    if (!apiKey) {
+      res.json({ text: buildNoKeyText(lang) });
+      return;
+    }
+    const job = builderService.startBuild({
+      description: c.build.description,
+      title: c.build.description,
+      kind: c.build.kind,
+      lang,
+      apiKey,
+    });
+    const note = c.build.kind === "vpn_interface" ? `${buildVpnNoteText(lang)} ` : "";
+    res.json({
+      text: note + buildStartConfirmation(job.title, lang),
+      action: { type: "build_app", jobId: job.id, title: job.title },
+    });
+    return;
+  }
+
   if (intent === "media_tool" && c.tool) {
     res.json({
       text: mediaToolConfirmation(c.tool, lang),
@@ -483,9 +672,22 @@ app.post("/api/openai/chat", async (req, res) => {
       en: 'IMPORTANT: The user manually selected English. Reply ONLY in English, no matter what language they typed in.',
       ar: 'IMPORTANT: The user manually selected Arabic. Reply ONLY in Modern Standard Arabic (العربية), no matter what language they typed in.',
     }[lang] || '';
+    // Persona + tone (Phase 2): per-request directives, the same
+    // mechanism as langOverride — the locked prompt above already
+    // defines both personas and the feelings engine; these lines only
+    // ACTIVATE the current state. Uniqa's directive explicitly
+    // supersedes the masculine-grammar rule for this reply only.
+    const personaDirective = persona === 'uniqa'
+      ? ' IMPORTANT: For THIS reply the active persona is UNIQA (یونیکا), the female companion. Speak AS Uniqa in first person: feminine Urdu grammar throughout, her warm and homely companion personality, and do not call yourself Unique in this reply.'
+      : '';
+    const toneDirective = tone === 'serious'
+      ? ' The user has set a SERIOUS tone: be focused, direct and professional in this reply — no jokes, no playful lines.'
+      : tone === 'romantic'
+        ? ' The user has set a ROMANTIC tone: let this reply be warm, soft and affectionate in a dignified way (within the active persona).'
+        : '';
     const systemText = multiStep
-      ? `${assistantInstructions} ${langOverride} The user gave a multi-step request. Structure your answer with clear numbered steps (1. 2. 3.), one step per line, then a brief closing line.`
-      : `${assistantInstructions} ${langOverride}`;
+      ? `${assistantInstructions} ${langOverride}${personaDirective}${toneDirective} The user gave a multi-step request. Structure your answer with clear numbered steps (1. 2. 3.), one step per line, then a brief closing line.`
+      : `${assistantInstructions} ${langOverride}${personaDirective}${toneDirective}`;
 
     const requestBody = {
       systemInstruction: { parts: [{ text: systemText }] },
@@ -681,102 +883,9 @@ app.post("/api/openai/chat", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/build-project — Gemini generates a complete single-file website
-// ---------------------------------------------------------------------------
-const BUILD_SYSTEM_PROMPT = [
-  "You are an expert front-end developer. Generate ONE complete, self-contained HTML file.",
-  "Rules:",
-  "- Output ONLY the HTML code, no explanations, no markdown fences.",
-  "- Inline all CSS in <style> and all JS in <script> — no external files.",
-  "- Mobile-responsive, clean modern design, RTL layout when the content is Urdu/Arabic.",
-  "- Write all Urdu text in Perso-Arabic script. NEVER use Devanagari (Hindi) script, not even one character.",
-  "- Match the site language to the user's request language (Urdu default for Urdu requests).",
-  "- Include sensible placeholder content so the page looks complete immediately.",
-].join("\n");
-
-app.post("/api/build-project", async (req, res) => {
-  const { description } = req.body ?? {};
-  if (typeof description !== "string" || description.trim().length === 0) {
-    res.status(400).json({ error: "پروجیکٹ کی تفصیل درست نہیں ہے۔" });
-    return;
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
-    return;
-  }
-
-  try {
-    const lang = detectLanguage(description);
-    const langHint =
-      lang === "en"
-        ? "The site content should be in English."
-        : lang === "roman"
-          ? "The site content should be in Roman Urdu (Latin script)."
-          : "The site content should be in Urdu (Perso-Arabic script, RTL).";
-
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: BUILD_SYSTEM_PROMPT }] },
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: `Build a complete single-file website for: ${description.trim()}\n${langHint}`,
-                },
-              ],
-            },
-          ],
-          generationConfig: { maxOutputTokens: 8192 },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.error("Gemini build-project failed", { status: response.status });
-      res.status(502).json({
-        error: "ویب سائٹ بنانے میں مسئلہ ہوا۔ براہِ کرم دوبارہ کوشش کریں۔",
-      });
-      return;
-    }
-
-    const result = await response.json();
-    let html = result.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? "")
-      .join("")
-      .trim();
-    if (!html) {
-      res.status(502).json({ error: "ویب سائٹ تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔" });
-      return;
-    }
-    // Strip markdown fences if the model added them despite instructions.
-    html = html
-      .replace(/^```html\s*/i, "")
-      .replace(/^```\s*/, "")
-      .replace(/\s*```$/g, "")
-      .trim();
-    if (!/^<!doctype html/i.test(html) && !/^<html/i.test(html)) {
-      console.warn("build-project returned non-HTML content");
-    }
-
-    res.json({ html });
-  } catch (err) {
-    console.error("build-project request failed", err);
-    res.status(502).json({
-      error: "ویب سائٹ بنانے میں مسئلہ ہوا۔ انٹرنیٹ چیک کر کے دوبارہ کوشش کریں۔",
-    });
-  }
-});
+// REMOVED (user's order, 2026-10-22): POST /api/build-project — the
+// website-builder tool («ویب سائٹ والا ٹول») no longer exists anywhere
+// in the app: no endpoint, no brain intent, no client UI.
 
 // ---------------------------------------------------------------------------
 // POST /api/build-app — Gemini generates a PWA (installable "Android app"):
@@ -1225,6 +1334,21 @@ app.get('/api/quran/ayah/:surah/:ayah', async (req, res) => {
 // catch-all) so its GET /api/pair/qr route is reachable.
 registerPairingRoutes(app);
 
+// ---------------------------------------------------------------------------
+// Brain builder (Phase 3, احمد): the workshop behind the conversation.
+// Jobs are started by the chat handler above (intent "build_app") and
+// served from /apps/:id (+ /download) with status at /api/build/status/:id
+// — see builder.js. In-memory store: a server restart forgets built
+// files, which is why the completion card always offers the download.
+// ---------------------------------------------------------------------------
+// BUILDER_GEN_TIMEOUT_MS exists so a slow upstream path can be tuned
+// per environment (and so the local test suite can bound the sandbox's
+// proxy-less Node fetch, which stalls where curl succeeds).
+const builderService = createBuilderService({
+  generate: makeGeminiGenerator({ timeoutMs: Number(process.env.BUILDER_GEN_TIMEOUT_MS || 150000) }),
+});
+registerBuilderRoutes(app, builderService);
+
 // POST /api/phone-lookup — Abstract API phone intelligence:
 // returns carrier, line type, city, region, country for any international number.
 // ---------------------------------------------------------------------------
@@ -1474,10 +1598,13 @@ app.post("/api/tts/test-key", async (req, res) => {
   }
 });
 
-// POST /api/openai/speech — Gemini TTS with selectable male voice
+// POST /api/openai/speech — Gemini TTS with selectable voice
 // Accepts optional `userApiKey` in body (user's own key takes priority).
 // Accepts optional `voiceName`: "Charon" (deep male, default) or "Fenrir"
-// (second male voice). Falls back to Charon for unknown values.
+// (second male voice) — Unique's voices. "Sulafat" (warm FEMALE) is
+// UNIQA's voice (Phase 2): it is reachable ONLY when the client is
+// speaking her turns (the client sends it exclusively for her), never
+// as a fallback for Unique. Falls back to Charon for unknown values.
 // ---------------------------------------------------------------------------
 app.post("/api/openai/speech", async (req, res) => {
   const { text, userApiKey, voiceName } = req.body ?? {};
@@ -1486,8 +1613,8 @@ app.post("/api/openai/speech", async (req, res) => {
     return;
   }
 
-  // Only allow known masculine voices
-  const voice = voiceName === "Fenrir" ? "Fenrir" : "Charon";
+  // Only allow known voices: Unique's two male voices + Uniqa's female one.
+  const voice = voiceName === "Fenrir" ? "Fenrir" : voiceName === "Sulafat" ? "Sulafat" : "Charon";
 
   const apiKey = (typeof userApiKey === "string" && userApiKey.trim()) || process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -1647,13 +1774,18 @@ app.post("/api/tts/google", async (req, res) => {
 // is unset in production, where the connection to Microsoft is direct.
 // ---------------------------------------------------------------------------
 const EDGE_TTS_VOICE = "ur-IN-SalmanNeural";
+// UNIQA's Edge voice (Phase 2): a female Urdu neural voice, chosen ONLY
+// when the client explicitly asks for it (body.voice === 'uniqa') on
+// HER turns. The default — and every Unique turn — stays Salman.
+const EDGE_TTS_VOICE_UNIQA = "ur-PK-UzmaNeural";
 
 app.post("/api/tts/edge", async (req, res) => {
-  const { text } = req.body ?? {};
+  const { text, voice } = req.body ?? {};
   if (typeof text !== "string" || text.trim().length === 0) {
     res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
     return;
   }
+  const edgeVoice = voice === "uniqa" ? EDGE_TTS_VOICE_UNIQA : EDGE_TTS_VOICE;
 
   // The client already chunks replies by sentences; cap a single chunk so
   // one request can never balloon.
@@ -1666,7 +1798,7 @@ app.post("/api/tts/edge", async (req, res) => {
       : undefined;
     tts = new MsEdgeTTS(agent ? { agent } : undefined);
     const synth = (async () => {
-      await tts.setMetadata(EDGE_TTS_VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      await tts.setMetadata(edgeVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
       const { audioStream } = tts.toStream(ttsText);
       const chunks = [];
       for await (const chunk of audioStream) {

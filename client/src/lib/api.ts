@@ -6,8 +6,12 @@ type ChatMessageInput = { role: string; content: string; image?: string };
 export type ChatAction =
   | { type: 'open_url'; url: string; displayName: string }
   | { type: 'open_link'; url: string; displayName: string }
-  | { type: 'build_project'; description: string }
   | { type: 'android_app'; description: string }
+  // Brain builder (Phase 3): a background build job started by a voice/
+  // chat order («گیم بنا دو») or returned with a status answer. The
+  // card polls /api/build/status/:jobId for the job's REAL state and
+  // shows the link + download only once the file has validated.
+  | { type: 'build_app'; jobId: string; title: string }
   | { type: 'search_results'; query: string; results: Array<{ title: string; snippet: string; url: string }> }
   | { type: 'weather'; city: string; tempC: string; feelsLikeC: string; conditionUr: string; conditionEn: string; humidity: string; windKmph: string }
   | { type: 'calc_result'; expression: string; result: number }
@@ -36,6 +40,10 @@ export type ChatAction =
 export type ChatResponse = {
   text: string;
   action?: ChatAction;
+  /** Helper-agent team (Task D): when one message ran SEVERAL data
+   *  tools in parallel, the server returns every action here instead
+   *  of a single `action`. */
+  actions?: ChatAction[];
   multiStep?: boolean;
   plan?: string[];
 };
@@ -56,7 +64,7 @@ export const TTS_PLAYBACK_RATE = 1.1;
  */
 export function useSendMairaChatMessage() {
   return useMutation({
-    mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void; language?: string } }) => {
+    mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void; language?: string; persona?: string; tone?: string } }) => {
       const { onDelta, ...body } = data;
 
       // One chat attempt with HARD timeouts. Previously this fetch had no
@@ -237,8 +245,16 @@ function refreshDeadTtsKeys(keys: string[]) {
   }
 }
 
-export async function synthesizeMairaSpeech({ text }: { text: string }) {
+/** Uniqa's Gemini voice (Phase 2): a warm FEMALE prebuilt voice. Used
+ *  ONLY for her turns — Unique's turns never carry it, and hers never
+ *  carry Charon/Fenrir (the persona separation, lib/persona.ts). */
+export const UNIQA_GEMINI_VOICE = 'Sulafat';
+
+export async function synthesizeMairaSpeech({ text, female }: { text: string; female?: boolean }) {
   const voiceName = (() => {
+    // Uniqa's turns always take her own female Gemini voice — the
+    // stored male-voice selection belongs to Unique alone.
+    if (female) return UNIQA_GEMINI_VOICE;
     try {
       const stored = localStorage.getItem('unique-ai-voice') || 'Salman';
       // 'Salman' is the Edge TTS voice — it has no Gemini equivalent. When
@@ -351,7 +367,7 @@ export async function testGeminiKey(userApiKey: string): Promise<{ ok: boolean; 
  * Hard 20s cap: a stalled request throws a classifiable timeout instead
  * of hanging the voice pipeline.
  */
-export async function synthesizeEdgeSpeech({ text }: { text: string }) {
+export async function synthesizeEdgeSpeech({ text, voice }: { text: string; voice?: 'uniqa' }) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   let res: Response;
@@ -359,7 +375,9 @@ export async function synthesizeEdgeSpeech({ text }: { text: string }) {
     res = await fetch('/api/tts/edge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      // voice:'uniqa' asks the server for HER Edge voice (Uzma); absent
+      // = Salman, Unique's voice — the default is never hers.
+      body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
       signal: ctrl.signal,
     });
   } catch (e: any) {
@@ -375,21 +393,4 @@ export async function synthesizeEdgeSpeech({ text }: { text: string }) {
     throw { data: errData };
   }
   return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
-}
-
-/**
- * Ask the server to generate a complete single-file website from a
- * description. Resolves with { html }.
- */
-export async function buildProject({ description }: { description: string }) {
-  const res = await fetch('/api/build-project', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ description }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw { data: errData };
-  }
-  return res.json() as Promise<{ html: string }>;
 }

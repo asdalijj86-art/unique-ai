@@ -1127,3 +1127,277 @@ body {
     overflow-y: auto;
   }
 }
+
+/* ======= Agent team (Task D): live strip + roster scene ======= */
+.agent-team-strip {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 96px;
+  width: min(600px, calc(100vw - 24px));
+  background: rgba(6, 14, 28, .97);
+  border: 1px solid rgba(139, 92, 246, .4);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 30px rgba(139, 92, 246, .15);
+  z-index: 59;
+  padding: 10px 12px;
+}
+.agent-team-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.agent-team-title { font-weight: 700; color: #e9d5ff; font-size: 14px; }
+.agent-team-cards { display: flex; flex-wrap: wrap; gap: 8px; }
+.agent-card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, .08);
+  border: 1px solid rgba(139, 92, 246, .25);
+  font-size: 13px;
+  color: #e9d5ff;
+}
+.agent-card-icon { font-size: 16px; }
+.agent-card-name { font-weight: 600; }
+.agent-card-status { font-size: 12px; }
+.agent-card-working .agent-card-status { color: #fbbf24; animation: agent-pulse 1.1s ease-in-out infinite; }
+.agent-card-done .agent-card-status { color: #34d399; }
+.agent-card-failed .agent-card-status { color: #f87171; }
+@keyframes agent-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.agent-team-list { display: flex; flex-direction: column; gap: 8px; }
+.agent-list-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  background: rgba(15, 28, 52, .7);
+  border: 1px solid rgba(56, 189, 248, .14);
+  border-radius: 10px;
+}
+.agent-list-text { display: flex; flex-direction: column; gap: 2px; }
+
+/* ======= Office scene (Phase 4): cabins, board, rest, teamwork =======
+   CSS-only visuals (no image assets); animations move only opacity /
+   transform so a low-end Chromebook GPU stays idle. */
+.office-board {
+  border: 1px solid rgba(251, 191, 36, .35);
+  background: linear-gradient(180deg, rgba(120, 72, 20, .18), rgba(15, 28, 52, .7));
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.office-board-title { font-weight: 700; color: #fde68a; font-size: 13.5px; margin-bottom: 6px; }
+.office-board-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.office-board-row { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; color: #e9d5ff; }
+.office-board-time { color: #fbbf24; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.office-board-agent { font-weight: 600; white-space: nowrap; }
+.office-board-label { opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.office-team-link {
+  display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+  margin-bottom: 10px; padding: 6px 10px;
+  border: 1px dashed rgba(56, 189, 248, .4); border-radius: 999px;
+  background: rgba(56, 189, 248, .06);
+}
+.office-team-link-node { display: inline-flex; align-items: center; }
+.office-team-link-line {
+  width: 26px; height: 2px; margin: 0 3px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(56,189,248,.15), #38bdf8, rgba(56,189,248,.15));
+  animation: agent-pulse 1.2s ease-in-out infinite;
+}
+.office-team-link-dot { font-size: 16px; }
+.office-team-link-caption { font-size: 12px; color: #7dd3fc; margin-inline-start: 8px; }
+
+.office-floor {
+  position: relative;
+  border: 1px solid rgba(139, 92, 246, .3);
+  border-radius: 14px;
+  padding: 14px 12px 12px;
+  margin-bottom: 12px;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(56, 189, 248, .10), transparent 60%),
+    linear-gradient(180deg, rgba(10, 20, 40, .85), rgba(6, 12, 24, .95));
+  transition: background 0.6s ease;
+}
+/* آرام والا منظر: warm, dim, alive — never a dead grey box. */
+.office-resting {
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(251, 191, 36, .14), transparent 60%),
+    linear-gradient(180deg, rgba(46, 28, 10, .55), rgba(10, 10, 18, .95));
+  border-color: rgba(251, 191, 36, .25);
+}
+.office-teamwork { border-color: rgba(56, 189, 248, .55); }
+.office-rest-details {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px; font-size: 13px;
+}
+.office-window { font-size: 20px; }
+.office-rest-caption { color: #fcd9a0; font-size: 12.5px; }
+
+.office-cabins {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 9px;
+}
+.office-cabin {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 6px 9px;
+  border-radius: 12px;
+  border: 1px solid rgba(139, 92, 246, .18);
+  background: rgba(13, 22, 42, .75);
+  color: #e9d5ff;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+button.office-cabin { appearance: none; }
+.office-cabin-selected { outline: 2px solid rgba(56, 189, 248, .7); outline-offset: 1px; }
+/* The computer: a little monitor whose screen only glows with REAL work. */
+.cabin-screen {
+  width: 52px; height: 34px; border-radius: 5px;
+  border: 2px solid rgba(148, 163, 184, .4);
+  background: rgba(2, 6, 16, .9);
+  display: block; position: relative; overflow: hidden;
+}
+.cabin-screen::after { /* monitor stand */
+  content: ''; position: absolute; left: 50%; bottom: -7px; width: 14px; height: 5px;
+  transform: translateX(-50%); background: rgba(148, 163, 184, .4); border-radius: 2px;
+}
+.cabin-screen-lines {
+  position: absolute; inset: 5px 6px; border-radius: 2px; opacity: 0;
+  background: repeating-linear-gradient(180deg, rgba(125, 211, 252, .85) 0 2px, transparent 2px 6px);
+}
+.cabin-figure { font-size: 22px; margin-top: 9px; line-height: 1; }
+.cabin-desk {
+  width: 64px; height: 5px; border-radius: 3px;
+  background: linear-gradient(90deg, rgba(120, 72, 20, .0), rgba(180, 120, 60, .55), rgba(120, 72, 20, .0));
+}
+.cabin-plate { font-weight: 700; font-size: 13.5px; margin-top: 3px; }
+.cabin-duty { font-size: 11px; opacity: .65; }
+.cabin-status { font-size: 11.5px; min-height: 15px; }
+.cabin-tea { position: absolute; top: 6px; inset-inline-end: 8px; font-size: 12px; opacity: .75; }
+
+.office-cabin-idle .cabin-status { opacity: .55; }
+.office-cabin-working {
+  border-color: rgba(251, 191, 36, .65);
+  box-shadow: 0 0 18px rgba(251, 191, 36, .22), inset 0 0 22px rgba(251, 191, 36, .06);
+}
+.office-cabin-working .cabin-screen { border-color: rgba(125, 211, 252, .8); background: rgba(8, 30, 52, .95); }
+.office-cabin-working .cabin-screen-lines { opacity: .9; animation: agent-pulse 1.6s ease-in-out infinite; }
+.office-cabin-working .cabin-status { color: #fbbf24; animation: agent-pulse 1.1s ease-in-out infinite; }
+.office-cabin-done { border-color: rgba(52, 211, 153, .5); }
+.office-cabin-done .cabin-screen { border-color: rgba(52, 211, 153, .45); }
+.office-cabin-done .cabin-status { color: #34d399; }
+.office-cabin-failed { border-color: rgba(248, 113, 113, .5); }
+.office-cabin-failed .cabin-status { color: #f87171; }
+
+/* یونیکا کا کونا — soft gold; lit ONLY while she is present. */
+.office-uniqa { cursor: default; border-style: dashed; }
+.office-uniqa-lit {
+  border-style: solid;
+  border-color: rgba(253, 224, 71, .8);
+  background: linear-gradient(180deg, rgba(120, 80, 10, .35), rgba(30, 22, 8, .85));
+  box-shadow: 0 0 22px rgba(253, 224, 71, .28), inset 0 0 26px rgba(253, 224, 71, .08);
+}
+.office-uniqa-lit .cabin-screen { border-color: rgba(253, 224, 71, .75); background: rgba(52, 36, 4, .95); }
+.office-uniqa-lit .cabin-screen-lines {
+  opacity: .85;
+  background: repeating-linear-gradient(180deg, rgba(253, 224, 71, .8) 0 2px, transparent 2px 6px);
+}
+.office-uniqa-lit .cabin-status { color: #fde047; }
+
+.office-closeup {
+  border: 1px solid rgba(56, 189, 248, .3);
+  background: rgba(15, 28, 52, .8);
+  border-radius: 12px;
+  padding: 11px 12px;
+  margin-bottom: 12px;
+}
+.office-closeup-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.office-closeup-head .tool-results-close { margin-inline-start: auto; }
+.office-closeup-now { font-size: 13.5px; margin: 8px 0; color: #e9d5ff; }
+.office-closeup-done-title { font-weight: 700; font-size: 13px; color: #fde68a; margin-bottom: 5px; }
+
+/* ======= Call (Phase 4): incoming overlay + live banner ======= */
+.call-overlay {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(2, 6, 16, .72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+}
+.call-overlay-card {
+  width: min(400px, 100%);
+  background: rgba(8, 18, 36, .98);
+  border: 1px solid rgba(74, 222, 128, .55);
+  border-radius: 18px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .6), 0 0 34px rgba(74, 222, 128, .18);
+  padding: 22px 20px;
+  display: flex; flex-direction: column; gap: 12px; align-items: center;
+  text-align: center; color: #e9d5ff;
+}
+.call-overlay-icon { font-size: 42px; animation: agent-pulse 1s ease-in-out infinite; }
+.call-overlay-title { font-size: 19px; font-weight: 800; }
+.call-overlay-actions { display: flex; gap: 10px; margin-top: 4px; }
+.call-accept-btn, .call-reject-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  border-radius: 999px; padding: 10px 20px; font-size: 14.5px; font-weight: 700;
+  cursor: pointer; border: 1px solid transparent; color: #04160a;
+}
+.call-accept-btn { background: #4ade80; }
+.call-reject-btn { background: #f87171; color: #2a0606; }
+
+.call-banner {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 132px; z-index: 61;
+  width: min(600px, calc(100vw - 24px));
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  background: rgba(6, 26, 16, .97);
+  border: 1px solid rgba(74, 222, 128, .55);
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: #dcfce7; font-size: 13.5px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .5);
+}
+.call-banner-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: #4ade80;
+  animation: agent-pulse 1.4s ease-in-out infinite; flex: none;
+}
+.call-banner-text { font-weight: 700; }
+.call-banner-hint { font-size: 12px; opacity: .75; }
+.call-end-btn {
+  margin-inline-start: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(248, 113, 113, .16); color: #fecaca;
+  border: 1px solid rgba(248, 113, 113, .55);
+  border-radius: 999px; padding: 6px 13px; font-size: 13px; font-weight: 700;
+  cursor: pointer;
+}
+
+/* ======= Brain backup (Phase 4): restore confirm dialog ======= */
+.backup-dialog {
+  width: min(430px, calc(100vw - 32px));
+  background: rgba(8, 18, 36, .98);
+  border: 1px solid rgba(139, 92, 246, .5);
+  border-radius: 16px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .6);
+  padding: 20px;
+  color: #e9d5ff;
+  display: flex; flex-direction: column; gap: 11px;
+}
+.backup-dialog-title { font-size: 18px; font-weight: 800; }
+.backup-dialog-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 14px; }
+.backup-dialog-warn { font-size: 13px; line-height: 1.9; opacity: .85; margin: 0; }
+.backup-dialog-actions { display: flex; gap: 10px; margin-top: 2px; }
+.backup-confirm-btn {
+  flex: 1; background: #7c3aed; color: #fff; border: 1px solid rgba(196, 181, 253, .6);
+  border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.backup-cancel-btn {
+  background: transparent; color: #e9d5ff; border: 1px solid rgba(233, 213, 255, .35);
+  border-radius: 10px; padding: 10px 16px; font-size: 14px; cursor: pointer;
+}

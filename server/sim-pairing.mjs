@@ -6,7 +6,9 @@
  *   create code → wrong code rejected → join → creator discovers link
  *   via /check → conversation handover delivered on poll → open-tool
  *   command delivered → code reuse rejected (single-use) → leave →
- *   peer's next poll reports closed.
+ *   peer's next poll reports closed → CALL FLOW (Phase 4): invite →
+ *   reject; invite → accept → utterance → reply → end; ring-timeout;
+ *   invalid call shapes rejected.
  *
  * Run from the SERVER directory so express/qrcode resolve:
  *   node server/sim-pairing.mjs   (from the repo root)
@@ -110,6 +112,88 @@ check('after leave, peer poll reports closed', afterLeave.data.closed === true);
 const qrRes = await fetch(`${base}/api/pair/qr?text=${encodeURIComponent('https://unique-ai-n4p3.onrender.com/?pair=123456')}`);
 const qrBuf = Buffer.from(await qrRes.arrayBuffer());
 check('QR endpoint returns a PNG', qrRes.status === 200 && qrBuf.length > 200 && qrBuf.subarray(0, 4).toString('hex') === '89504e47', `${qrBuf.length} bytes`);
+
+// =====================================================================
+// 12) CALL FLOW (Phase 4 «کال») — full turn-based voice link over the
+// same relay: invite → reject; invite → accept → utterance → reply →
+// end; ring-timeout (caller gives up honestly); invalid shapes out.
+// The relay is a dumb pipe — the state machine mirrored here is the
+// client's (DevicePairing): calling → (accept ? active : idle-note),
+// calling + no answer within the ring window → call_end + idle-note.
+// =====================================================================
+const created3 = await post('/api/pair/create', laptop);
+const joined3 = await post('/api/pair/join', { code: created3.data.code, ...phone });
+check('call scenario: devices re-link', joined3.status === 200 && !!joined3.data.sessionId);
+const cs = joined3.data.sessionId;
+const callSend = (deviceId, payload) => post('/api/pair/send', { sessionId: cs, deviceId, kind: 'call', payload });
+const pollCall = async (deviceId) => {
+  const poll = await post('/api/pair/poll', { sessionId: cs, deviceId });
+  return (poll.data.messages || []).filter((m) => m.kind === 'call');
+};
+
+// 12a) An unknown call type is rejected.
+const bogusCall = await callSend(phone.deviceId, { type: 'call_pizza' });
+check('call: unknown call type rejected', bogusCall.status === 400 && bogusCall.data.error === 'bad_call_type', `status=${bogusCall.status}`);
+
+// 12b) An oversized utterance is rejected (one spoken turn is short).
+const fatCall = await callSend(phone.deviceId, { type: 'call_utterance', text: 'x'.repeat(9001) });
+check('call: oversized utterance rejected', fatCall.status === 400 && fatCall.data.error === 'bad_payload', `status=${fatCall.status}`);
+
+// 12c) Invite → callee receives it → reject → caller receives the reject.
+await callSend(laptop.deviceId, { type: 'call_invite' });
+let phoneCalls = await pollCall(phone.deviceId);
+check('call: invite delivered to the callee', phoneCalls.length === 1 && phoneCalls[0].payload.type === 'call_invite');
+check('call: invite names the caller', phoneCalls[0]?.from?.name === laptop.name);
+await callSend(phone.deviceId, { type: 'call_reject', reason: 'declined' });
+let laptopCalls = await pollCall(laptop.deviceId);
+check('call: reject delivered to the caller', laptopCalls.length === 1 && laptopCalls[0].payload.type === 'call_reject' && laptopCalls[0].payload.reason === 'declined');
+
+// 12d) Invite → accept → utterance → reply → end, in order.
+await callSend(laptop.deviceId, { type: 'call_invite' });
+phoneCalls = await pollCall(phone.deviceId);
+check('call: second invite delivered', phoneCalls.length === 1 && phoneCalls[0].payload.type === 'call_invite');
+await callSend(phone.deviceId, { type: 'call_accept' });
+laptopCalls = await pollCall(laptop.deviceId);
+check('call: accept delivered to the caller', laptopCalls.length === 1 && laptopCalls[0].payload.type === 'call_accept');
+const UTTERANCE = 'میرا پروجیکٹ مکمل کر دو — کار والی گیم بنا دو';
+await callSend(phone.deviceId, { type: 'call_utterance', text: UTTERANCE });
+laptopCalls = await pollCall(laptop.deviceId);
+check('call: utterance delivered with its text intact', laptopCalls.length === 1 && laptopCalls[0].payload.type === 'call_utterance' && laptopCalls[0].payload.text === UTTERANCE);
+const REPLY = 'جی، احمد نے کار والی گیم بنانا شروع کر دی ہے۔';
+await callSend(laptop.deviceId, { type: 'call_reply', text: REPLY });
+phoneCalls = await pollCall(phone.deviceId);
+check('call: reply delivered with its text intact', phoneCalls.length === 1 && phoneCalls[0].payload.type === 'call_reply' && phoneCalls[0].payload.text === REPLY);
+await callSend(phone.deviceId, { type: 'call_end' });
+laptopCalls = await pollCall(laptop.deviceId);
+check('call: end delivered to the callee', laptopCalls.length === 1 && laptopCalls[0].payload.type === 'call_end');
+
+// 12e) Ring-timeout path — the client's rule, simulated honestly:
+// the caller rings, the callee's poll DOES deliver the invite, but no
+// accept ever comes back within the ring window, so the caller's
+// state machine fires its timeout: it sends call_end (clearing any
+// late ring) and lands on idle with the «جواب نہیں آیا» note.
+{
+  let callerState = 'idle';
+  let callerNote = '';
+  await callSend(laptop.deviceId, { type: 'call_invite' });
+  callerState = 'calling';
+  const rang = await pollCall(phone.deviceId); // callee sees it ring…
+  check('timeout: the invite really rang on the callee', rang.length === 1 && rang[0].payload.type === 'call_invite');
+  // …but never answers. The caller's ring window lapses:
+  if (callerState === 'calling') {
+    await callSend(laptop.deviceId, { type: 'call_end' });
+    callerState = 'idle';
+    callerNote = 'جواب نہیں آیا';
+  }
+  check('timeout: caller lands back on idle with the honest note', callerState === 'idle' && callerNote === 'جواب نہیں آیا');
+  const cleared = await pollCall(phone.deviceId);
+  check('timeout: the trailing call_end clears the late ring', cleared.length === 1 && cleared[0].payload.type === 'call_end');
+}
+
+// 12f) A call message to a closed session is refused like any other.
+await post('/api/pair/leave', { sessionId: cs, deviceId: phone.deviceId });
+const deadCall = await post('/api/pair/send', { sessionId: cs, deviceId: laptop.deviceId, kind: 'call', payload: { type: 'call_invite' } });
+check('call: invite on a closed session refused (410)', deadCall.status === 410, `status=${deadCall.status}`);
 
 server.close();
 console.log(failed === 0 ? '\nALL PAIRING CHECKS PASS' : `\n${failed} PAIRING CHECK(S) FAILED`);

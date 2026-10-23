@@ -2,8 +2,9 @@
 //
 // Rule-based (zero Gemini quota): classifies the latest user message into
 //   - "open_website"  → "یوٹیوب کھولو" / "youtube kholo" / "open youtube"
-//   - "build_project" → "میرے لیے دکان کی ویب سائٹ بناؤ" / "ek website banao"
 //   - "chat"          → everything else (normal Gemini conversation)
+// (The old "build_project" website-builder intent was removed entirely
+// on the user's order, 2026-10-22.)
 //
 // Gesture commands ("gesture_command") are emitted client-side by the hand
 // tracking system, not from chat text, so the text classifier never returns it.
@@ -55,42 +56,13 @@ export function detectLanguage(text) {
   return 'en';
 }
 
-// --- build_project detection ------------------------------------------------
+// --- build verbs (used by the android-app build check below) ---------------
 const BUILD_VERBS = [
   'بناؤ', 'بنا دو', 'بنائیں', 'بنا کر دو', 'تیار کرو', 'تیار کریں',
   'banao', 'bana do', 'bana de', 'banayen', 'banaiye', 'tayyar karo',
   'create', 'build', 'make', 'develop', 'design',
 ];
-const BUILD_NOUNS = [
-  'ویب سائٹ', 'ویبسائٹ', 'website', 'ویب', 'web',
-  'ایپ', 'app', 'application',
-  'پروجیکٹ', 'project',
-  'پیج', 'page', 'سائٹ', 'site',
-  'دکان', 'shop', 'store', 'اسٹور',
-  'گیم', 'game',
-  'پورٹ فولیو', 'portfolio',
-  'بلاگ', 'blog',
-];
 
-function containsBuildIntent(normalized) {
-  const hasVerb = BUILD_VERBS.some((v) => normalized.includes(v));
-  if (!hasVerb) return false;
-  // A build verb plus a buildable noun (or "mere liye" style request).
-  const hasNoun = BUILD_NOUNS.some((n) => normalized.includes(n));
-  const forMe = /(میرے لیے|میرے لئے|mere liye|mere liye|for me)/.test(normalized);
-  return hasNoun || forMe;
-}
-
-/** Extract a short project description from the user message. */
-function extractProjectDescription(text) {
-  let d = String(text || '').trim().replace(/[.؟?!,۔]+$/g, '').trim();
-  // Strip leading request verbs: "میرے لیے ... بناؤ" → "..."
-  d = d
-    .replace(/^(میرے لیے|میرے لئے|mere liye|please|براہ کرم|براہِ کرم)\s+/i, '')
-    .replace(/\s+(بناؤ|بنا دو|بنائیں|banao|bana do|banayen|create|build|make|develop|design)\s*$/i, '')
-    .trim();
-  return d || text.trim();
-}
 
 // --- multi-step detection ---------------------------------------------------
 const MULTISTEP_HINTS = [
@@ -146,6 +118,56 @@ export function containsAppBuildIntent(normalized) {
     .replace(/^(app|ایپ)\s+(banao|بنا دو|بناؤ)\s+/i, '')
     .trim();
   return d || text.trim();
+}
+
+/** Clean a build order into the thing's description/title. */
+export function extractBuildDescription(text) {
+  let d = String(text || '').trim().replace(/[.؟?!,۔]+$/g, '').trim();
+  d = d
+    .replace(/^(میرے لیے|میرے لئے|mere liye|please|براہ کرم|براہِ کرم)\s+/i, '')
+    .replace(/^(ایک|ek)\s+/i, '')
+    .replace(/^(build|create|make|develop|design)\s+(a\s+|an\s+|the\s+)?/i, '')
+    .replace(/\s+(بنا دو|بناؤ|بنائیں|بنا کر دو|تیار کرو|تیار کر دو|تیار کریں|bana do|banao|banayen|tayyar karo|build|create|make|develop|design)\s*$/i, '')
+    .trim();
+  return d || String(text || '').trim();
+}
+
+// --- brain builder orders (Phase 3) -----------------------------------------
+// A build ORDER = a build verb + a BUILDABLE noun (game / software /
+// app / website / AI / tool…). This is احمد's generic workshop behind
+// the conversation — NOT the deleted website-builder tool and NOT the
+// PWA AppBuilder («موبائل ایپ» / "android app" still route to the
+// android_app branch above, untouched). A long or conversational
+// message can never reach here (the class gate in classifyIntent),
+// and a bare «بنا دو» with a non-buildable object («کھانا بنا دو»,
+// «ایک کہانی بنا دو») is conversation, not an order.
+export function parseBuildOrder(text) {
+  const message = String(text || '').trim();
+  if (!message) return null;
+  const normalized = message.toLowerCase();
+  const hasVerb = BUILD_VERBS.some((v) => normalized.includes(v.toLowerCase()));
+  if (!hasVerb) return null;
+  let kind = null;
+  if (/(vpn|وی پی این|وی‌پی‌این)/i.test(message)) kind = 'vpn_interface';
+  else if (/(گیم|کھیل|\bgame\b)/i.test(message)) kind = 'game';
+  else if (/(اے آئی|مصنوعی ذہانت|چیٹ بوٹ|chatbot|\bai\b)/i.test(message)) kind = 'ai';
+  else if (/(ویب سائٹ|ویبسائٹ|website|web site|ویب پیج|webpage)/i.test(message)) kind = 'website';
+  else if (/(سافٹ ویئر|سافٹویئر|software|ایپ|\bapp\b|ٹول|\btool\b|گھڑی|\bclock\b|کیلکولیٹر|calculator)/i.test(message)) kind = 'app';
+  if (!kind) return null;
+  return { description: extractBuildDescription(message), kind };
+}
+
+// «میرا کام کہاں تک پہنچا؟» — a status ask needs BOTH a progress word
+// AND a build-context word, so ordinary chat («چائے بن گئی؟», «میرا
+// ہوم ورک ہو گیا») is never mistaken for it. The server answers only
+// when a job actually exists; otherwise the message falls through to
+// normal chat untouched.
+const BUILD_STATUS_WORD = /(کہاں تک پہنچ|کتنا ہو گیا|کتنا بن گیا|بن گیا|بن گئی|بن چکا|بن چکی|بنی ہے|بنی کیا|تیار ہو گیا|ہو گیا کیا|status|progress|ready)/i;
+const BUILD_CONTEXT_WORD = /(میرا کام|میری چیز|کام|گیم|کھیل|سافٹ ویئر|سافٹویئر|software|game|ایپ|\bapp\b|ویب سائٹ|ویبسائٹ|website|چیز|بلڈ|build)/i;
+export function parseBuildStatusQuery(text) {
+  const message = String(text || '').trim();
+  if (!message) return false;
+  return BUILD_STATUS_WORD.test(message) && BUILD_CONTEXT_WORD.test(message);
 }
 
 /** "لاہور کا نقشہ دکھاؤ" → { url: maps search, displayName }. */
@@ -332,6 +354,115 @@ export function extractSearchQuery(text) {
   return cleaned || null;
 }
 
+// --- command-shape gate (router-hijack fix, 2026-10-22) --------------------
+// Canned rule-based commands (open a tool / open Quran / recite / build …)
+// may hijack a message ONLY when it is command-shaped: SHORT, the way a
+// person actually phrases an order («قرآن پاک کھولو», «سورۃ ناس سناؤ»,
+// "5 minute ka timer lagao"). A long or conversational message that
+// merely MENTIONS a surah name, a tool or a buildable thing is a
+// conversation for the chat brain — never a canned command.
+//
+// The bug this fixes: the user's ~100-word request for a written plan
+// (which contained the word «رومینٹک», "romantic") was answered with
+// «جی، قرآن پاک کھول رہا ہوں۔» because the old Quran rule substring-
+// matched «روم» (Surah Ar-Rum) inside «رومینٹک» — and that rule had no
+// intent gate at all.
+export const COMMAND_WORD_LIMIT = 12;
+
+export function wordCountOf(text) {
+  return String(text || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
+export function isCommandShaped(text, limit = COMMAND_WORD_LIMIT) {
+  const n = wordCountOf(text);
+  return n > 0 && n <= limit;
+}
+
+// --- Quran command detection -------------------------------------------------
+// An explicit Quran reference (the word قرآن / سورت / تلاوت …) OR a surah
+// NAME matched as a whole TOKEN — never as a substring of a longer word
+// («رومینٹک» is not «روم», «ملکیت» is not «ملک»). Even then, a canned
+// open/recite fires only on command shape: an intent verb, or an
+// utterance that is essentially just the reference itself.
+const QURAN_STRONG_REF = /(قرآن|قران|quran|تلاوت|tilawat|سورت|سورۃ|سورة|سورہ|surah|پارہ|آیت|ayah|ayat)/i;
+const QURAN_COMMAND_VERB = /(کھول|کھولو|کھولیں|دکھا|دکھاؤ|سنا|سناؤ|پڑھ|شروع|open|play|recite|listen|sunao|parho|dikhao)/i;
+
+// Surah names (Urdu/Arabic script), normalized like the client parser:
+// diacritics stripped, ي→ی, ك→ک, ة/ۀ→ہ, أإآ→ا, ى→ی.
+const SURAH_NAME_LIST = [
+  'الفاتحہ', 'البقرہ', 'آل عمران', 'النساء', 'المائدہ', 'الانعام', 'الاعراف',
+  'الانفال', 'التوبہ', 'یونس', 'ہود', 'یوسف', 'الرعد', 'ابراہیم', 'الحجر',
+  'النحل', 'بنی اسرائیل', 'الکہف', 'مریم', 'طہ', 'الانبیاء', 'الحج',
+  'المومنون', 'النور', 'الفرقان', 'الشعراء', 'النمل', 'القصص', 'العنکبوت',
+  'الروم', 'لقمان', 'السجدہ', 'الاحزاب', 'سبا', 'فاطر', 'الصافات', 'الزمر',
+  'المومن', 'حم سجدہ', 'الشوری', 'الزخرف', 'الدخان', 'الجاثیہ', 'الاحقاف',
+  'محمد', 'الفتح', 'الحجرات', 'ق', 'الذاریات', 'الطور', 'النجم', 'القمر',
+  'الرحمن', 'الواقعہ', 'الحدید', 'المجادلہ', 'الحشر', 'الممتحنہ', 'الصف',
+  'الجمعہ', 'المنافقون', 'التغابن', 'الطلاق', 'التحریم', 'الملک', 'القلم',
+  'الحاقہ', 'المعارج', 'نوح', 'الجن', 'المزمل', 'المدثر', 'القیامہ',
+  'الدہر', 'المرسلات', 'النبا', 'النازعات', 'عبس', 'التکویر', 'الانفطار',
+  'المطففین', 'الانشقاق', 'البروج', 'الطارق', 'الاعلی', 'الغاشیہ', 'الفجر',
+  'البلد', 'الشمس', 'اللیل', 'الضحی', 'الشرح', 'التین', 'العلق', 'القدر',
+  'البینہ', 'الزلزال', 'العادیات', 'القارعہ', 'التکاثر', 'العصر', 'الہمزہ',
+  'الفیل', 'قریش', 'الماعون', 'الکوثر', 'الکافرون', 'النصر', 'اللہب',
+  'الاخلاص', 'الفلق', 'الناس', 'یٰسین', 'یاسین', 'الاسراء', 'غافر', 'فصلت', 'تبارک',
+  'الانسان', 'الانشراح', 'المسد', 'الحمد',
+];
+
+function normalizeArabicTokens(text) {
+  return String(text || '')
+    .replace(/[ً-ٰٟـ]/g, '')
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[ةۀ]/g, 'ہ')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ی')
+    .replace(/[،۔؟?!.,«»"'()؛:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const SURAH_NAME_CANDIDATES = (() => {
+  const set = new Set();
+  for (const raw of SURAH_NAME_LIST) {
+    const norm = normalizeArabicTokens(raw);
+    if (!norm) continue;
+    set.add(norm);
+    const loose = norm.replace(/^ال/, '');
+    if (loose && loose !== norm && loose.length >= 2) set.add(loose);
+  }
+  return set;
+})();
+
+/** True when a surah name appears as a whole token (or token pair). */
+export function mentionsSurahNameToken(text) {
+  const tokens = normalizeArabicTokens(text).split(' ').filter(Boolean);
+  for (let i = 0; i < tokens.length; i++) {
+    if (SURAH_NAME_CANDIDATES.has(tokens[i])) return true;
+    if (i + 1 < tokens.length && SURAH_NAME_CANDIDATES.has(`${tokens[i]} ${tokens[i + 1]}`)) return true;
+  }
+  return false;
+}
+
+/**
+ * True only when `text` is a genuine Quran open/recite COMMAND:
+ * command-shaped, with an explicit reference or a token-matched surah
+ * name, plus an intent verb (or an utterance that is just the reference).
+ */
+export function isQuranCommand(text) {
+  const message = String(text || '').trim();
+  if (!isCommandShaped(message)) return false;
+  const words = wordCountOf(message);
+  const hasVerb = QURAN_COMMAND_VERB.test(message);
+  if (QURAN_STRONG_REF.test(message)) {
+    return hasVerb || words <= 3;
+  }
+  if (mentionsSurahNameToken(message)) {
+    return hasVerb || words <= 3;
+  }
+  return false;
+}
+
 // --- main classifier --------------------------------------------------------
 /**
  * Classify the latest user message.
@@ -340,7 +471,8 @@ export function extractSearchQuery(text) {
  * "youtube_search" | "news" | "notes_save" | "notes_list" | "web_search" |
  * "prayer_times" | "translate" | "unit_convert" | "qr_code" |
  * "youtube_trending" | "world_clock" | "read_webpage" |
- * "build_project" | "chat".
+ * "android_app" | "build_app" | "build_status" |
+ * "media_tool" | "video_creator" | "chat".
  */
 export function classifyIntent(text) {
   const message = String(text || '').trim();
@@ -348,15 +480,26 @@ export function classifyIntent(text) {
 
   // Quran Pak wins over website commands — "قرآن کھولو" opens our in-app
   // Quran panel (with Urdu translation + voice), not an external site.
-  if (/(قرآن|قران|quran|سورۃ|سورت|surah|سورة|آیت|آیت الکرسی|ayat|ayah|پارہ|para|juz|تلاوت|tilawat|سورہ یٰسین|سورہ رحمٰن|سورہ ملک|سورہ واقعہ|سورہ کہف|سورہ بقرہ|سورہ فاتحہ|سورہ اخلاص|سورہ فلق|سورہ ناس|سورہ کوثر|یٰسین|رحمٰن|ملک|واقعہ|کہف|بقرہ|آل عمران|نساء|مائدہ|انعام|اعراف|انفال|توبہ|یونس|ہود|یوسف|رعد|ابراہیم|حجر|نحل|بنی اسرائیل|مریم|طٰہٰ|انبیاء|حج|مومنون|نور|فرقان|شعراء|نمل|قصص|عنکبوت|روم|لقمان|سجدہ|احزاب|سبا|فاطر|صٰفٰت|زمر|مومن|حم سجدہ|شوریٰ|زخرف|دخان|جاثیہ|احقاف|محمد|فتح|حجرات|ذاریات|طور|نجم|قمر|حدید|مجادلہ|حشر|ممتحنہ|صف|جمعہ|منافقون|تغابن|طلاق|تحریم|قلم|حاقہ|معارج|نوح|جن|مزمل|مدثر|قیامت|دہر|مرسلات|نبأ|نازعات|عبس|تکویر|انفطار|مطففین|انشقاق|بروج|طارق|اعلیٰ|غاشیہ|فجر|بلد|شمس|لیل|ضحیٰ|شرح|تین|علق|قدر|بینہ|زلزال|عادیات|قارعہ|تکاثر|عصر|ہمزہ|فیل|قریش|ماعون|کافرون|نصر|لہب)/i.test(message)) {
+  // GATED (router-hijack fix): only a command-shaped utterance with a
+  // real reference + intent reaches this — never a bare substring of a
+  // surah name inside an unrelated long message (see isQuranCommand).
+  if (isQuranCommand(message)) {
     return { intent: 'media_tool', tool: 'quran' };
   }
 
   // Website commands win over everything ("youtube kholo" is not a build).
+  // parseWebsiteCommand full-string-matches an open-verb structure, so a
+  // long conversational message cannot match it by accident.
   const website = parseWebsiteCommand(message);
   if (website) {
     return { intent: 'open_website', website };
   }
+
+  // CLASS GATE (router-hijack fix): everything below is a canned
+  // rule-based command (calculator, weather, media tools, builders …).
+  // A long or conversational message is NEVER hijacked into one of
+  // these — it passes through to the chat brain untouched.
+  if (!isCommandShaped(message)) return { intent: 'chat' };
 
   const normalized = message.toLowerCase();
 
@@ -466,6 +609,21 @@ export function classifyIntent(text) {
     return { intent: 'android_app', app: { description: extractAppDescription(message) } };
   }
 
+  // --- BRAIN BUILDER (Phase 3, احمد): generic build orders + status --------
+  // «کار والی گیم بنا دو» / «سافٹ ویئر بنا دو» / «ایک چھوٹا AI بنا دو»
+  // start a real background build (server/builder.js) that delivers a
+  // link + download when — and only when — the file validates. «میرا
+  // کام کہاں تک پہنچا؟» asks for that job's true status. Both live
+  // AFTER the android_app branch: «موبائل ایپ بناؤ» keeps its PWA
+  // screen (the user's standing tool, deliberately not touched).
+  if (parseBuildStatusQuery(message)) {
+    return { intent: 'build_status' };
+  }
+  const buildOrder = parseBuildOrder(message);
+  if (buildOrder) {
+    return { intent: 'build_app', build: buildOrder };
+  }
+
   // --- media/productivity tools (client-side UIs) --------------------------------
   if (/(background hatao|بیک گراؤنڈ ہٹاؤ|background remove|پس منظر ہٹاؤ|پس منظر ختم)/i.test(message)) {
     return { intent: 'media_tool', tool: 'background_remover' };
@@ -500,7 +658,15 @@ export function classifyIntent(text) {
   if (/(image compress|تصویر چھوٹی|photo compress|تصویر کمپریس|image choti karo)/i.test(message)) {
     return { intent: 'media_tool', tool: 'image_compress' };
   }
-  if (/(resume banao|ریزیومے بناؤ|cv banao|سی وی بناؤ|resume builder|نوکری.*cv)/i.test(message)) {
+  // Text-on-image: this hub section had NO brain pattern — before the
+  // toolbox was removed it was reachable only through the grid, so
+  // without this route the capability would be stranded (Phase سادگی
+  // reachability fix). Anchored to «تصویر پر» (text ON an image) so it
+  // never collides with OCR («تصویر سے متن» — text FROM an image).
+  if (/(تصویر پر متن|تصویر پر لکھ|tasveer par text|photo par text|image par text|tasveer par likh)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'text_on_image' };
+  }
+  if (/(resume banao|ریزیومے بناؤ|cv banao|cv بناؤ|سی وی بناؤ|سی وی ب|resume builder|نوکری.*cv)/i.test(message)) {
     return { intent: 'media_tool', tool: 'resume_builder' };
   }
   if (/(assignment banao|اسائنمنٹ بناؤ|assignment bana|اسائنمنٹ بنا|assignment maker|ہوم ورک بناؤ|homework banao)/i.test(message)) {
@@ -532,11 +698,90 @@ export function classifyIntent(text) {
   const searchQuery = extractSearchQuery(message);
   if (searchQuery) return { intent: 'web_search', query: searchQuery };
 
-  if (containsBuildIntent(normalized)) {
-    return { intent: 'build_project', project: { description: extractProjectDescription(message) } };
-  }
+  // NOTE: the website-builder intent ("build_project") was REMOVED
+  // entirely on the user's order (2026-10-22: «ویب سائٹ والا ٹول ختم
+  // کر دو»). Building returned in Phase 3 as a BRAIN capability, not
+  // a tool: the generic build_app branch above (games, software, AI,
+  // websites — «ویب سائٹ بنا دو» included) handled by احمد's workshop
+  // in server/builder.js. There is still no builder TOOL anywhere.
 
   return { intent: 'chat' };
+}
+
+// --- multi-intent detection (helper agents, Task D) -------------------------
+// classifyIntent returns the FIRST matching intent only. A message that
+// asks for SEVERAL data tools at once («لاہور کا موسم بتاؤ اور تازہ
+// خبریں بھی، اور 100 ڈالر کتنے روپے ہیں») deserves all of them, run in
+// parallel by the "agent team". detectDataIntents scans for every
+// executable DATA intent in the message (regardless of length — these
+// return real data, not canned openers) and returns classify-shaped
+// payloads ordered by where each request appears in the text.
+// Deliberately EXCLUDED: media_tool openers, open_website, builders and
+// anything whose "result" is just a canned line — those stay governed
+// by the command-shape gate above.
+export function detectDataIntents(text, excludeIntents = []) {
+  const message = String(text || '').trim();
+  if (!message) return [];
+  const normalized = message.toLowerCase();
+  const found = [];
+  const add = (intent, payload, index) => {
+    if (excludeIntents.includes(intent)) return;
+    if (found.some((f) => f.intent === intent)) return;
+    found.push({ intent, ...payload, _index: index });
+  };
+
+  const mathExpr = extractMathExpression(message);
+  if (mathExpr) add('calculator', { expression: mathExpr }, message.search(/\d/));
+
+  if (/(timer|ٹائمر|countdown|الارم)/.test(normalized)) {
+    const timer = parseTimer(message);
+    if (timer) add('timer', { timer }, normalized.search(/(timer|ٹائمر|countdown|الارم)/));
+  }
+
+  if (/(dollar|ڈالر|rupees|روپے|euro|یورو|pound|پاؤنڈ|riyal|ریال|dirham|درہم|dinar|دینار|yen|ین|yuan|یوان|currency|کرنسی|usd|pkr|eur|gbp|sar|aed)/.test(normalized) && /\d/.test(message)) {
+    const conv = parseCurrencyRequest(message);
+    if (conv) add('currency', { currency: conv }, normalized.search(/(dollar|ڈالر|rupees|روپے|euro|یورو|pound|پاؤنڈ|ریال|درہم|currency|کرنسی)/));
+  }
+
+  if (/(موسم|mausam|weather)/.test(normalized)) {
+    add('weather', { city: extractCityForWeather(message) }, normalized.search(/(موسم|mausam|weather)/));
+  }
+
+  if (/(نماز|prayer|اذان|azan|فجر|ظہر|عصر|مغرب|عشاء)/.test(normalized)
+      && /(اوقات|وقت|ٹائم|time|timing|اذان کا)/.test(normalized)) {
+    add('prayer_times', { city: extractCityForPrayer(message) }, normalized.search(/(نماز|prayer|اذان)/));
+  }
+
+  if (/(ٹائم کیا ہے|وقت کیا ہے|time in|kitne baj|کتنے بجے|بجے ہیں|ٹائم بتاؤ)/.test(normalized)) {
+    const city = extractCityForClock(message);
+    if (city) add('world_clock', { city }, normalized.search(/(ٹائم|وقت|time)/));
+  }
+
+  const unitConv = tryParseUnitConvert(message);
+  if (unitConv) add('unit_convert', { unitConv }, 0);
+
+  if (/(youtube|یوٹیوب)/.test(normalized)
+      && /(search|تلاش|video|ویڈیو|dikhao|دکھاؤ|dekho|دیکھو)/.test(normalized)) {
+    const q = extractYoutubeQuery(message);
+    if (q) add('youtube_search', { query: q }, normalized.search(/(youtube|یوٹیوب)/));
+  }
+
+  if (/(تازہ.*خبر|خبریں|news|khabar|khabrein|headlines|سرخیاں|آج کی خبر)/.test(normalized)) {
+    add('news', { topic: '' }, normalized.search(/(خبر|news|headlines)/));
+  }
+
+  const searchQuery = extractSearchQuery(message);
+  if (searchQuery) add('web_search', { query: searchQuery }, normalized.search(/(search|تلاش|سرچ|گوگل)/));
+
+  if (/(qr|کیو آر)/.test(normalized) && /(banao|بناؤ|bana|code|کوڈ)/.test(normalized)) {
+    const qrData = extractQrData(message);
+    if (qrData) add('qr_code', { qrData }, normalized.search(/(qr|کیو آر)/));
+  }
+
+  return found
+    .sort((a, b) => (a._index ?? 0) - (b._index ?? 0))
+    .slice(0, 3)
+    .map(({ _index, ...rest }) => rest);
 }
 
 // --- confirmation texts (rule-based, no quota) ------------------------------
@@ -558,16 +803,6 @@ export function websiteConfirmation(website, lang) {
   return website.isSearchFallback
     ? `جی، ${website.displayName} گوگل پر تلاش کر کے کھول رہا ہوں۔`
     : `جی، ${website.displayName} کھول رہا ہوں۔`;
-}
-
-export function buildConfirmation(description, lang) {
-  if (lang === 'roman') {
-    return `Ji, main aap ke liye "${description}" bana raha hoon. Thoda intezar karen.`;
-  }
-  if (lang === 'en') {
-    return `Sure, I'm building "${description}" for you. Give me a moment.`;
-  }
-  return `جی، میں آپ کے لیے "${description}" بنا رہا ہوں۔ تھوڑا انتظار کریں۔`;
 }
 
 // --- confirmation texts for the professional toolbox (rule-based) -----------
@@ -673,6 +908,47 @@ export function appBuildConfirmation(description, lang) {
   if (lang === 'roman') return `Ji, main aap ke liye mobile app "${description}" bana raha hoon. Thoda intezar karen.`;
   if (lang === 'en') return `Sure, I'm building the mobile app "${description}" for you. Give me a moment.`;
   return `جی، میں آپ کے لیے موبائل ایپ "${description}" بنا رہا ہوں۔ تھوڑا انتظار کریں۔`;
+}
+
+// --- brain builder texts (Phase 3) -------------------------------------------
+export function buildStartConfirmation(title, lang) {
+  if (lang === 'roman') return `Ji, Ahmad aap ki cheez bana raha hai: "${title}". Thoda waqt lagega — bante hi link aur download yahin milega. Darmiyan mein "mera kaam kahan tak pohncha?" pooch sakte hain.`;
+  if (lang === 'en') return `Ahmed is building it for you: "${title}". It will take a little while — the link and download will appear right here when it's ready. You can ask "where has my work reached?" meanwhile.`;
+  return `جی، احمد آپ کی چیز بنا رہا ہے: «${title}»۔ تھوڑا وقت لگے گا — بنتے ہی لنک اور ڈاؤن لوڈ یہیں ملے گا۔ درمیان میں «میرا کام کہاں تک پہنچا؟» پوچھ سکتے ہیں۔`;
+}
+
+export function buildStatusConfirmation(job, lang) {
+  const title = job.title;
+  if (job.status === 'done') {
+    if (lang === 'roman') return `Aap ki cheez ready ho gayi hai: "${title}" — neeche card se kholen ya download kar len.`;
+    if (lang === 'en') return `Your thing is ready: "${title}" — open it or download it from the card below.`;
+    return `آپ کی چیز ریڈی ہو گئی ہے: «${title}» — نیچے کارڈ سے کھولیں یا ڈاؤن لوڈ کر لیں۔`;
+  }
+  if (job.status === 'failed') {
+    if (lang === 'roman') return `Maazrat, "${title}" nahi ban saki. Dobara keh kar dekhen — aksar dusri baar ban jati hai.`;
+    if (lang === 'en') return `Sorry, "${title}" could not be built. Please ask once more — it usually works the second time.`;
+    return `معذرت، «${title}» نہیں بن سکی۔ دوبارہ کہہ کر دیکھیں — اکثر دوسری بار بن جاتی ہے۔`;
+  }
+  if (job.status === 'repairing') {
+    if (lang === 'roman') return `"${title}" ki aakhri jaanch mein kuch kami reh gayi thi — Ahmad use theek karke dobara bana raha hai.`;
+    if (lang === 'en') return `The final check on "${title}" found a flaw — Ahmed is fixing it and rebuilding.`;
+    return `«${title}» کی آخری جانچ میں کچھ کمی رہ گئی تھی — احمد اسے ٹھیک کر کے دوبارہ بنا رہا ہے۔`;
+  }
+  if (lang === 'roman') return `Ahmad abhi "${title}" bana raha hai — thoda aur intezar karen, bante hi link yahin milega.`;
+  if (lang === 'en') return `Ahmed is still building "${title}" — a little more patience; the link will appear here when it's ready.`;
+  return `احمد ابھی «${title}» بنا رہا ہے — تھوڑا اور انتظار کریں، بنتے ہی لنک یہیں ملے گا۔`;
+}
+
+export function buildNoKeyText(lang) {
+  if (lang === 'roman') return `Banane ke liye pehle Settings mein apni Gemini API key lagayen — key lagte hi Ahmad aap ki cheez bana dega.`;
+  if (lang === 'en') return `To build, first add your Gemini API key in Settings — once it's there, Ahmed will build your thing right away.`;
+  return `بنانے کے لیے پہلے Settings میں اپنی Gemini API key لگائیں — key لگتے ہی احمد آپ کی چیز بنا دے گا۔`;
+}
+
+export function buildVpnNoteText(lang) {
+  if (lang === 'roman') return `Pehle ek sachhi baat: asal VPN sirf ek file se nahi ban sakta — us ke liye duniya bhar mein servers ka jaal chahiye. Is liye Ahmad is ki jagah do cheezen bana raha hai: VPN app ka interface, aur aap ka apna private server lagane ki mukammal guide.`;
+  if (lang === 'en') return `First, one honest truth: a real VPN cannot be made from a single file — it needs a network of servers around the world. So instead, Ahmed is building two things: the VPN app's interface, and a complete guide to setting up your own private server.`;
+  return `پہلے ایک سچی بات: اصل VPN صرف ایک فائل سے نہیں بن سکتا — اس کے لیے دنیا بھر میں سرورز کا جال چاہیے۔ اس لیے احمد اس کی جگہ دو چیزیں بنا رہا ہے: VPN ایپ کا انٹرفیس، اور آپ کا اپنا پرائیویٹ سرور لگانے کی مکمل گائیڈ۔`;
 }
 
 const MEDIA_TOOL_NAMES = {

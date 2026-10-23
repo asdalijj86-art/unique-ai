@@ -9,11 +9,25 @@
 export type PairDevice = { deviceId: string; name: string; type: string };
 export type PairPeer = { name: string; type: string; online?: boolean };
 export type PairMessage = {
-  kind: 'conversation' | 'command';
+  kind: 'conversation' | 'command' | 'call';
   payload: any;
   from: { name: string; type: string };
   at: number;
 };
+
+/** Call signalling payloads (Phase 4) — see server/pairing.js. */
+export type CallPayload = {
+  type: 'call_invite' | 'call_accept' | 'call_reject' | 'call_end' | 'call_utterance' | 'call_reply';
+  text?: string;
+  reason?: string;
+};
+
+/** «03:25» for the call banner. */
+export function formatCallDuration(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+}
 
 const DEVICE_ID_KEY = 'unique-ai-device-id';
 const DEVICE_NAME_KEY = 'unique-ai-device-name';

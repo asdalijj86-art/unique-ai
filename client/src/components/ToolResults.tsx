@@ -164,14 +164,151 @@ function DocDownloadView({ title, filename, html }: { title: string; filename: s
   );
 }
 
+// A brain-builder job (Phase 3 — احمد's workshop): the user ordered a
+// game / app / website / small AI by voice or chat, and the server is
+// building it in the background. This card polls the job's REAL status
+// (GET /api/build/status/:id) — it never claims progress it hasn't
+// seen. When the job finishes, validated server-side, the card shows
+// «کھولیں» (the /apps/:id link) + «ڈاؤن لوڈ» (the file itself) and
+// tells the parent ONCE so it can speak «آپ کی چیز ریڈی ہو گئی ہے» —
+// but only for a build this card actually watched finish; a card
+// opened later (from a status question) stays quiet because the chat
+// reply itself already said it. A failed job shows the honest failure.
+// Storage honesty is printed on the card: the link lives only while
+// the server runs, the download is forever.
+type BuildJobStatus = {
+  id: string;
+  title: string;
+  kind: string;
+  status: 'building' | 'repairing' | 'done' | 'failed';
+  url?: string;
+  downloadUrl?: string;
+  error?: string;
+};
+
+function BuildAppView({ jobId, title, onReady, onFailed, onSettled }: { jobId: string; title: string; onReady?: (title: string) => void; onFailed?: (title: string) => void; onSettled?: (title: string) => void }) {
+  const [job, setJob] = useState<BuildJobStatus | null>(null);
+  const [gone, setGone] = useState(false);
+  const sawBuildingRef = useRef(false);
+  const readyFiredRef = useRef(false);
+  const failedFiredRef = useRef(false);
+  const settledFiredRef = useRef(false);
+  // Tell the parent ONCE that this watched build is over without a
+  // product (failed, or the job vanished in a server restart) — the
+  // office scene lights احمد only while a build truly runs, so it
+  // must hear about endings that are not «done» too.
+  useEffect(() => {
+    if ((gone || job?.status === 'failed') && !failedFiredRef.current) {
+      failedFiredRef.current = true;
+      onFailed?.(title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gone, job?.status]);
+  // Settled = the job reached ANY terminal state (done/failed/gone),
+  // including a card mounted after the job had already finished (a
+  // build-status replay): the parent's live-build light must go out.
+  useEffect(() => {
+    const terminal = gone || job?.status === 'done' || job?.status === 'failed';
+    if (terminal && !settledFiredRef.current) {
+      settledFiredRef.current = true;
+      onSettled?.(title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gone, job?.status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/build/status/${encodeURIComponent(jobId)}`);
+        if (cancelled) return;
+        if (res.status === 404) {
+          setGone(true);
+          return;
+        }
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = (await res.json()) as BuildJobStatus;
+        if (cancelled) return;
+        setJob(data);
+        if (data.status === 'building' || data.status === 'repairing') {
+          sawBuildingRef.current = true;
+          timer = setTimeout(poll, 3000);
+        } else if (data.status === 'done' && sawBuildingRef.current && !readyFiredRef.current) {
+          readyFiredRef.current = true;
+          onReady?.(data.title || title);
+        }
+      } catch {
+        // A transient poll failure says nothing about the job — keep
+        // polling quietly rather than declaring a false failure.
+        if (!cancelled) timer = setTimeout(poll, 4000);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId]);
+
+  if (gone) {
+    return (
+      <div data-testid="build-app-card">
+        <div className="tool-text-block">🛠️ احمد — بلڈر ایجنٹ</div>
+        <div className="tool-error">یہ تعمیر نہیں مل سکی — شاید سرور ری اسٹارٹ ہو گیا ہے۔ چیٹ میں دوبارہ کہہ دیں، احمد پھر بنا دے گا۔</div>
+      </div>
+    );
+  }
+
+  const status = job?.status;
+  return (
+    <div data-testid="build-app-card">
+      <div className="tool-text-block">🛠️ احمد — بلڈر ایجنٹ</div>
+      <div className="tool-text-block">«{job?.title || title}»</div>
+      {(status === undefined || status === 'building') && (
+        <div className="tool-small-note" data-testid="build-app-status">⏳ احمد بنا رہا ہے…</div>
+      )}
+      {status === 'repairing' && (
+        <div className="tool-small-note" data-testid="build-app-status">🔧 آخری جانچ میں کمی رہ گئی تھی — احمد ٹھیک کر رہا ہے…</div>
+      )}
+      {status === 'failed' && (
+        <div data-testid="build-app-status">
+          <div className="tool-error">معذرت، یہ چیز نہیں بن سکی۔ دوبارہ کہہ کر دیکھیں — اکثر دوسری بار بن جاتی ہے۔</div>
+        </div>
+      )}
+      {status === 'done' && job && (
+        <div data-testid="build-app-status">
+          <div className="tool-text-block">✅ آپ کی چیز ریڈی ہو گئی ہے</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <a href={job.url} target="_blank" rel="noopener noreferrer" className="tool-action-button" data-testid="button-build-open">
+              🌐 کھولیں
+            </a>
+            <a href={job.downloadUrl} download className="tool-action-button" data-testid="button-build-download">
+              📥 ڈاؤن لوڈ
+            </a>
+          </div>
+          <div className="tool-small-note">لنک سرور چلنے تک رہے گا — فائل ڈاؤن لوڈ کر کے ہمیشہ کے لیے رکھ لیں۔</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ToolResults({
   action,
   onClose,
   onTimerDone,
+  onBuildReady,
+  onBuildFailed,
+  onBuildSettled,
 }: {
   action: ChatAction;
   onClose: () => void;
   onTimerDone: () => void;
+  onBuildReady?: (title: string) => void;
+  onBuildFailed?: (title: string) => void;
+  onBuildSettled?: (title: string) => void;
 }) {
   return (
     <div className="tool-results" dir="rtl" data-testid="panel-tool-results" role="region" aria-label="ٹول کا نتیجہ">
@@ -194,6 +331,7 @@ export default function ToolResults({
           {action.type === 'world_clock' && '🕐 عالمی وقت'}
           {action.type === 'page_summary' && '📄 صفحے کا خلاصہ'}
           {action.type === 'doc_download' && '📄 دستاویز ڈاؤن لوڈ'}
+          {action.type === 'build_app' && '🛠️ بلڈر — احمد'}
         </span>
         <button type="button" className="tool-results-close" onClick={onClose} aria-label="بند کریں">
           ✕
@@ -357,6 +495,10 @@ export default function ToolResults({
 
         {action.type === 'doc_download' && (
           <DocDownloadView title={action.title} filename={action.filename} html={action.html} />
+        )}
+
+        {action.type === 'build_app' && (
+          <BuildAppView jobId={action.jobId} title={action.title} onReady={onBuildReady} onFailed={onBuildFailed} onSettled={onBuildSettled} />
         )}
       </div>
     </div>

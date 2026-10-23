@@ -1,10 +1,8 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   AudioLines,
+  Bot,
   Clock3,
-  Hand,
-  Map as MapIcon,
-  MessageCircle,
   Mic,
   MicOff,
   Plus,
@@ -12,7 +10,6 @@ import {
   Shield,
   Trash2,
   Volume2,
-  Wrench,
   X,
 } from 'lucide-react';
 import {
@@ -22,20 +19,67 @@ import {
   getGeminiKeys,
   TTS_PLAYBACK_RATE,
 } from '@/lib/api';
-import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
+import { synthesizeSalmanClientSide, synthesizeUniqaClientSide } from '@/lib/edge-tts';
+import {
+  type Persona,
+  type ToneMode,
+  PERSONA_STORAGE_KEY,
+  TONE_STORAGE_KEY,
+  readStoredPersona,
+  readStoredTone,
+  personaDisplayName,
+  pickUrduMaleVoiceFrom,
+  pickUrduFemaleVoiceFrom,
+  detectPersonaSummon,
+  detectToneCommand,
+  pickLine,
+  UNIQA_GREETINGS,
+  UNIQUE_GREETINGS,
+  BANTER_TO_UNIQA,
+  BANTER_TO_UNIQUE,
+} from '@/lib/persona';
+import {
+  parseMemoryCommand,
+  applyMemoryCommand,
+  memoryConfirmation,
+} from '@/lib/memory';
 import { loadLastDocument } from '@/lib/doc-pdf';
 import { parseSurahReference, surahDisplayName } from '@/lib/surah-names';
-import DevicePairing, { type ConversationHandover, type RemoteCommand } from '@/components/DevicePairing';
+import {
+  loadBoardEntries,
+  recordBoardCompletion,
+  isRecordableAction,
+  type BoardEntry,
+} from '@/lib/task-board';
+import {
+  collectBackup,
+  serializeBackup,
+  backupFileName,
+  parseBackup,
+  summarizeBackup,
+  applyBackup,
+  parseBackupCommand,
+  type BrainBackup,
+  type BackupSummary,
+} from '@/lib/backup';
+import DevicePairing, { type ConversationHandover, type RemoteCommand, type CallUiState, type CallControl } from '@/components/DevicePairing';
 import { queryAllPermissions, requestAllPermissions } from '@/lib/permissions';
 import { registerAudioStop, stopOtherAudio } from '@/lib/audio-bus';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
 import { useGestures } from '@/hooks/useGestures';
 import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
-import ProjectBuilder from '@/components/ProjectBuilder';
 import AppBuilder from '@/components/AppBuilder';
 import ToolResults from '@/components/ToolResults';
+import { AgentTeamStrip, AgentTeamScene } from '@/components/AgentTeam';
+import {
+  detectAgentTasks,
+  workingCards,
+  finalizeCards,
+  agentForActionType,
+  type AgentDef,
+  type AgentTaskState,
+} from '@/lib/agent-team';
 import MediaTools, { type MediaToolName, type HubSection, resolveToolOpen } from '@/components/MediaTools';
-import ToolsPanel from '@/components/ToolsPanel';
 import AiOrb from '@/components/AiOrb';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import StatusPanel from '@/components/StatusPanel';
@@ -47,6 +91,22 @@ import type { ChatAction } from '@/lib/api';
 type ChatRole = 'user' | 'assistant';
 type ChatMessage = { id: string; role: ChatRole; content: string; createdAt: string; image?: string };
 type Conversation = { id: string; title: string; updatedAt: string; messages: ChatMessage[] };
+
+// Router-hijack guard (2026-10-22): local canned commands (focus views,
+// surah recitation, website opens) may fire ONLY on command-shaped
+// utterances — short, the way an order is actually phrased. A long or
+// conversational message must ALWAYS fall through to the chat brain;
+// a canned line must never answer it. (His ~100-word plan request was
+// answered «جی، قرآن پاک کھول رہا ہوں۔» — the class of bug this kills,
+// together with the matching server-side gate in brain.js.)
+const COMMAND_WORD_LIMIT = 12;
+function countWords(text: string): number {
+  return String(text || '').trim().split(/\s+/).filter(Boolean).length;
+}
+function isCommandShapedText(text: string, limit = COMMAND_WORD_LIMIT): boolean {
+  const n = countWords(text);
+  return n > 0 && n <= limit;
+}
 
 type BrowserSpeechRecognition = {
   lang: string;
@@ -128,6 +188,28 @@ export default function ChatPage() {
     try { return localStorage.getItem('unique-ai-chat-lang') || 'auto'; }
     catch { return 'auto'; }
   });
+  // PERSONAS (Master Plan Phase 2): who is "present" — Unique (male,
+  // the default, Salman voice) or Uniqa (female companion, her own
+  // voice). She speaks ONLY when summoned by name or picked in
+  // Settings; the default on first run is Unique. Tone (لہجہ) is
+  // independent: serious/romantic until changed. Both persist.
+  const [persona, setPersona] = useState<Persona>(() => readStoredPersona());
+  const [tone, setTone] = useState<ToneMode>(() => readStoredTone());
+  const personaRef = useRef(persona);
+  const toneRef = useRef(tone);
+  // Banter gate: at most once per session per direction (see
+  // handlePersonaCommand) — refs, deliberately not persisted.
+  const banterUsedRef = useRef<Set<string>>(new Set());
+  function changePersona(next: Persona) {
+    personaRef.current = next;
+    setPersona(next);
+    try { localStorage.setItem(PERSONA_STORAGE_KEY, next); } catch { /* ignore */ }
+  }
+  function changeTone(next: ToneMode) {
+    toneRef.current = next;
+    setTone(next);
+    try { localStorage.setItem(TONE_STORAGE_KEY, next); } catch { /* ignore */ }
+  }
   // True while the server TTS reply is being fetched/buffered — the orb shows
   // "preparing" until audio actually starts playing (onplaying), so the UI
   // never claims to be speaking during the network wait.
@@ -141,14 +223,48 @@ export default function ChatPage() {
     } catch {}
     return { locationEnabled: true, voiceEnabled: true, continuousVoice: false, gesturesEnabled: false };
   });
-  const [projectBuild, setProjectBuild] = useState<{ description: string } | null>(null);
   const [appBuild, setAppBuild] = useState<{ description: string } | null>(null);
   const [toolAction, setToolAction] = useState<ChatAction | null>(null);
+  // Helper-agent team (Task D): when ONE message runs several data
+  // tools in parallel, the server returns `actions` (plural) — rendered
+  // as a stack of result cards — and this strip shows one live card per
+  // agent. `agentTeamSceneOpen` shows the team roster on the chat
+  // screen (the 🤖 rail button). There is NO tools grid any more
+  // (Phase سادگی): every capability is reached by voice/chat through
+  // the brain, and media/document UIs open as overlays from its
+  // open_tool actions.
+  const [toolActions, setToolActions] = useState<ChatAction[] | null>(null);
+  const [agentTeam, setAgentTeam] = useState<AgentTaskState[] | null>(null);
+  const [agentTeamSceneOpen, setAgentTeamSceneOpen] = useState(false);
+  const agentPredictedRef = useRef<AgentDef[]>([]);
+  // Office scene (Phase 4): today's task board (lib/task-board) and
+  // احمد's live build — the scene reads these plus `agentTeam` above,
+  // so scene and strip share ONE source of truth.
+  const [boardEntries, setBoardEntries] = useState<BoardEntry[]>(() => {
+    try { return loadBoardEntries(window.localStorage); } catch { return []; }
+  });
+  const [buildLive, setBuildLive] = useState<{ title: string; startedAt: number } | null>(null);
+  // Call (Phase 4): DevicePairing owns the signalling; these mirror
+  // just enough of it for sendMessage to reroute turns mid-call.
+  const callControlRef = useRef<CallControl | null>(null);
+  const callUiRef = useRef<CallUiState>({ phase: 'idle', role: null, peerName: '' });
+  const prevCallPhaseRef = useRef<CallUiState['phase']>('idle');
+  // Resolver for the reply text of a turn that arrived AS a call
+  // utterance: set by handleCallUtterance, fired where the reply is
+  // finalized (and on the failure path with the failure text itself —
+  // the same words this device speaks locally).
+  const pendingCallReplyRef = useRef<((text: string | null) => void) | null>(null);
+  // Brain backup (Phase 4): restore file picker + pending confirm.
+  const backupInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingRestore, setPendingRestore] = useState<{ fileName: string; summary: BackupSummary; data: BrainBackup } | null>(null);
+  // Always-current mirrors for async callbacks (call handlers run
+  // from DevicePairing's poll loop, outside React's render cycle).
+  const conversationsRef = useRef<Conversation[]>([]);
+  const activeIdRef = useRef<string | null>(null);
   const [mediaTool, setMediaTool] = useState<MediaToolName | null>(null);
   // Which section of a hub tool (تصویر ٹولز / ویڈیو ٹولز) to land on when a
   // voice/chat command names a specific feature; undefined = first section.
   const [toolSection, setToolSection] = useState<HubSection | undefined>(undefined);
-  const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
   // Device pairing (Task 6b): panel visibility + a join code arriving
   // via a scanned QR link (?pair=CODE), pre-filled for one-tap joining.
   const [pairingOpen, setPairingOpen] = useState(false);
@@ -160,7 +276,7 @@ export default function ChatPage() {
   const [permHintBusy, setPermHintBusy] = useState(false);
   // Focus mode (user's simple-display vision): name a thing — "نقشہ دکھاؤ",
   // "WhatsApp کھولو" — and ONLY that thing fills the screen until واپس.
-  const [focusView, setFocusView] = useState<null | 'map' | 'whatsapp' | 'quran' | 'tools'>(null);
+  const [focusView, setFocusView] = useState<null | 'map' | 'whatsapp' | 'quran'>(null);
   // Quran voice requests: each command sends a fresh REQUEST naming the
   // surah to open (and whether to recite it). The generic «تلاوت سناؤ»
   // asks for Al-Fatiha; a NAMED surah («سورۃ ناس سناؤ») asks for that
@@ -280,6 +396,12 @@ export default function ChatPage() {
   // skip server TTS for the session and go straight to browser voice.
   const serverTtsFailsRef = useRef(0);
   const serverTtsDownRef = useRef(false);
+  // UNIQA voice health (Phase 2): her server-Edge leg (Uzma) gets the
+  // same treatment as Unique's Gemini leg — after 2 consecutive
+  // failures it is skipped for the session (her Gemini voice takes
+  // over) instead of taxing every chunk; a success resets the count.
+  const uniqaEdgeFailsRef = useRef(0);
+  const uniqaEdgeDownRef = useRef(false);
   // SESSION VOICE WARM-UP (2026-10-22, defect: mixed voices at start).
   // At session start every leg of the voice chain is cold: the Render
   // server may be asleep (its routes can eat their whole timeout
@@ -325,6 +447,8 @@ export default function ChatPage() {
   const lastSpokenRef = useRef<{ text: string; at: number } | null>(null);
   const activeConversation = conversations.find((conversation) => conversation.id === activeId);
   const busy = chatMutation.isPending;
+  conversationsRef.current = conversations;
+  activeIdRef.current = activeId;
 
   // Hand gestures (Phase 2): camera-based commands, all client-side.
   const {
@@ -474,16 +598,148 @@ export default function ChatPage() {
 
   function handleRemoteCommand(command: RemoteCommand) {
     const labels: Record<string, string> = {
-      open_quran: 'قرآن پاک', open_map: 'نقشہ', open_tools: 'ٹولز',
+      open_quran: 'قرآن پاک', open_map: 'نقشہ',
     };
+    // The tools grid is gone (Phase سادگی) — an open_tools command from
+    // an older paired build gets a graceful spoken note, not a dead end.
+    if (command.action === 'open_tools') {
+      void playAssistantMessage('📱 دوسری ڈیوائس نے ٹولز کھولنے کو کہا تھا — اب ٹولز کا الگ خانہ نہیں رہا، سارے کام یہیں آواز سے ہوتے ہیں۔ جو چاہیے بس کہہ دیں۔');
+      return;
+    }
     if (command.action === 'open_quran') setFocusView('quran');
     else if (command.action === 'open_map') setFocusView('map');
-    else if (command.action === 'open_tools') setFocusView('tools');
     else if (command.action === 'open_tool' && command.tool) {
       setToolSection(undefined);
       setMediaTool(command.tool as MediaToolName);
     } else return;
     void playAssistantMessage(`📱 دوسری ڈیوائس کے کہنے پر ${labels[command.action] || 'ٹول'} کھول دیا ہے۔`);
+  }
+
+  // ---- Call (Phase 4) ----
+  // DevicePairing owns the signalling; chat.tsx owns brains + voice.
+  // Caller side: sendMessage reroutes turns into the call (below),
+  // replies land in handleCallReply. Callee side: utterances are
+  // injected as ordinary messages by handleCallUtterance, and the
+  // reply TEXT travels back over the relay so the caller hears it too.
+
+  /** Append one call turn to this device's transcript (a «📞 کال»
+   *  conversation is created if there is none yet). */
+  function appendCallTranscript(role: ChatRole, content: string) {
+    let conversation = conversationsRef.current.find((c) => c.id === activeIdRef.current);
+    if (!conversation) {
+      conversation = {
+        id: createId(),
+        title: '📞 کال',
+        updatedAt: new Date().toISOString(),
+        messages: [],
+      };
+      setConversations((current) => [conversation!, ...current]);
+      setActiveId(conversation.id);
+    }
+    const id = conversation.id;
+    const now = new Date().toISOString();
+    updateConversation(id, (item) => ({
+      ...item,
+      updatedAt: now,
+      messages: [...item.messages, { id: createId(), role, content, createdAt: now }],
+    }));
+  }
+
+  function handleCallStateChange(state: CallUiState) {
+    callUiRef.current = state;
+    const prev = prevCallPhaseRef.current;
+    prevCallPhaseRef.current = state.phase;
+    // Spoken transitions (voice-first user may not be looking): once
+    // when the call connects, once when it ends — never on mount
+    // (prev starts 'idle', the first mirror call is also 'idle').
+    if (prev !== 'active' && state.phase === 'active') {
+      void playAssistantMessage('📞 کال جُڑ گئی ہے۔');
+    } else if (prev === 'active' && state.phase === 'idle') {
+      void playAssistantMessage('📞 کال ختم ہو گئی۔');
+    }
+  }
+
+  /**
+   * Callee side: one spoken turn from the caller. It goes through the
+   * NORMAL sendMessage — so tools, the builder, everything works on
+   * the call, which is the entire point — and resolves with the reply
+   * text. Two capture paths, whichever fires first: (a) the mutation
+   * hooks in sendMessage (success + failure), (b) a transcript
+   * watcher for turns answered by LOCAL commands (persona, memory,
+   * backup…), which append their exchange without a server round-trip.
+   * A 100s cap returns an honest «دیر لگ گئی» line instead of silence.
+   */
+  async function handleCallUtterance(text: string): Promise<string | null> {
+    for (let i = 0; i < 20 && chatMutation.isPending; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    const before = new Set<string>();
+    const active = conversationsRef.current.find((c) => c.id === activeIdRef.current);
+    for (const m of active?.messages || []) before.add(m.id);
+    return new Promise<string | null>((resolve) => {
+      let settled = false;
+      let watch = 0;
+      let cap = 0;
+      const finish = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        window.clearInterval(watch);
+        window.clearTimeout(cap);
+        if (pendingCallReplyRef.current === finish) pendingCallReplyRef.current = null;
+        resolve(value);
+      };
+      pendingCallReplyRef.current = finish;
+      let lastSeen = '';
+      let stablePolls = 0;
+      watch = window.setInterval(() => {
+        const conv = conversationsRef.current.find((c) => c.id === activeIdRef.current);
+        const fresh = (conv?.messages || []).filter(
+          (m) => m.role === 'assistant' && !before.has(m.id) && m.content.trim(),
+        );
+        const latest = fresh[fresh.length - 1];
+        if (!latest) return;
+        if (latest.content === lastSeen) {
+          stablePolls += 1;
+          if (stablePolls >= 2) finish(latest.content);
+        } else {
+          lastSeen = latest.content;
+          stablePolls = 0;
+        }
+      }, 700);
+      cap = window.setTimeout(
+        () => finish('معذرت، جواب بنانے میں کافی دیر لگ گئی — ایک بار پھر کہہ دیں۔'),
+        100_000,
+      );
+      void sendMessage(text);
+    });
+  }
+
+  /** Caller side: the callee's reply arrived — show it and SPEAK it
+   *  here, with this device's own persona voice chain (Salman for
+   *  Unique, Uniqa's chain when she is present — playAssistantMessage
+   *  already routes by the current persona). */
+  function handleCallReply(text: string) {
+    appendCallTranscript('assistant', text);
+    void playAssistantMessage(text);
+  }
+
+  // ---- Task board (Phase 4): pin REAL completions only ----
+  function recordCompletionsForActions(actions: { type: string }[], detail: string) {
+    try {
+      let entries: BoardEntry[] | null = null;
+      for (const action of actions) {
+        if (!isRecordableAction(action.type)) continue;
+        const def = agentForActionType(action.type);
+        if (!def) continue;
+        entries = recordBoardCompletion(window.localStorage, {
+          agentKey: def.key,
+          person: def.person,
+          icon: def.icon,
+          label: detail,
+        });
+      }
+      if (entries) setBoardEntries(entries);
+    } catch { /* the board is a courtesy — never break a reply over it */ }
   }
 
   // Mobile only: unlock the persistent audio element on the user's own
@@ -616,9 +872,187 @@ export default function ChatPage() {
     ).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   }
 
+  function toneConfirmation(next: ToneMode): string {
+    const fem = personaRef.current === 'uniqa';
+    if (next === 'serious') return fem ? 'ٹھیک ہے، اب سے سنجیدگی سے بات کروں گی۔' : 'ٹھیک ہے، اب سے سنجیدگی سے بات کروں گا۔';
+    if (next === 'romantic') return 'اچھا جی 💛 اب نرم، محبت بھرے لہجے میں بات ہوگی۔';
+    return fem ? 'ٹھیک ہے، معمول کے لہجے میں واپس آ گئی۔' : 'ٹھیک ہے، معمول کے لہجے میں واپس آ گیا۔';
+  }
+
+  /**
+   * Persona summons + tone orders (Phase 2) — local, command-shaped
+   * only (the detectors in lib/persona enforce the shapes). Returns:
+   *  - 'handled' → the message was a pure order; a local exchange was
+   *    appended and spoken by the (possibly new) persona.
+   *  - a string  → a name-prefixed request («یونیکا، کہانی سناؤ»): the
+   *    persona switched; the caller sends THIS rest as the message.
+   *  - null      → not a persona/tone order; normal flow continues.
+   */
+  function handlePersonaCommand(textValue: string): 'handled' | string | null {
+    const summon = detectPersonaSummon(textValue, personaRef.current);
+    if (summon) {
+      changePersona(summon.target);
+      if (!summon.pure) {
+        // The rest might itself be a pure tone order («یونیکا، رومینٹک
+        // ہو جاؤ») — apply it as the new persona instead of sending it
+        // to the brain as a message.
+        const restTone = detectToneCommand(summon.rest);
+        if (restTone) {
+          changeTone(restTone);
+          const conf = toneConfirmation(restTone);
+          appendWebsiteCommandExchange(textValue, conf);
+          playAssistantMessage(conf);
+          setDraft('');
+          return 'handled';
+        }
+        return summon.rest;
+      }
+      // Pure summon: the INCOMING persona greets. Banter (Stonic-style
+      // teasing about the other persona) is modest by design: never in
+      // serious tone, at most once per session per direction, and only
+      // sometimes — the plain greeting is the default.
+      const dir = summon.target === 'uniqa' ? 'to-uniqa' : 'to-unique';
+      let greeting: string;
+      if (toneRef.current !== 'serious' && !banterUsedRef.current.has(dir) && Math.random() < 0.6) {
+        banterUsedRef.current.add(dir);
+        greeting = pickLine(summon.target === 'uniqa' ? BANTER_TO_UNIQA : BANTER_TO_UNIQUE);
+      } else {
+        greeting = pickLine(summon.target === 'uniqa' ? UNIQA_GREETINGS : UNIQUE_GREETINGS);
+      }
+      appendWebsiteCommandExchange(textValue, greeting);
+      playAssistantMessage(greeting);
+      setDraft('');
+      return 'handled';
+    }
+    const toneCmd = detectToneCommand(textValue);
+    if (toneCmd && toneCmd !== toneRef.current) {
+      changeTone(toneCmd);
+      const conf = toneConfirmation(toneCmd);
+      appendWebsiteCommandExchange(textValue, conf);
+      playAssistantMessage(conf);
+      setDraft('');
+      return 'handled';
+    }
+    return null;
+  }
+
+  /**
+   * Memory voice commands (Phase 2 — his spec): «یہ یاد رکھو» saves,
+   * «… بھول جاؤ» / «ڈیلیٹ کر دو» deletes, «ساری میموری ڈیلیٹ کر دو»
+   * clears — on the app's existing notes store, with a spoken
+   * confirmation naming what was saved or forgotten. Parsing lives in
+   * lib/memory (command-shaped only; long messages parse to null and
+   * reach the brain untouched).
+   */
+  function handleMemoryCommand(textValue: string): boolean {
+    const cmd = parseMemoryCommand(textValue);
+    if (!cmd) return false;
+    let outcome;
+    try {
+      outcome = applyMemoryCommand(window.localStorage, cmd);
+    } catch {
+      return false; // storage unavailable — let the brain answer instead
+    }
+    const confirmation = memoryConfirmation(cmd, outcome, personaRef.current === 'uniqa');
+    appendWebsiteCommandExchange(textValue, confirmation);
+    playAssistantMessage(confirmation);
+    setDraft('');
+    return true;
+  }
+
+  // ---- Brain backup / restore (Phase 4) ----
+  // «بیک اپ بنا دو» downloads ONE JSON file with the whole brain
+  // (lib/backup — API keys NEVER included, by design); «بیک اپ واپس
+  // لاؤ» opens the file picker (the pick itself is the user's tap —
+  // a browser rule, said out loud in the reply). A picked file is
+  // validated first and restored ONLY after the confirm dialog,
+  // which names what will be replaced.
+
+  function downloadBrainBackup(): BackupSummary {
+    const data = collectBackup(window.localStorage);
+    const blob = new Blob([serializeBackup(data)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = backupFileName(new Date());
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+    return summarizeBackup(data);
+  }
+
+  function handleBackupCommand(textValue: string): boolean {
+    const cmd = parseBackupCommand(textValue);
+    if (!cmd) return false;
+    if (cmd === 'create') {
+      const summary = downloadBrainBackup();
+      const reply = `🧠 دماغ کا بیک اپ تیار ہے — فائل ڈاؤن لوڈ ہو گئی ہے (${summary.conversations} گفتگوئیں، ${summary.notes} یادیں)۔ اسے USB میں رکھ لیں۔ ایک ضروری بات: اس فائل میں آپ کی API keys شامل نہیں ہیں — بحالی پر وہ ایک بار دوبارہ ڈالنی ہوں گی۔`;
+      appendWebsiteCommandExchange(textValue, reply);
+      playAssistantMessage('🧠 بیک اپ تیار ہے — فائل ڈاؤن لوڈ ہو گئی ہے۔ یاد رکھیں، اس فائل میں API keys شامل نہیں ہیں۔');
+      setDraft('');
+      return true;
+    }
+    const reply = 'ٹھیک ہے — بیک اپ فائل چنیں: فائل چننے کا خانہ کھل رہا ہے، USB سے اپنی بیک اپ فائل منتخب کریں۔ فائل چننا آپ کے اپنے ہاتھ سے ہوگا — یہ براؤزر کا اصول ہے۔ فائل پہلے جانچی جائے گی، اور بحالی آپ کی تصدیق کے بعد ہی ہوگی۔';
+    appendWebsiteCommandExchange(textValue, reply);
+    playAssistantMessage('بیک اپ فائل منتخب کریں — فائل چننے کا خانہ کھل رہا ہے۔');
+    setDraft('');
+    window.setTimeout(() => backupInputRef.current?.click(), 60);
+    return true;
+  }
+
+  async function handleBackupFilePicked(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // same file can be picked again after a cancel
+    if (!file) return;
+    const text = await file.text().catch(() => '');
+    const parsed = parseBackup(text);
+    if (!parsed.ok) {
+      // Honest error, state untouched — parse validated NOTHING was
+      // applied (apply only ever runs from the confirm button).
+      setError(parsed.error);
+      void playAssistantMessage(parsed.error);
+      return;
+    }
+    setPendingRestore({ fileName: file.name, summary: summarizeBackup(parsed.data), data: parsed.data });
+  }
+
+  function confirmBackupRestore() {
+    if (!pendingRestore) return;
+    try {
+      applyBackup(window.localStorage, pendingRestore.data);
+    } catch {
+      setError('بحالی میں مسئلہ ہوا — آپ کا موجودہ ڈیٹا ویسا کا ویسا ہے۔');
+      setPendingRestore(null);
+      return;
+    }
+    setPendingRestore(null);
+    // A full reload is the honest way to «زندہ کرنا»: every store,
+    // persona, setting and screen re-reads the restored brain.
+    window.location.reload();
+  }
+
   async function sendMessage(textValue: string, fromVoice = false) {
-    const text = textValue.trim();
+    let text = textValue.trim();
     if (!text && !attachedImage) return;
+    // CALL (Phase 4): while THIS device is the CALLER in a live call,
+    // everything said or typed here is a spoken turn for the OTHER
+    // device's Unique — never a local message. It is appended to this
+    // device's call transcript, sent over the relay, and the reply
+    // comes back through handleCallReply (spoken here by this
+    // device's own persona voice chain). Checked before every local
+    // command: a name-call or memory order spoken INTO a call belongs
+    // to the callee's assistant, not this device.
+    const callUi = callUiRef.current;
+    if (text && !attachedImage && callUi.phase === 'active' && callUi.role === 'caller') {
+      appendCallTranscript('user', text);
+      const sentOk = callControlRef.current?.sendUtterance(text) ?? false;
+      setDraft('');
+      if (!sentOk) {
+        setError('کال پر بات نہیں بھیجی جا سکی — رابطہ ختم لگ رہا ہے۔ کال ختم کر کے دوبارہ کوشش کریں۔');
+      }
+      return;
+    }
     // Never swallow a send in silence: if a reply is still being fetched,
     // say so on screen. (This guard used to drop voice messages without a
     // trace whenever an earlier request was slow or stuck.)
@@ -626,12 +1060,27 @@ export default function ChatPage() {
       setError('پچھلا جواب ابھی آ رہا ہے — چند لمحے انتظار کریں، پھر دوبارہ بولیں۔');
       return;
     }
+    // Persona summons + tone orders (Phase 2) run first: a name-call
+    // («یونیکا کو بلاؤ») switches who is present; a name-prefixed
+    // request switches and forwards its rest as the message.
+    if (!attachedImage) {
+      const pc = handlePersonaCommand(text);
+      if (pc === 'handled') return;
+      if (typeof pc === 'string') text = pc;
+    }
     // Focus commands work from BOTH typed text and voice: name a thing
     // (نقشہ / WhatsApp / قرآن / ٹولز) and it alone fills the screen.
     if (!attachedImage && handleFocusCommand(text)) return;
     // Website commands work from typed text too — not just voice.
     // (Voice paths already check this before calling sendMessage.)
     if (!fromVoice && !attachedImage && handleVoiceWebsiteCommand(text)) return;
+    // Memory voice commands (Phase 2): «یہ یاد رکھو» / «بھول جاؤ» /
+    // «ساری میموری ڈیلیٹ کر دو» — handled on the notes store locally.
+    if (!attachedImage && handleMemoryCommand(text)) return;
+    // Brain backup (Phase 4): «بیک اپ بنا دو» downloads the brain
+    // file; «بیک اپ واپس لاؤ» opens the restore picker. Runs AFTER
+    // memory so «یہ یاد رکھو … بیک اپ …» stays a note-save.
+    if (!attachedImage && handleBackupCommand(text)) return;
     // «PDF ڈاؤن لوڈ دو» for a document a tool just generated: served
     // locally with a real download card (see handleDocumentDownloadRequest).
     if (!attachedImage && handleDocumentDownloadRequest(text)) return;
@@ -658,6 +1107,18 @@ export default function ChatPage() {
       messages: sentMessages,
     }));
     setDraft('');
+    // Helper-agent team (Task D): predict whether this message asks
+    // for SEVERAL data tools at once. If so, the team strip appears on
+    // the chat screen with «کام کر رہا ہے…» cards — and is FINALIZED
+    // only from the actions the server actually returns (below). A
+    // plain chat reply discards the strip: no fake activity, ever.
+    const predictedAgents = attachedImage ? [] : detectAgentTasks(text);
+    agentPredictedRef.current = predictedAgents;
+    if (predictedAgents.length >= 2) {
+      setAgentTeam(workingCards(predictedAgents, text.slice(0, 90)));
+    } else {
+      setAgentTeam(null);
+    }
     const imageToSend = attachedImage;
     setAttachedImage(null);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -682,11 +1143,16 @@ export default function ChatPage() {
     ttsPrefetchRef.current = null;
     streamedTextRef.current = '';
     try {
-      const result = await chatMutation.mutateAsync({
+      let result = await chatMutation.mutateAsync({
         data: {
           messages: sentMessages.slice(-30).map(({ role, content, image }) => ({ role, content, ...(image ? { image } : {}) })),
           stream: true,
           language: chatLang === 'auto' ? undefined : chatLang,
+          // Persona + tone (Phase 2): the brain knows WHO is speaking
+          // (Unique / Uniqa) and the tone the user set — it answers as
+          // that persona, in that register.
+          persona: personaRef.current,
+          tone: toneRef.current,
           onDelta: (delta: string) => {
             // Append streamed text to the placeholder message in real time
             updateConversation(id, (item) => ({
@@ -704,7 +1170,7 @@ export default function ChatPage() {
               if (firstSentence && firstSentence.length >= 20) {
                 const entry = {
                   text: firstSentence,
-                  promise: synthesizeWithTimeout(firstSentence),
+                  promise: synthesizeWithTimeout(firstSentence, 12000, personaRef.current === 'uniqa'),
                   eagerPlayed: false,
                   playPromise: null as Promise<void> | null,
                   ticket: speechTicket,
@@ -737,7 +1203,40 @@ export default function ChatPage() {
           m.id === assistantId ? { ...m, content: result.text } : m
         ),
       }));
-      // Smart-brain action (Phase 2): open a website or start a project build.
+      // CALL (Phase 4): if this turn arrived as a call utterance, hand
+      // the final reply text back — DevicePairing relays it to the
+      // caller, whose device speaks it there too.
+      if (pendingCallReplyRef.current) {
+        const resolveCall = pendingCallReplyRef.current;
+        pendingCallReplyRef.current = null;
+        resolveCall(result.text);
+      }
+      // Helper-agent team (Task D): the server ran several data tools
+      // in parallel and returned every action. Finalize the strip from
+      // the REAL actions (done ✓ / ناکام), and stack the result cards.
+      if (result.actions && result.actions.length >= 2) {
+        setToolActions(result.actions as ChatAction[]);
+        setAgentTeam(finalizeCards(agentPredictedRef.current, result.actions.map((a) => a.type), text.slice(0, 90)));
+        recordCompletionsForActions(result.actions, text);
+      } else if (result.actions && result.actions.length === 1) {
+        // Server collapsed to a single executed action — treat it like
+        // a normal single action below, and drop the predicted strip
+        // (only one agent really ran; no team to show).
+        const singleAction = result.actions[0];
+        result = { ...result, action: singleAction };
+        setAgentTeam(null);
+        recordCompletionsForActions([singleAction], text);
+      } else if (agentPredictedRef.current.length >= 2) {
+        // Predicted a team, but the reply is plain chat — the strip
+        // must not claim work that never happened.
+        setAgentTeam(null);
+      }
+      // A direct singular action (no actions[] array): if an agent
+      // genuinely completed work, pin it on today's board too.
+      if (!result.actions?.length && result.action) {
+        recordCompletionsForActions([result.action], text);
+      }
+      // Smart-brain action (Phase 2): open a website or run a tool.
       if (result.action?.type === 'open_url') {
         // Never window.open here: this runs AFTER an async fetch, so the
         // browser's popup blocker kills the tab (no user activation
@@ -747,10 +1246,17 @@ export default function ChatPage() {
         // tap IS a user gesture, so the site always opens, and the chat
         // text stays clean Urdu with no raw URL.
         setToolAction({ type: 'open_link', url: result.action.url, displayName: result.action.displayName });
-      } else if (result.action?.type === 'build_project') {
-        setProjectBuild({ description: result.action.description });
       } else if (result.action?.type === 'android_app') {
         setAppBuild({ description: result.action.description });
+      } else if (result.action?.type === 'build_app') {
+        // احمد's build (Phase 3): light his cabin in the office scene
+        // from the REAL job — the card below polls its true status.
+        // The board pins the completion only when the card watches
+        // the job reach «done» (handleBuildReady), never at order
+        // time; the live light goes out on any terminal state
+        // (handleBuildSettled / handleBuildFailed).
+        setBuildLive({ title: result.action.title || text.slice(0, 40), startedAt: Date.now() });
+        setToolAction(result.action as ChatAction);
       } else if (result.action?.type === 'open_tool') {
         // The server may still name a legacy image/video tool — land on
         // its hub + matching section; unknown ids are ignored gracefully.
@@ -770,12 +1276,21 @@ export default function ChatPage() {
       void playAssistantMessage(result.text, speechTicket);
     } catch (sendError) {
       // Remove the streaming placeholder on failure
+      setAgentTeam(null);
       setIsPreparingVoice(false);
       updateConversation(id, (item) => ({
         ...item,
         messages: item.messages.filter((m) => m.id !== assistantId),
       }));
       const failureMessage = getErrorMessage(sendError);
+      // CALL (Phase 4): a call utterance whose turn failed still gets
+      // an answer on the caller — the same failure words this device
+      // is about to speak locally, never silence.
+      if (pendingCallReplyRef.current) {
+        const resolveCall = pendingCallReplyRef.current;
+        pendingCallReplyRef.current = null;
+        resolveCall(failureMessage);
+      }
       // Speak WHY it failed, in Urdu — in hands-free use the user may never
       // look at the screen, and a silent failure reads as "the app is
       // dead". The spoken path also resumes the live mic for the next
@@ -837,6 +1352,53 @@ export default function ChatPage() {
     return true;
   }
 
+  // Brain builder (Phase 3): the build card watched احمد's job reach
+  // "done" — announce it in the conversation and SPEAK the ready
+  // line. Fires once per watched build (the card guards re-fires);
+  // a build the user only asks about afterwards is announced by that
+  // reply's own text, not from here.
+  function handleBuildReady(title: string) {
+    const text = `آپ کی چیز ریڈی ہو گئی ہے — «${title}» 🎉 نیچے کارڈ سے کھولیں یا ڈاؤن لوڈ کر لیں۔`;
+    if (activeId) {
+      const now = new Date().toISOString();
+      updateConversation(activeId, (item) => ({
+        ...item,
+        updatedAt: now,
+        messages: [...item.messages, { id: createId(), role: 'assistant' as const, content: text, createdAt: now }],
+      }));
+    }
+    void playAssistantMessage('آپ کی چیز ریڈی ہو گئی ہے۔');
+    // Office scene + board (Phase 4): احمد's build is truly done —
+    // his cabin light goes out and the completion is pinned on
+    // today's board (this is the ONLY place a build is recorded:
+    // watched reaching «done», never at order time).
+    setBuildLive(null);
+    try {
+      const def = agentForActionType('build_app');
+      if (def) {
+        setBoardEntries(recordBoardCompletion(window.localStorage, {
+          agentKey: def.key,
+          person: def.person,
+          icon: def.icon,
+          label: `«${title}» بنائی`,
+        }));
+      }
+    } catch { /* board is a courtesy */ }
+  }
+
+  /** A build ended without a product (failed/vanished): احمد's
+   *  cabin light goes out; nothing is pinned on the board. */
+  function handleBuildFailed() {
+    setBuildLive(null);
+  }
+
+  /** A build card saw its job reach ANY terminal state (including a
+   *  status-replay card mounted after completion): the live light
+   *  must not outlive the job. */
+  function handleBuildSettled() {
+    setBuildLive(null);
+  }
+
   function handleVoiceWebsiteCommand(recognizedText: string): boolean {
     const command = parseWebsiteCommand(recognizedText);
     if (!command) return false;
@@ -896,18 +1458,30 @@ export default function ChatPage() {
 
   /**
    * Focus commands — the user's "one thing at a time" vision: name a thing
-   * (map / WhatsApp / Quran / tools) and ONLY that thing fills the screen.
-   * Saying "واپس" (or "بند کرو") closes it and returns to the simple display.
+   * (map / WhatsApp / Quran) and ONLY that thing fills the screen. These
+   * are SCENES, not tools — the tools grid itself is gone (Phase سادگی):
+   * «ٹولز کھولو» is no longer a local command at all and simply reaches
+   * the brain, which explains that everything is done by voice here.
+   * Saying "واپس" (or "بند کرو") closes a scene and returns to the
+   * simple display.
    */
   function handleFocusCommand(recognizedText: string): boolean {
-    // Close/back — only meaningful when a focus view is open.
-    if (focusView && /(واپس|پیچھے|بند کرو|بند کر|back|close)/i.test(recognizedText)) {
+    // Close/back — only meaningful when a focus view is open, and only
+    // as a SHORT command: a long message that happens to contain
+    // «واپس» is conversation, not a close order.
+    if (focusView && isCommandShapedText(recognizedText, 6) && /(واپس|پیچھے|بند کرو|بند کر|back|close)/i.test(recognizedText)) {
       setFocusView(null);
       const msg = 'ٹھیک ہے، واپس آ گئے۔';
       appendWebsiteCommandExchange(recognizedText, msg);
       playAssistantMessage(msg);
       return true;
     }
+    // CLASS GATE (router-hijack fix): every canned command below —
+    // named-surah recitation, generic تلاوت, focus opens — fires ONLY
+    // on a command-shaped (short) utterance. Anything longer passes
+    // through to the brain untouched, even if it names a surah, the
+    // Quran or a map in passing.
+    if (!isCommandShapedText(recognizedText)) return false;
     // NAMED-SURAH commands («سورۃ ناس پڑھ کر سناؤ», "Surah Yaseen sunao",
     // «سورت 114 سناؤ»): the focus routing below only knew the word
     // «قرآن», so a surah named WITHOUT that word fell through to the
@@ -955,15 +1529,22 @@ export default function ChatPage() {
     // "Recite for me" — the user asked to HEAR the Quran, so merely opening
     // the reader is not enough; QuranReader auto-plays on the bump below.
     const wantsRecite = /(سناؤ|تلاوت|پڑھو|سننا|recite|listen)/i.test(recognizedText);
-    const focusTargets: Array<[RegExp, 'map' | 'whatsapp' | 'quran' | 'tools', string, string]> = [
+    const focusTargets: Array<[RegExp, 'map' | 'whatsapp' | 'quran', string, string]> = [
       [/(نقشہ|نقشے|\bmap\b)/i, 'map', '🗺️ نقشہ', '🗺️ نقشہ سامنے ہے — جگہ تلاش کریں یا راستہ دیکھیں۔ واپس آنے کے لیے «واپس» کہیں یا ✕ دبائیں۔'],
       [/(واٹس ایپ|واٹس‌ایپ|whatsapp)/i, 'whatsapp', '💬 WhatsApp', '💬 WhatsApp سامنے ہے — نمبر اور پیغام لکھ کر بھیجیں۔ واپس آنے کے لیے «واپس» کہیں۔'],
       [/(قرآن|quran)/i, 'quran', '📖 قرآن پاک', '📖 قرآن پاک سامنے ہے — سورت منتخب کریں۔ واپس آنے کے لیے «واپس» کہیں۔'],
-      [/(ٹولز|ٹول باکس|\btools\b|\btoolbox\b|tool\s*box)/i, 'tools', '🧰 ٹولز', '🧰 سارے ٹولز سامنے ہیں — جو چاہیے منتخب کریں۔ واپس آنے کے لیے «واپس» کہیں۔'],
     ];
     for (const [pattern, view, , reply] of focusTargets) {
       const gateOk = hasVerb || (isShort && !isQuestion) || (view === 'quran' && wantsRecite);
       if (pattern.test(recognizedText) && gateOk) {
+        // Repeat-fire guard: if this view is ALREADY open, the same
+        // canned open line must not be emitted again for a new input —
+        // the message falls through to the brain and gets a real
+        // answer. (An explicit recitation request while the reader is
+        // open still fires — that IS the command's content.)
+        if (focusView === view && !(view === 'quran' && wantsRecite)) {
+          return false;
+        }
         setFocusView(view);
         if (view === 'quran' && wantsRecite) {
           requestQuran(1, true);
@@ -991,38 +1572,32 @@ export default function ChatPage() {
   }
 
   function pickUrduMaleVoice(): SpeechSynthesisVoice | undefined {
-    const voices = window.speechSynthesis.getVoices();
-    // ABSOLUTE rule (user demand): NEVER a female voice. A browser voice is
-    // used ONLY when its name EXPLICITLY signals male — on Samsung devices
-    // the first Urdu voice is Google's FEMALE Urdu voice with NO female
-    // marker in its name, so "not obviously female" is not good enough and
-    // positional fallbacks (first Urdu/Hindi/any voice) kept letting her
-    // speak. No explicit male marker → return undefined: silence + an
-    // on-screen Urdu reason is correct, a female voice never is.
-    const isExplicitMale = (v: SpeechSynthesisVoice) => {
-      const n = v.name.toLowerCase();
-      // A name containing "female" is NEVER male — and the old test
-      // `n.includes('male')` waved exactly those voices through,
-      // because "female" CONTAINS "male" as a substring. That is how a
-      // female-named device voice passed the "explicitly male" filter
-      // and spoke the session's first replies (his on-device report
-      // 2026-10-22: «شروع میں کبھی لڑکی کی آواز آ جاتی ہے»). Exclude
-      // female names first, then require a STANDALONE "male" word (not
-      // a substring of another word) or a known male voice name.
-      if (n.includes('female')) return false;
-      return /(^|[^a-z])male([^a-z]|$)/.test(n) || n.includes('asad') || n.includes('salim');
-    };
-    const maleVoices = voices.filter(isExplicitMale);
-    // Language preference among explicitly-male voices only: Urdu first,
-    // then Hindi, then any language.
-    return (
-      maleVoices.find((v) => v.lang.toLowerCase().startsWith('ur')) ||
-      maleVoices.find((v) => v.lang.toLowerCase().startsWith('hi')) ||
-      maleVoices[0]
-    );
+    // ABSOLUTE rule (user demand): NEVER a female voice on Unique's
+    // turns. A browser voice is used ONLY when its name EXPLICITLY
+    // signals male — on Samsung devices the first Urdu voice is
+    // Google's FEMALE Urdu voice with NO female marker in its name, so
+    // "not obviously female" is not good enough and positional
+    // fallbacks (first Urdu/Hindi/any voice) kept letting her speak.
+    // No explicit male marker → undefined: silence + an on-screen Urdu
+    // reason is correct, a female voice never is. The implementation
+    // (female names excluded FIRST — "female" contains "male", the
+    // substring trap that let a female voice through in 2026-10-22 —
+    // then a standalone "male" word or a known male name; Urdu →
+    // Hindi → any) lives in lib/persona, shared verbatim so the
+    // separation from Uniqa's picker is unit-proven there.
+    return pickUrduMaleVoiceFrom(window.speechSynthesis.getVoices());
   }
 
-  async function speakNow(text: string, ticket?: number) {
+  function pickUrduFemaleVoice(): SpeechSynthesisVoice | undefined {
+    // UNIQA's browser fallback — the exact mirror of the male rule:
+    // explicitly-male names (standalone "male", Salman/Asad/Salim) are
+    // rejected FIRST, an explicit female signal is required, and no
+    // qualifying voice means silence rather than Unique's voice ever
+    // speaking her words.
+    return pickUrduFemaleVoiceFrom(window.speechSynthesis.getVoices());
+  }
+
+  async function speakNow(text: string, ticket?: number, female = false) {
     if (!appSettings.voiceEnabled) { ttsActiveRef.current = false; return; }
     if (!('speechSynthesis' in window)) {
       ttsActiveRef.current = false;
@@ -1048,13 +1623,16 @@ export default function ChatPage() {
     // Split into sentences — Chrome cuts off very long utterances.
     const cleanText = text.slice(0, 4000).trim();
     const sentences = cleanText.match(/[^۔.!?\n]+[۔.!?\n]*/g)?.map((s) => s.trim()).filter(Boolean) || [cleanText];
-    const voice = pickUrduMaleVoice();
-    // STRICT: if no non-female voice exists, do NOT speak — a female voice
-    // is worse than silence. Tell the user to fix their Gemini key.
+    const voice = female ? pickUrduFemaleVoice() : pickUrduMaleVoice();
+    // STRICT (both personas): if no voice of THIS persona's gender
+    // exists, do NOT speak — the other gender's voice is worse than
+    // silence. Tell the user to fix their Gemini key.
     if (!voice) {
       setIsSpeaking(false);
       setIsPreparingVoice(false);
-      setError('اس ڈیوائس میں کوئی مردانہ آواز نہیں ملی۔ Settings میں اپنی Gemini key دوبارہ چیک کرو — وہی اصل مردانہ آواز دیتی ہے۔');
+      setError(female
+        ? 'اس ڈیوائس میں یونیکا کے لیے کوئی لڑکی کی آواز نہیں ملی۔ Settings میں اپنی Gemini key چیک کریں — وہی اس کی اصل آواز دیتی ہے۔'
+        : 'اس ڈیوائس میں کوئی مردانہ آواز نہیں ملی۔ Settings میں اپنی Gemini key دوبارہ چیک کرو — وہی اصل مردانہ آواز دیتی ہے۔');
       resumeContinuousAfterTts();
       return;
     }
@@ -1076,7 +1654,7 @@ export default function ChatPage() {
       utterance.lang = voice ? voice.lang : 'ur-PK';
       utterance.rate = 1.25;
       utterance.volume = 1;
-      utterance.pitch = 0.9; // slightly deeper (masculine)
+      utterance.pitch = female ? 1.0 : 0.9; // his: slightly deeper (masculine); hers: natural
       if (voice) utterance.voice = voice;
       utterance.onend = () => {
         if (stale()) { setIsSpeaking(false); return; }
@@ -1133,24 +1711,27 @@ export default function ChatPage() {
     if (continuousIntendedRef.current) scheduleLiveMicReopen(500);
   }
 
-  function speakWithBrowser(text: string, ticket?: number) {
+  function speakWithBrowser(text: string, ticket?: number, female = false) {
     if (ticket !== undefined && ticket !== speechTicketRef.current) return; // stopped before it began
     if (!('speechSynthesis' in window)) {
       ttsActiveRef.current = false;
       setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
       return;
     }
-    // Don't play garbage: only use browser TTS when an EXPLICITLY male
-    // voice exists (the same strict picker speakNow uses). If voices are
+    // Don't play garbage: only use browser TTS when a voice of THIS
+    // persona's gender explicitly exists (the same strict pickers
+    // speakNow uses — male for Unique, female for Uniqa). If voices are
     // loaded and none qualifies, show the reason and stay silent — the
-    // device default voice (often female) must never speak.
+    // device default voice must never speak for the wrong persona.
     const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0 && !pickUrduMaleVoice()) {
+    if (voices.length > 0 && !(female ? pickUrduFemaleVoice() : pickUrduMaleVoice())) {
       // Nothing will speak: close the speech span so the live mic's
       // recovery path can reopen instead of waiting on a span that
       // never ends.
       ttsActiveRef.current = false;
-      setError('مردانہ آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اردو آواز انسٹال نہیں۔ Settings میں key دوبارہ چیک کریں۔');
+      setError(female
+        ? 'یونیکا کی آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اس کے لیے اردو آواز انسٹال نہیں۔ Settings میں key چیک کریں۔'
+        : 'مردانہ آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اردو آواز انسٹال نہیں۔ Settings میں key دوبارہ چیک کریں۔');
       setIsPreparingVoice(false);
       setIsSpeaking(false);
       return;
@@ -1166,12 +1747,12 @@ export default function ChatPage() {
         // The wait can outlive the reply (a stop within it must not
         // resurrect the voice when the voices finally load).
         if (ticket !== undefined && ticket !== speechTicketRef.current) return;
-        speakNow(text, ticket);
+        speakNow(text, ticket, female);
       };
       window.speechSynthesis.addEventListener('voiceschanged', go);
       setTimeout(go, 1500);
     } else {
-      speakNow(text, ticket);
+      speakNow(text, ticket, female);
     }
   }
 
@@ -1272,7 +1853,7 @@ export default function ChatPage() {
     if (voiceWarmupStartedRef.current) return;
     voiceWarmupStartedRef.current = true;
     if (!appSettings.voiceEnabled) return;
-    voiceWarmupPromiseRef.current = synthesizeWithTimeout('السلام علیکم')
+    voiceWarmupPromiseRef.current = synthesizeWithTimeout('السلام علیکم', 12000, personaRef.current === 'uniqa')
       .then((audio) => {
         if (audio) sessionVoiceReadyRef.current = true;
       })
@@ -1296,7 +1877,7 @@ export default function ChatPage() {
   // Edge has no quota, so a transient Edge failure must never mute
   // the session.
   // Returns null on failure (caller falls back to browser voice).
-  function synthesizeWithTimeout(text: string, timeoutMs = 12000): Promise<{ audioBase64: string; mimeType: string } | null> {
+  function synthesizeWithTimeout(text: string, timeoutMs = 12000, female = false): Promise<{ audioBase64: string; mimeType: string } | null> {
     // Keys changed since the last attempt? Forget any earlier "TTS down"
     // verdict and try fresh — the new keys may work even if the old failed.
     try {
@@ -1307,6 +1888,59 @@ export default function ChatPage() {
         serverTtsFailsRef.current = 0;
       }
     } catch { /* ignore */ }
+    // ── UNIQA's voice chain (Phase 2) ─────────────────────────────────
+    // STRICTLY separate from Unique's chain below: her legs are Uzma
+    // (client Edge → server Edge) then Gemini's FEMALE voice (Sulafat);
+    // if all fail, the caller falls back to the strict female browser
+    // picker. Salman's legs are NEVER in her chain and her legs are
+    // never in his — no accidental cross-gender audio, ever.
+    if (female) {
+      const runUniqaChain = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
+        // Leg 1: client-side Edge — Uzma synthesized in this browser.
+        // On his Chrome devices Microsoft rejects the handshake exactly
+        // as for Salman (the shared module memoizes that failure and
+        // fails fast), so the server leg usually does the real work.
+        try {
+          const r = await synthesizeUniqaClientSide(text, timeoutMs);
+          if (r) return r;
+        } catch { /* fall through */ }
+        // Leg 2: server-side Edge — Uzma (POST /api/tts/edge with
+        // voice:'uniqa'). Her own failure memo: 2 consecutive failures
+        // skip this leg for the session (Gemini takes over) instead of
+        // taxing every chunk; a success resets the count.
+        if (!uniqaEdgeDownRef.current) {
+          try {
+            const r = await synthesizeEdgeSpeech({ text, voice: 'uniqa' });
+            uniqaEdgeFailsRef.current = 0;
+            if (r) return r;
+          } catch {
+            uniqaEdgeFailsRef.current += 1;
+            if (uniqaEdgeFailsRef.current >= 2) uniqaEdgeDownRef.current = true;
+          }
+        }
+        // Leg 3: Gemini — Sulafat, her female voice. Shares the Gemini
+        // leg's session mute (serverTtsDownRef) and 3-strikes counting
+        // with Unique's chain: dead keys are dead for both personas.
+        if (!serverTtsDownRef.current) {
+          try {
+            const r = await synthesizeMairaSpeech({ text, female: true });
+            serverTtsFailsRef.current = 0;
+            if (r) return r;
+          } catch (e: any) {
+            const et = e?.data?.errorType;
+            if (et === 'quota' || et === 'auth') {
+              serverTtsDownRef.current = true;
+            } else {
+              serverTtsFailsRef.current += 1;
+              if (serverTtsFailsRef.current >= 3) serverTtsDownRef.current = true;
+            }
+          }
+        }
+        setError('⚠️ یونیکا کی آواز وقتی طور پر نہیں بن سکی — Settings میں Gemini key چیک کریں یا تھوڑی دیر بعد پھر کوشش کریں۔');
+        return null;
+      };
+      return runUniqaChain();
+    }
     // Selected voice: 'Salman' | 'Charon' | 'Fenrir'. Default is 'Salman'
     // (Edge). Note: Google (female) voice option was removed per user
     // demand 2026-10-19 — a stale 'Google' selection migrates to 'Salman'.
@@ -1454,6 +2088,10 @@ export default function ChatPage() {
     // One voice at a time across the app: silence the Quran reader if
     // it is speaking (it does the same to us when it starts).
     stopOtherAudio('chat');
+    // The persona captured ONCE for this whole reply: it was spoken TO
+    // this persona, so it is spoken BY this persona's voice chain —
+    // even if the user switches persona mid-reply.
+    const female = personaRef.current === 'uniqa';
     const speechStale = () => ticket !== speechTicketRef.current;
     // FIRST-REPLY HOLD (2026-10-22): if this is the session's first
     // spoken reply and the warm-up probe is still in flight, wait for
@@ -1525,7 +2163,7 @@ export default function ChatPage() {
         }
         if (rc.trim()) restChunks.push(rc.trim());
         // Start synthesizing all rest chunks immediately (in background).
-        const restPromises = restChunks.map((c) => synthesizeWithTimeout(c));
+        const restPromises = restChunks.map((c) => synthesizeWithTimeout(c, 12000, female));
         if (hasEagerAudio && pf.playPromise) {
           // First chunk already playing via eager playback — wait for it to finish.
           await pf.playPromise.catch(() => {});
@@ -1548,12 +2186,12 @@ export default function ChatPage() {
         }
         if (speechStale()) return;
         if (!restSpokeAny && restChunks.length > 0 && !hasEagerAudio) {
-          speakWithBrowser(text, ticket);
+          speakWithBrowser(text, ticket, female);
         } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
           // The phone blocked audio playback (autoplay policy) even though
           // synthesis succeeded — fall back to the browser voice so the
           // reply is still heard instead of going silent.
-          speakWithBrowser(text, ticket);
+          speakWithBrowser(text, ticket, female);
         }
         resumeContinuousAfterTts();
         return;
@@ -1575,7 +2213,7 @@ export default function ChatPage() {
       let spokeAny = false;
       for (const chunk of chunks) {
         if (speechStale()) return; // interrupted: not one more chunk is synthesized or played
-        const out = await synthesizeWithTimeout(chunk);
+        const out = await synthesizeWithTimeout(chunk, 12000, female);
         if (speechStale()) return;
         if (out) {
           spokeAny = true;
@@ -1586,10 +2224,10 @@ export default function ChatPage() {
       }
       if (speechStale()) return;
       if (!spokeAny) {
-        speakWithBrowser(text, ticket);
+        speakWithBrowser(text, ticket, female);
       } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
         // Same autoplay-block fallback as the prefetch path above.
-        speakWithBrowser(text, ticket);
+        speakWithBrowser(text, ticket, female);
       }
       resumeContinuousAfterTts();
       return;
@@ -1598,7 +2236,7 @@ export default function ChatPage() {
       setIsPreparingVoice(false);
     }
     if (speechStale()) return;
-    speakWithBrowser(text, ticket);
+    speakWithBrowser(text, ticket, female);
   }
 
   // ------------------------------------------------------------------
@@ -2777,28 +3415,8 @@ export default function ChatPage() {
           <img src="/logo.png" alt="Unique AI" className="jarvis-brand-logo" />
           <span className="jarvis-brand-title">Unique AI</span>
         </div>
-        <div className="jarvis-lang-chips" role="group" aria-label="زبان منتخب کریں">
-          {[
-            { v: 'auto', t: '🌐 Auto' },
-            { v: 'ur', t: 'اردو' },
-            { v: 'roman', t: 'Roman' },
-            { v: 'en', t: 'English' },
-            { v: 'ar', t: 'العربية' },
-          ].map((l) => (
-            <button
-              key={l.v}
-              type="button"
-              className={`lang-chip${chatLang === l.v ? ' active' : ''}`}
-              onClick={() => {
-                setChatLang(l.v);
-                try { localStorage.setItem('unique-ai-chat-lang', l.v); } catch { /* ignore */ }
-              }}
-              data-testid={`button-lang-${l.v}`}
-            >
-              {l.t}
-            </button>
-          ))}
-        </div>
+        {/* Language selection moved into Settings (Phase سادگی): the
+            top bar carries only the brand and the live status. */}
         <div className="jarvis-top-right">
           <span className={`jarvis-live-dot${busy || isSpeaking ? ' pulse' : ''}`} aria-hidden="true" />
           <span className="jarvis-live-text" dir="rtl" data-testid="status-assistant">{heroStatus}</span>
@@ -2851,46 +3469,23 @@ export default function ChatPage() {
             <AudioLines size={18} />
           </button>
           <button
-            className={`rail-btn${gesturesEnabled ? ' active' : ''}`}
-            onClick={(e) => { hideTipOnClick(e); setGesturesEnabled((v) => !v); }}
+            className={`rail-btn${agentTeamSceneOpen ? ' active' : ''}`}
+            onClick={(e) => { hideTipOnClick(e); setAgentTeamSceneOpen((v) => !v); }}
             onMouseLeave={restoreTipOnLeave}
-            aria-label={gesturesEnabled ? 'ہاتھ کے اشارے بند کریں' : 'ہاتھ کے اشارے چالو کریں'}
-            aria-pressed={gesturesEnabled}
-            data-tip="ہاتھ کے اشارے"
-            data-testid="button-gesture-toggle"
+            aria-label="ایجنٹ ٹیم دیکھیں"
+            aria-pressed={agentTeamSceneOpen}
+            data-tip="ایجنٹ ٹیم 🤖"
+            data-testid="button-agent-team"
           >
-            <Hand size={18} />
+            <Bot size={18} />
           </button>
-          <button
-            className="rail-btn"
-            onClick={(e) => { hideTipOnClick(e); setToolsPanelOpen((v) => !v); }}
-            onMouseLeave={restoreTipOnLeave}
-            aria-label="ٹولز کھولیں"
-            data-tip="ٹولز 🧰"
-            data-testid="button-open-tools"
-          >
-            <Wrench size={18} />
-          </button>
-          <button
-            className={`rail-btn${focusView === 'map' ? ' active' : ''}`}
-            onClick={(e) => { hideTipOnClick(e); setFocusView((v) => (v === 'map' ? null : 'map')); }}
-            onMouseLeave={restoreTipOnLeave}
-            aria-label="نقشہ کھولیں"
-            data-tip="نقشہ 🗺️"
-            data-testid="button-open-map"
-          >
-            <MapIcon size={18} />
-          </button>
-          <button
-            className={`rail-btn${focusView === 'whatsapp' ? ' active' : ''}`}
-            onClick={(e) => { hideTipOnClick(e); setFocusView((v) => (v === 'whatsapp' ? null : 'whatsapp')); }}
-            onMouseLeave={restoreTipOnLeave}
-            aria-label="WhatsApp کھولیں"
-            data-tip="WhatsApp 💬"
-            data-testid="button-open-whatsapp"
-          >
-            <MessageCircle size={18} />
-          </button>
+          {/* Phase سادگی: the rail keeps ONLY conversation essentials —
+              new chat, history, continuous voice, agent team. Gestures
+              moved into Settings (its toggle already lived there); the
+              tools button is GONE with the whole toolbox; map/WhatsApp
+              have no rail buttons — they open by voice («نقشہ دکھاؤ»,
+              «واٹس ایپ کھولو») as full-screen scenes. The ONE settings
+              button is the gear in the status panel. */}
         </nav>
 
         {/* LEFT: chat messages */}
@@ -2973,6 +3568,18 @@ export default function ChatPage() {
           </div>
           <div className="hero-name">
             <span className="hero-name-text">Unique AI</span>
+            {/* Persona indicator (Phase 2): who is "present" right now.
+                Defaults to Unique; shows Uniqa (and the tone, when set)
+                only while she is the active companion. */}
+            <span
+              className="hero-name-sub"
+              dir="rtl"
+              data-testid="persona-indicator"
+              style={{ color: persona === 'uniqa' ? '#f0a6c8' : undefined }}
+            >
+              {persona === 'uniqa' ? '💛 یونیکا حاضر ہے' : 'یونیک حاضر ہے'}
+              {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
+            </span>
             <span className="hero-name-sub" dir="rtl" data-testid="text-avatar-status">{heroStatus}</span>
           </div>
           <div className="hero-wave">
@@ -3080,6 +3687,18 @@ export default function ChatPage() {
           }}
           settings={appSettings}
           onSettingsChange={setAppSettings}
+          persona={persona}
+          onPersonaChange={changePersona}
+          tone={tone}
+          onToneChange={changeTone}
+          chatLang={chatLang}
+          onChatLangChange={(v: string) => {
+            setChatLang(v);
+            try { localStorage.setItem('unique-ai-chat-lang', v); } catch { /* ignore */ }
+          }}
+          onOpenPairing={() => setPairingOpen(true)}
+          onBackupDownload={() => { downloadBrainBackup(); }}
+          onBackupRestore={() => backupInputRef.current?.click()}
           onClearChat={() => {
             interruptSpeech(); // the cleared chat's reply stops with it
             if (activeConversation) {
@@ -3106,7 +3725,7 @@ export default function ChatPage() {
         <div className="focus-view" dir="rtl" role="region" aria-label="فوکس منظر" data-testid="panel-focus">
           <div className="focus-view-head">
             <span className="focus-view-title">
-              {focusView === 'map' ? '🗺️ نقشہ' : focusView === 'whatsapp' ? '💬 WhatsApp' : focusView === 'quran' ? '📖 قرآن پاک' : '🧰 ٹولز'}
+              {focusView === 'map' ? '🗺️ نقشہ' : focusView === 'whatsapp' ? '💬 WhatsApp' : '📖 قرآن پاک'}
             </span>
             <button type="button" className="focus-view-close" onClick={() => setFocusView(null)} aria-label="واپس جائیں" data-testid="button-focus-back">
               ✕ واپس
@@ -3116,25 +3735,49 @@ export default function ChatPage() {
             {focusView === 'map' && <MapWidget />}
             {focusView === 'whatsapp' && <WhatsAppSender />}
             {focusView === 'quran' && <QuranReader autoplayRequest={quranAutoplayReq} />}
-            {focusView === 'tools' && (
-              <ToolsPanel
-                onSelect={(tool) => { setFocusView(null); setToolSection(undefined); setMediaTool(tool); }}
-                onBrainTool={(example) => { setFocusView(null); setDraft(example); textareaRef.current?.focus(); }}
-                onOpenMap={() => setFocusView('map')}
-                onPairDevices={() => { setFocusView(null); setPairingOpen(true); }}
-              />
-            )}
+            {/* No 'tools' focus scene any more — the toolbox is gone;
+                capabilities open as overlays from the brain's actions. */}
           </div>
         </div>
       )}
 
-      {/* ======= Overlays: builders, tools, gestures, history ======= */}
-      {projectBuild && (
-        <ProjectBuilder description={projectBuild.description} onClose={() => setProjectBuild(null)} />
-      )}
+      {/* ======= Overlays: builders, agent team, result cards, media UIs, gestures, history ======= */}
       {appBuild && (
         <AppBuilder description={appBuild.description} onClose={() => setAppBuild(null)} />
       )}
+      {/* Helper-agent team (Task D) — on the MAIN CHAT screen: the live
+          strip while several real actions run, and the team roster
+          scene opened from the 🤖 rail button. */}
+      {agentTeam && (
+        <AgentTeamStrip tasks={agentTeam} onClose={() => setAgentTeam(null)} />
+      )}
+      {agentTeamSceneOpen && (
+        <AgentTeamScene
+          tasks={agentTeam}
+          persona={persona}
+          boardEntries={boardEntries}
+          buildLive={buildLive}
+          onClose={() => setAgentTeamSceneOpen(false)}
+        />
+      )}
+      {toolActions && toolActions.map((multiAction, i) => (
+        <ToolResults
+          key={`${multiAction.type}-${i}`}
+          action={multiAction}
+          onClose={() => {
+            setToolActions((current) => {
+              const next = (current || []).filter((_, j) => j !== i);
+              return next.length ? next : null;
+            });
+          }}
+          onTimerDone={() => {
+            void playAssistantMessage('ٹائمر ختم ہو گیا!');
+          }}
+          onBuildReady={handleBuildReady}
+          onBuildFailed={handleBuildFailed}
+          onBuildSettled={handleBuildSettled}
+        />
+      ))}
       {toolAction && (
         <ToolResults
           action={toolAction}
@@ -3142,6 +3785,9 @@ export default function ChatPage() {
           onTimerDone={() => {
             void playAssistantMessage('ٹائمر ختم ہو گیا!');
           }}
+          onBuildReady={handleBuildReady}
+          onBuildFailed={handleBuildFailed}
+          onBuildSettled={handleBuildSettled}
         />
       )}
       {mediaTool && (
@@ -3153,27 +3799,10 @@ export default function ChatPage() {
           onClose={() => { setMediaTool(null); setToolPrefill(null); setToolSection(undefined); }}
         />
       )}
-      {toolsPanelOpen && (
-        <div className="tool-results" dir="rtl" data-testid="panel-tools" role="region" aria-label="ٹولز">
-          <div className="tool-results-head">
-            <span className="tool-results-title">🧰 ٹولز</span>
-            <button type="button" className="tool-results-close" onClick={() => setToolsPanelOpen(false)} aria-label="بند کریں">
-              ✕
-            </button>
-          </div>
-          <div className="tool-results-body">
-            <ToolsPanel
-              onSelect={(tool) => { setToolsPanelOpen(false); setToolSection(undefined); setMediaTool(tool); }}
-              onBrainTool={(example) => { setToolsPanelOpen(false); setDraft(example); textareaRef.current?.focus(); }}
-              onOpenMap={() => { setToolsPanelOpen(false); setFocusView('map'); }}
-              onPairDevices={() => { setToolsPanelOpen(false); setPairingOpen(true); }}
-            />
-          </div>
-        </div>
-      )}
-
       {/* Device pairing: stays mounted while linked so incoming
-          conversations/commands arrive even with the panel closed. */}
+          conversations/commands arrive even with the panel closed.
+          Its entry point lives in Settings (📱 ڈیوائس جوڑیں) — the
+          only settings button on the screen — plus ?pair=CODE links. */}
       <DevicePairing
         open={pairingOpen}
         onClose={() => setPairingOpen(false)}
@@ -3182,13 +3811,68 @@ export default function ChatPage() {
         getConversation={getPairingConversation}
         onReceiveConversation={handleReceivedConversation}
         onRemoteCommand={handleRemoteCommand}
+        onCallUtterance={handleCallUtterance}
+        onCallReply={handleCallReply}
+        onCallStateChange={handleCallStateChange}
+        callControlRef={callControlRef}
       />
+
+      {/* Brain backup restore (Phase 4): the hidden picker — opened
+          by the Settings button or the «بیک اپ واپس لاؤ» voice
+          command; the pick itself is always the user's own tap. */}
+      <input
+        ref={backupInputRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: 'none' }}
+        onChange={(event) => void handleBackupFilePicked(event)}
+        data-testid="input-backup-file"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+      {pendingRestore && (
+        <div
+          className="history-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setPendingRestore(null);
+          }}
+        >
+          <section className="backup-dialog" dir="rtl" role="alertdialog" aria-label="بیک اپ بحالی کی تصدیق" data-testid="dialog-backup-restore">
+            <div className="backup-dialog-title">🧠 بیک اپ واپس لائیں؟</div>
+            <div className="tool-small-note">
+              فائل: <span dir="ltr">{pendingRestore.fileName}</span>
+              {pendingRestore.summary.createdAt
+                ? ` — بنی تھی: ${new Date(pendingRestore.summary.createdAt).toLocaleString()}`
+                : ''}
+            </div>
+            <ul className="backup-dialog-list">
+              <li>💬 گفتگوئیں: {pendingRestore.summary.conversations}</li>
+              <li>📝 یادیں / نوٹس: {pendingRestore.summary.notes}</li>
+              <li>🗂️ کل محفوظ اندراجات: {pendingRestore.summary.totalEntries}</li>
+            </ul>
+            <p className="backup-dialog-warn">
+              اس سے اس ڈیوائس کی موجودہ گفتگوئیں، یادیں اور سیٹنگز اس فائل والی حالت سے <strong>بدل جائیں گی</strong>۔
+              API keys نہیں بدلیں گی — وہ اس فائل میں شامل ہی نہیں ہوتیں، اور اس ڈیوائس پر موجود keys ویسے ہی رہیں گی
+              (نئی ڈیوائس پر بحالی کے بعد keys ایک بار دوبارہ ڈالنی ہوں گی)۔
+            </p>
+            <div className="backup-dialog-actions">
+              <button type="button" className="backup-confirm-btn" onClick={confirmBackupRestore} data-testid="button-backup-confirm">
+                ہاں، واپس لائیں
+              </button>
+              <button type="button" className="backup-cancel-btn" onClick={() => setPendingRestore(null)} data-testid="button-backup-cancel">
+                منسوخ
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {gesturesEnabled && (
         <div className="gesture-pip" dir="rtl" data-testid="panel-gestures" aria-label="ہاتھ کے اشارے">
           <div className="gesture-pip-head">
             <span className="gesture-pip-title">اشارے</span>
-            <button className="gesture-pip-close" onClick={() => setGesturesEnabled(false)} aria-label="اشارے بند کریں" data-testid="button-close-gestures">
+            <button className="gesture-pip-close" onClick={() => { setGesturesEnabled(false); setAppSettings((s: any) => ({ ...s, gesturesEnabled: false })); }} aria-label="اشارے بند کریں" data-testid="button-close-gestures">
               <X size={13} />
             </button>
           </div>
