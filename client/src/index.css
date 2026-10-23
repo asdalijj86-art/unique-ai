@@ -1229,8 +1229,9 @@ body {
 
 /* داخلی بورڈ — the «Unique AI» entrance sign (user's reference
    image, 2026-10-23 — OUR brand on the board, in purple neon like
-   the picture's entrance), planters at its sides. On the floor it
-   hangs on the window wall (.floor-sign). */
+   the picture's entrance), planters at its sides. It now stands
+   in the org strip above the floor (.office-orgstrip), flanked
+   by the باس / مینیجر chips. */
 .office-sign {
   display: flex; align-items: center; justify-content: center; gap: 10px;
   width: fit-content; max-width: 100%;
@@ -1248,11 +1249,32 @@ body {
 }
 .office-sign-sub { font-size: 10.5px; color: #c4b5fd; }
 .office-sign-plant { font-size: 15px; }
-.office-orgline {
-  text-align: center; font-size: 11.5px; color: #ddd6fe;
-  margin-bottom: 10px; opacity: .92;
+/* سرخی پٹی — the ORG STRIP above the floor (cleanup round,
+   user 2026-10-24 00:34): باس on one side of the «Unique AI»
+   sign, مینیجر on the other, ٹیم + the hosts' presence line in
+   the row beneath — each written separately, fully readable,
+   in normal flow so nothing can ever overlap. (The old org
+   LINE squatted at the scene's bottom edge and hid names.) */
+.floor-wrap { container-type: inline-size; }
+.office-orgstrip {
+  margin-bottom: 6px; padding: 6px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(167, 139, 250, .35);
+  background: linear-gradient(180deg, rgba(30, 18, 58, .55), rgba(10, 8, 24, .55));
 }
-.office-orgline-sep { opacity: .45; margin: 0 2px; }
+.office-orgstrip-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.office-orgstrip-row-sub { justify-content: center; margin-top: 4px; }
+.office-orgstrip .office-sign { margin: 0; }
+.office-org-item {
+  font-size: clamp(10px, 2.6cqw, 13.5px); font-weight: 700; color: #ede9fe; white-space: nowrap;
+  background: rgba(76, 29, 149, .35); border: 1px solid rgba(167, 139, 250, .45);
+  padding: 2px 10px; border-radius: 999px; line-height: 1.6;
+}
+.office-org-boss { color: #bae6fd; border-color: rgba(125, 211, 252, .5); }
+.office-org-manager { color: #fde68a; border-color: rgba(253, 224, 71, .45); }
+.office-org-team, .office-org-status { font-weight: 600; }
+.office-org-status { color: #c4b5fd; }
+.office-org-status-duo { color: #fde68a; border-color: rgba(253, 224, 71, .6); }
 
 /* ======= زندہ فرش — the LIVING FLOOR (Round 4, the user's video) =======
    One top-down illustrated office floor: warm wooden planks, a
@@ -1310,16 +1332,8 @@ body {
     radial-gradient(circle at 7px 3px, #4c8a41 4.5px, rgba(76, 138, 65, 0) 5.5px) 0 0 / 15px 100% repeat-x,
     linear-gradient(180deg, rgba(46, 96, 40, .0), rgba(40, 84, 34, .9));
 }
-.floor-sign {
-  position: absolute; top: 1.1%; left: 50%; transform: translateX(-50%);
-  margin: 0; z-index: 40; white-space: nowrap;
-}
-.floor-orgline {
-  position: absolute; left: 50%; transform: translateX(-50%); bottom: 0.7%;
-  margin: 0; z-index: 40; white-space: nowrap;
-  background: rgba(24, 12, 2, .55); padding: 2px 10px; border-radius: 999px;
-  font-size: clamp(8.5px, 2.4cqw, 12px);
-}
+/* (The in-scene sign + bottom orgline are GONE — both live in
+   the org strip above the floor now; see .office-orgstrip.) */
 
 /* Zones: tinted rugs with a plaque, like the video's floor labels.
    --neon is ONE brand violet for every agent zone (user, 2026-10-24:
@@ -1339,6 +1353,15 @@ body {
   border: 1px solid color-mix(in srgb, var(--neon, #a78bfa) 55%, transparent);
   padding: 0 8px; border-radius: 999px; line-height: 1.55;
 }
+/* FRONT-row zones (حساب کتاب / بلڈر) wear their plaque at the
+   TOP (cleanup round, geometry-audited): these zones are short
+   and their desk stack (character + deskbar + computer in front)
+   fills the bottom — a bottom plaque there was painted over by
+   the monitor and the deskbar. The top band is the one clear
+   slot: below the agent's floating name pill, above his
+   computer. Like a sign over the desk. */
+.floor-zone-hisab-kitab .floor-zone-label { bottom: auto; top: 3px; }
+.floor-zone-builder .floor-zone-label { bottom: auto; top: 4px; left: 47%; }
 .floor-zone-working {
   border-color: rgba(251, 191, 36, .85);
   box-shadow: 0 0 16px rgba(251, 191, 36, .35), inset 0 0 24px -8px rgba(251, 191, 36, .55);
@@ -1349,10 +1372,8 @@ body {
   border-color: rgba(253, 224, 71, .8);
   box-shadow: 0 0 20px rgba(253, 224, 71, .30), inset 0 0 24px -8px rgba(253, 224, 71, .5);
 }
-.floor-zone-plant {
-  position: absolute; bottom: 2px; inset-inline-start: 4px;
-  font-size: clamp(9px, 2.4cqw, 15px); opacity: .85;
-}
+/* (No per-zone plant: it sat in the plaques' corner in zone
+   after zone — declutter law, 2026-10-24.) */
 /* Desks: a front bar + the desk COMPUTER, rendered in the scene's
    furniture layer OVER the seated character's legs — the monitor
    stands on the desk directly IN FRONT of its person (user,
@@ -1392,16 +1413,16 @@ body {
   font-size: clamp(11px, 2.8cqw, 20px);
   filter: drop-shadow(0 0 5px rgba(167, 139, 250, .65));
 }
-.floor-hosts-status {
-  position: absolute; bottom: 3px; right: 7px;
-  font-size: clamp(8px, 2.1cqw, 11.5px); color: #ffe9b0; white-space: nowrap; opacity: .92;
-}
+/* (The hosts' presence line moved to the org strip —
+   .office-org-status — out of this narrow zone for good.) */
 /* Zone props: media wall screen, server racks, prayer corner,
    meeting table, plaza sofa + board kiosk, coffee corner. */
 .floor-media-screen {
-  position: absolute; right: 5%; top: 15%; width: 27%; aspect-ratio: 16 / 10;
-  border: 2px solid rgba(251, 146, 60, .6); border-radius: 5px; overflow: hidden;
-  background: linear-gradient(180deg, rgba(60, 30, 8, .9), rgba(10, 8, 20, .95));
+  /* On the media zone's LEFT wall, clear of حمزہ's floating
+     name label (cleanup round — it crowded him on the right). */
+  position: absolute; left: 2.5%; top: 11%; width: 27%; aspect-ratio: 16 / 10;
+  border: 2px solid rgba(167, 139, 250, .55); border-radius: 5px; overflow: hidden;
+  background: linear-gradient(180deg, rgba(43, 58, 102, .9), rgba(10, 8, 20, .95));
 }
 .floor-racks { position: absolute; right: 4%; top: 17%; display: flex; gap: 3px; }
 .floor-rack {
@@ -1414,11 +1435,16 @@ body {
 .floor-rack i:nth-child(2) { background: rgba(251, 191, 36, .85); animation-delay: .5s; }
 .floor-rack i:nth-child(3) { background: rgba(125, 211, 252, .85); animation-delay: 1.1s; }
 .floor-quran-rug {
-  position: absolute; right: 6%; bottom: 9%;
-  font-size: clamp(12px, 3cqw, 22px); padding: 1px 7px;
-  background: rgba(6, 40, 24, .55); border: 1px solid rgba(52, 211, 153, .5); border-radius: 6px;
+  /* یوسف's mosque: his zone's clear TOP-LEFT corner — bigger
+     and plainly visible, touching neither his floating name
+     (centred over his desk) nor the «قرآن و نماز» plaque at the
+     zone's bottom (cleanup round, user 2026-10-24 00:38/00:41:
+     the old bottom-right spot hid his text). */
+  position: absolute; left: 3%; top: 11%;
+  font-size: clamp(16px, 4.2cqw, 30px); line-height: 1.25; padding: 1px 7px;
+  background: rgba(6, 40, 24, .6); border: 1px solid rgba(52, 211, 153, .55); border-radius: 7px;
 }
-.floor-meeting-table { position: absolute; left: 50%; top: 55%; transform: translate(-50%, -50%); width: 66%; height: 54%; }
+.floor-meeting-table { position: absolute; left: 50%; top: 43%; transform: translate(-50%, -50%); width: 62%; height: 36%; }
 .fmt-surface {
   position: absolute; inset: 19% 9%;
   background: linear-gradient(180deg, #7a4a22, #5f3a1a);
@@ -1441,7 +1467,27 @@ body {
 .floor-kiosk-count { font-size: clamp(7.5px, 2cqw, 11px); opacity: .85; white-space: nowrap; }
 .floor-kiosk-glow { animation: kiosk-glow .8s ease-in-out 1; }
 @keyframes kiosk-glow { 40% { box-shadow: 0 0 24px rgba(251, 191, 36, .9); border-color: #fde68a; } }
-.floor-coffee { position: absolute; left: 6%; bottom: 11%; font-size: clamp(12px, 3.2cqw, 22px); }
+/* The coffee corner café set (rebuilt, user 2026-10-24 00:42):
+   a round table with its cup ON it and a chair on each side —
+   arranged AROUND the table like a real coffee spot, standing
+   in the zone's upper middle with the «کافی» plaque far below
+   it, untouched. (The old emoji cluster sat on the writing.) */
+.floor-coffee-set {
+  position: absolute; left: 50%; top: 28%; transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: clamp(3px, 1cqw, 7px);
+}
+.fcs-table {
+  width: clamp(24px, 6.6cqw, 48px); aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #a06a30, #7a4a22 72%);
+  border: 1.5px solid rgba(255, 220, 160, .35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .4);
+  display: grid; place-items: center;
+}
+.fcs-cup { font-size: clamp(10px, 2.8cqw, 20px); line-height: 1; }
+.fcs-chair {
+  width: clamp(9px, 2.5cqw, 18px); height: clamp(12px, 3.2cqw, 24px);
+  background: rgba(30, 20, 10, .7); border: 1px solid rgba(255, 220, 160, .35); border-radius: 3px;
+}
 
 /* ======= کردار — the cartoon PEOPLE on the floor =======
    Each character is a button anchored by its FEET (translate
@@ -1518,7 +1564,8 @@ body {
   border: 1.5px dashed rgba(253, 224, 71, .4); border-radius: 8px;
   padding: 1px 5px; background: rgba(20, 14, 2, .35);
 }
-.floor-char-label-ghost { opacity: .55; }
+/* (The empty-chair ghost label is gone — the chair carries no
+   text now; see FloorScene's office-uniqa-seat note.) */
 
 /* The screens' glowing content lines (desk computers + the media
    corner's wall screen share this face). */
@@ -1618,9 +1665,10 @@ body {
 .office-panel .office-rest-row { margin-bottom: 4px; }
 .floor-compact .office-sign-sub { display: none; }
 .floor-compact .office-sign-brand { font-size: 13px; }
-.floor-compact .floor-sign { padding: 3px 9px; gap: 6px; }
+.floor-compact .office-orgstrip .office-sign { padding: 3px 9px; gap: 6px; }
 .floor-compact .office-sign-plant { font-size: 11px; }
-.floor-compact .floor-orgline { font-size: 9px; padding: 1px 7px; }
+.floor-compact .office-orgstrip { padding: 4px 6px; }
+.floor-compact .office-org-item { font-size: 9.5px; padding: 1px 7px; }
 
 /* File handoff (Round 4): no fly-chip layer any more — on a real
    transition the sender's own character WALKS the 📄 across the
@@ -1704,7 +1752,8 @@ body {
   background: transparent; color: #e9d5ff; border: 1px solid rgba(233, 213, 255, .35);
   border-radius: 10px; padding: 10px 16px; font-size: 14px; cursor: pointer;
 }
-/* Bottom-row plaques ride a little higher so the org-line inlay
-   along the floor's bottom edge never covers them. */
-.floor-zone-hisab-kitab .floor-zone-label,
-.floor-zone-builder .floor-zone-label { bottom: 13%; }
+/* (GONE: the old «bottom-row plaques ride higher» rule — it
+   existed only to dodge the org-line inlay along the floor's
+   bottom edge. The org line is deleted (org strip on top now)
+   and the front-row plaques live at their zones' tops — see
+   the .floor-zone-label rules in the floor section.) */

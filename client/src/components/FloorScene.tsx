@@ -47,6 +47,23 @@
  * per character, transforms/opacity only besides that — a low-end
  * Chromebook stays smooth. Reduced motion: no strolls, walks
  * teleport with a fade.
+ *
+ * صفائی (CLEANUP ROUND, user 2026-10-24 00:34/00:41/00:42 — he
+ * inspected the screenshots closely and taught: «یہ چیزیں تم خود
+ * دیکھ لیا کرو»): (1) the org line no longer squats at the scene's
+ * bottom edge hiding names — the hierarchy stands in a clear TOP
+ * STRIP above the floor: باس on one side of the «Unique AI» sign,
+ * مینیجر on the other, ٹیم + the hosts' presence line beneath,
+ * each written separately and fully readable; (2) DECLUTTER LAW —
+ * no prop may cover any name label or zone plaque, anywhere:
+ * props live in clear corners of their zone or are gone (zone
+ * plants removed, the hosts' mic sits on the desk clear of text,
+ * یوسف's mosque moved to his zone's clear top-left corner —
+ * bigger, visible, touching neither his name nor his plaque —
+ * حمزہ's wall screen moved to his zone's left wall, the meeting
+ * table shrunk off its plaque, and the coffee corner rebuilt as
+ * a real little café set — table with chairs around it — with
+ * the «کافی» plaque completely untouched).
  */
 import { useEffect, useRef, useState } from 'react';
 import { AGENT_DEFS, type AgentTaskState } from '@/lib/agent-team';
@@ -346,30 +363,55 @@ export function FloorScene(props: FloorSceneProps) {
     );
   };
 
+  const duoNow = persona === 'uniqa';
   return (
+    <div className={`floor-wrap${compact ? ' floor-compact' : ''}`}>
+      {/* سرخی پٹی — the ORG STRIP above the floor (user, 2026-10-24
+          00:34): the hierarchy at the very TOP, each name written
+          separately and fully readable — باس on one side of the
+          «Unique AI» sign, مینیجر on the other, ٹیم + the hosts'
+          presence line in the row beneath. Nothing org-related
+          remains at the scene's bottom edge. */}
+      <div className="office-orgstrip" data-testid="office-orgstrip">
+        <div className="office-orgstrip-row">
+          <span className="office-org-item office-org-boss" data-testid="org-boss">👑 باس: یونیک</span>
+          <div className="office-sign" aria-hidden="true">
+            <span className="office-sign-plant">🪴</span>
+            <span className="office-sign-text">
+              <span className="office-sign-brand" dir="ltr">Unique AI</span>
+              <span className="office-sign-sub">آفس اسسٹنٹ — ایجنٹ ٹیم</span>
+            </span>
+            <span className="office-sign-plant">🪴</span>
+          </div>
+          <span className="office-org-item office-org-manager" data-testid="org-manager">💛 مینیجر: یونیکا</span>
+        </div>
+        <div className="office-orgstrip-row office-orgstrip-row-sub">
+          <span className="office-org-item office-org-team" data-testid="org-team">👥 ٹیم: 7 ایجنٹ</span>
+          <span
+            className={`office-org-item office-org-status${duoNow ? ' office-org-status-duo' : ''}`}
+            data-testid="org-hosts-status"
+            aria-hidden="true"
+          >
+            {duoNow ? 'دونوں حاضر ہیں 💛' : 'یونیک حاضر ہے'}
+          </span>
+        </div>
+      </div>
+
     <div
-      className={`floor-scene${anyWorking ? '' : ' floor-resting'}${compact ? ' floor-compact' : ''}`}
+      className={`floor-scene${anyWorking ? '' : ' floor-resting'}`}
       data-testid="office-floor"
       ref={wrapRef}
       role="group"
       aria-label="دفتر کا فرش — ایجنٹ اپنے زونز میں"
     >
-      {/* Back wall: windows with the city outside + planter hedge,
-          and the «Unique AI» entrance sign (our brand — the
-          reference picture's board, corrected per the user). */}
+      {/* Back wall: windows with the city outside + planter hedge.
+          (The «Unique AI» sign now stands in the org strip above
+          the floor — see the top of this render.) */}
       <div className="floor-wall" aria-hidden="true">
         <span className="floor-window"><span className="floor-skyline" /></span>
         <span className="floor-window floor-window-mid"><span className="floor-skyline" /></span>
         <span className="floor-window"><span className="floor-skyline" /></span>
         <span className="floor-hedge" />
-      </div>
-      <div className="office-sign floor-sign" aria-hidden="true">
-        <span className="office-sign-plant">🪴</span>
-        <span className="office-sign-text">
-          <span className="office-sign-brand" dir="ltr">Unique AI</span>
-          <span className="office-sign-sub">آفس اسسٹنٹ — ایجنٹ ٹیم</span>
-        </span>
-        <span className="office-sign-plant">🪴</span>
       </div>
 
       {/* Zones: rugs, plaques, desks and props (paint order). */}
@@ -379,7 +421,6 @@ export function FloorScene(props: FloorSceneProps) {
           zone={zone}
           working={zone.key !== 'hosts' && stateByKey.get(zone.key)?.status === 'working'}
           duo={zone.key === 'hosts' && persona === 'uniqa'}
-          persona={persona}
           boardCount={boardCount}
           kioskGlow={kioskGlow}
         />
@@ -431,20 +472,22 @@ export function FloorScene(props: FloorSceneProps) {
             data-testid="office-uniqa-seat"
             aria-hidden="true"
           >
+            {/* The empty chair carries NO text (cleanup round):
+                a name stack here has no collision-free slot at
+                panel scale — it lands in the monitors' band —
+                and her name already stands in the org strip
+                («مینیجر: یونیکا»). The dashed chair alone marks
+                her seat; when she is summoned her full labeled
+                character takes it. */}
             <span className="floor-empty-chair-icon">🪑</span>
-            <span className="floor-char-label floor-char-label-ghost">
-              <span className="floor-char-name">یونیکا</span>
-              <span className="floor-char-role">مینیجر</span>
-            </span>
           </span>
         )}
       {AGENT_DEFS.map((d) => renderChar(d.key, d.person, null))}
 
-      {/* Org line inlaid in the bottom walkway (user, 2026-10-23
-          21:56): یونیک سب کا باس, یونیکا سات ایجنٹوں کی مینیجر. */}
-      <div className="office-orgline floor-orgline" aria-hidden="true">
-        👑 باس: یونیک <span className="office-orgline-sep">•</span> 💛 مینیجر: یونیکا <span className="office-orgline-sep">•</span> 👥 ٹیم: 7 ایجنٹ
-      </div>
+      {/* NO org line at the bottom edge any more (user, 2026-10-24
+          00:34): the hierarchy lives in the org strip ABOVE the
+          floor — the bottom walkway stays clean floor. */}
+    </div>
     </div>
   );
 }
@@ -472,12 +515,11 @@ function FloorPC({ pcKey, x, y, z, on }: { pcKey: string; x: number; y: number; 
 /** One zone of the floor: rug, plaque, desk + props. Purely
  *  presentational — characters live in their own layer above. */
 function FloorZoneView({
-  zone, working, duo, persona, boardCount, kioskGlow,
+  zone, working, duo, boardCount, kioskGlow,
 }: {
   zone: FloorZone;
   working: boolean;
   duo: boolean;
-  persona: Persona;
   boardCount: number;
   kioskGlow: boolean;
 }) {
@@ -512,12 +554,14 @@ function FloorZoneView({
           furniture layer (see FloorPC) — the user's 23:41 order. */}
 
       {isHosts && (
-        <>
-          <span className="floor-hosts-mic" style={local({ x: 12.75, y: 26.4 })} aria-hidden="true">🎙️</span>
-          <span className="floor-hosts-status" aria-hidden="true">
-            {persona === 'uniqa' ? 'دونوں حاضر ہیں 💛' : 'یونیک حاضر ہے'}
-          </span>
-        </>
+        /* The desk mic (his standing spec) stands ON the desk,
+           centred between the two monitors — measured clear of
+           the «میزبان» plaque below and of both name labels
+           above (cleanup round, 2026-10-24; geometry audited in
+           cdp-verify-floor). The presence line («یونیک حاضر ہے» /
+           «دونوں حاضر ہیں») moved OUT of this narrow zone into
+           the org strip above the floor. */
+        <span className="floor-hosts-mic" style={local({ x: 12.75, y: 21.2 })} aria-hidden="true">🎙️</span>
       )}
 
       {zone.key === 'media' && <span className="floor-media-screen" aria-hidden="true"><span className="cabin-screen-lines" /></span>}
@@ -528,12 +572,12 @@ function FloorZoneView({
           <span className="floor-rack"><i /><i /><i /></span>
         </span>
       )}
-      {zone.key === 'quran-namaz' && <span className="floor-quran-rug" aria-hidden="true">🕌</span>}
+      {zone.key === 'quran-namaz' && <span className="floor-quran-rug" data-testid="floor-mosque" aria-hidden="true">🕌</span>}
       {zone.key === 'meeting' && (
         <span className="floor-meeting-table" aria-hidden="true">
           <i className="fmt-chair fmt-c1" /><i className="fmt-chair fmt-c2" /><i className="fmt-chair fmt-c3" />
           <i className="fmt-chair fmt-c4" /><i className="fmt-chair fmt-c5" /><i className="fmt-chair fmt-c6" />
-          <span className="fmt-surface">🌿</span>
+          <span className="fmt-surface" />
         </span>
       )}
       {zone.key === 'plaza' && (
@@ -551,8 +595,22 @@ function FloorZoneView({
           </span>
         </>
       )}
-      {zone.key === 'coffee' && <span className="floor-coffee" aria-hidden="true">☕ 🪑🪑</span>}
-      <span className="floor-zone-plant" aria-hidden="true">🪴</span>
+      {zone.key === 'coffee' && (
+        /* The coffee corner rebuilt as a real little café set
+           (user, 2026-10-24 00:42): a round table with its cup,
+           chairs arranged AROUND the table — the old emoji
+           cluster sat ON the «کافی» writing («چائے کے ساتھ پودا
+           بھی کھایا جائے، واہ») — the set now stands in the
+           zone's upper middle and the plaque stays untouched. */
+        <span className="floor-coffee-set" data-testid="floor-coffee-set" aria-hidden="true">
+          <i className="fcs-chair fcs-chair-a" />
+          <span className="fcs-table"><span className="fcs-cup">☕</span></span>
+          <i className="fcs-chair fcs-chair-b" />
+        </span>
+      )}
+      {/* NO per-zone plant any more (declutter law, 2026-10-24):
+          the 🪴 sat in the plaques' corner in zone after zone.
+          Plants live on the sign and the wall hedge only. */}
     </div>
   );
 }

@@ -13,7 +13,7 @@
  * whole office; ONE identical office uniform for all 7 agents).
  * This verifier now proves HUMANS, not robots:
  *  A) On load, the main-screen panel shows ONE floor scene: the
- *     «Unique AI» sign on the window wall, the org line, 11 labeled
+ *     «Unique AI» sign in the org strip above it, 11 labeled
  *     zones, the آج کا بورڈ block + plaza kiosk, and 8 CARTOON HUMAN
  *     characters (باس یونیک at the hosts' desk + 7 agents) — each a
  *     person SVG with face + hair (person-eyes/person-head present),
@@ -47,6 +47,26 @@
  *     chair again and her computer dims.
  *  F) Phone width: chat stays usable and the floor lives below it.
  *
+ * CLEANUP ROUND (2026-10-24 00:34/00:41/00:42) additions — the
+ * user's screenshot inspection («یہ چیزیں تم خود دیکھ لیا کرو»):
+ *  G) The org line is GONE from the scene's bottom edge; instead
+ *     an ORG STRIP stands ABOVE the floor (in flow, never inside
+ *     the scene): باس: یونیک on one side of the «Unique AI» sign,
+ *     مینیجر: یونیکا on the other, ٹیم: 7 ایجنٹ + the hosts'
+ *     presence line in the row beneath — separate elements, and
+ *     NO org text anywhere inside the scene.
+ *  H) DECLUTTER GEOMETRY AUDIT: for every text element on the
+ *     floor (every zone plaque, every SEATED character's name/
+ *     role label, the board kiosk's texts) assert ZERO rectangle
+ *     intersection with every prop (desk computers, deskbars,
+ *     the hosts' mic, یوسف's mosque, حمزہ's wall screen, server
+ *     racks, sofa, the meeting table set, the coffee set). Any
+ *     collision is NAMED in the failure output.
+ *  I) COFFEE CORNER: a café set (round table + cup + 2 chairs
+ *     around it) exists and never touches the «کافی» plaque.
+ *  J) MOSQUE: 🕌 present, SIZED (a real marker, not a speck),
+ *     in یوسف's zone, zero overlap with his name + his plaque.
+ *
  * TRANSPORT NOTE (environment, 2026-10-23): this sandbox's Chromium
  * 152 blocks ALL loopback page loads with
  * ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS, so every request the
@@ -58,7 +78,7 @@
  * answered with exact ChatAction shapes) — the same model seam the
  * other verifiers stub, since no Gemini key exists in the sandbox.
  *
- * Screenshots land in the goal's office-people-verify folder.
+ * Screenshots land in the goal's office-cleanup-verify folder.
  * Prereqs: client built (server/dist), chrome at /opt/meta-chromium/chrome.
  * Run: node server/cdp-verify-floor.mjs   (from repo root)
  */
@@ -72,7 +92,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = 5221;
 const CDP_PORT = 9341;
 const APP = `http://127.0.0.1:${APP_PORT}`;
-const OUT = '/home/hatch/workspace/goals/unique-ai-project-completion/hidden_files/office-people-verify';
+const OUT = '/home/hatch/workspace/goals/unique-ai-project-completion/hidden_files/office-cleanup-verify';
 mkdirSync(OUT, { recursive: true });
 
 let failed = 0;
@@ -254,13 +274,33 @@ try {
     const q = (s) => document.querySelector('${SCOPE}' + s);
     const qa = (s) => [...document.querySelectorAll('${SCOPE}' + s)];
     const sign = q('.office-sign-brand');
-    const org = q('.office-orgline');
     const hosts = q('[data-testid="office-hosts-cabin"]');
     const uniq = q('[data-testid="floor-char-unique"]');
     const panel = document.querySelector('[data-testid="panel-office-main"]');
     const scene = q('.floor-scene');
     const sr = scene.getBoundingClientRect();
     const fpt = (fx, fy) => ({ x: sr.left + (fx / 100) * sr.width, y: sr.top + (fy / 75) * sr.height });
+    // ORG STRIP (cleanup round): above the scene, in flow — the
+    // boss/manager/team items are separate elements flanking the
+    // sign; NOTHING org-related may remain inside the scene.
+    const strip = q('.office-orgstrip');
+    const stripInfo = strip ? (() => {
+      const srect = strip.getBoundingClientRect();
+      const boss = strip.querySelector('[data-testid="org-boss"]');
+      const manager = strip.querySelector('[data-testid="org-manager"]');
+      const team = strip.querySelector('[data-testid="org-team"]');
+      const status = strip.querySelector('[data-testid="org-hosts-status"]');
+      return {
+        insideScene: !!strip.closest('.floor-scene'),
+        aboveScene: srect.bottom <= sr.top + 2,
+        boss: boss ? boss.textContent.replace(/\\s+/g, ' ').trim() : null,
+        manager: manager ? manager.textContent.replace(/\\s+/g, ' ').trim() : null,
+        team: team ? team.textContent.replace(/\\s+/g, ' ').trim() : null,
+        status: status ? status.textContent.replace(/\\s+/g, ' ').trim() : null,
+        separate: !!(boss && manager && team && boss !== manager && boss !== team),
+      };
+    })() : null;
+    const sceneOrgText = scene.textContent.includes('باس: یونیک') || scene.textContent.includes('مینیجر: یونیکا') || scene.textContent.includes('ٹیم: 7 ایجنٹ');
     const personOf = (el) => {
       const svg = el.querySelector('.floor-person-svg');
       if (!svg) return null;
@@ -333,7 +373,8 @@ try {
     };
     return {
       sign: sign ? sign.textContent.trim() : null,
-      org: org ? org.textContent.replace(/\\s+/g, ' ').trim() : null,
+      strip: stripInfo,
+      sceneOrgText,
       zones: qa('.floor-zone').length,
       zoneLabels: qa('.floor-zone-label').map((e) => e.textContent.trim()),
       hostsAnchor: hosts ? hosts.getAttribute('data-handoff-anchor') : null,
@@ -357,9 +398,16 @@ try {
       workingZones: qa('.floor-zone-working').length,
     };
   })()`);
-  check('«Unique AI» sign hangs on the floor wall', a.sign === 'Unique AI', a.sign || 'missing');
-  check('org line: باس یونیک • مینیجر یونیکا • ٹیم 7 ایجنٹ',
-    !!a.org && a.org.includes('باس: یونیک') && a.org.includes('مینیجر: یونیکا') && a.org.includes('7 ایجنٹ'), a.org || 'missing');
+  check('«Unique AI» sign stands in the org strip', a.sign === 'Unique AI', a.sign || 'missing');
+  check('ORG STRIP at the TOP (cleanup round): above the scene, NOT inside it — باس one side, مینیجر other, ٹیم + presence line, all separate',
+    !!a.strip && !a.strip.insideScene && a.strip.aboveScene && a.strip.separate
+      && !!a.strip.boss && a.strip.boss.includes('باس: یونیک')
+      && !!a.strip.manager && a.strip.manager.includes('مینیجر: یونیکا')
+      && !!a.strip.team && a.strip.team.includes('7 ایجنٹ')
+      && !!a.strip.status && a.strip.status.includes('یونیک حاضر ہے'),
+    JSON.stringify(a.strip));
+  check('NOTHING org-related inside the scene (bottom edge clean of باس/مینیجر/ٹیم text)',
+    a.sceneOrgText === false, `sceneOrgText=${a.sceneOrgText}`);
   check('11 labeled zones on the floor (hosts + 7 agents + meeting + plaza + coffee)',
     a.zones === 11 && a.zoneLabels.includes('میڈیا') && a.zoneLabels.includes('بلڈر') && a.zoneLabels.includes('قرآن و نماز'),
     `zones=${a.zones} labels=${a.zoneLabels.join('/')}`);
@@ -398,6 +446,73 @@ try {
     JSON.stringify(Object.fromEntries(Object.entries(a.pcs).map(([k, p]) => [k, p && p.on]))));
   check('آج کا بورڈ block + plaza kiosk (data-handoff-anchor=board) present', a.board && a.kiosk === 'board');
 
+  // ================= H) DECLUTTER GEOMETRY AUDIT =================
+  // The user's law (2026-10-24 00:41): every name + duty text on
+  // the floor stands COMPLETELY clear — no prop over any text.
+  // Rects are measured live in the panel: every zone plaque,
+  // every SEATED character's name/role label (feet within 3% of
+  // scene width of his chair — a strolling char's label is
+  // transient and paints above props anyway) and the kiosk's
+  // texts are tested against every prop rect. >1px of shared
+  // area on BOTH axes = a collision, and it is NAMED.
+  const audit = await ev(`(() => {
+    const q = (s) => document.querySelector('${SCOPE}' + s);
+    const qa = (s) => [...document.querySelectorAll('${SCOPE}' + s)];
+    const scene = q('.floor-scene');
+    const sr = scene.getBoundingClientRect();
+    const R = (el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+    const hits = (x, y) => (Math.min(x.r, y.r) - Math.max(x.l, y.l)) > 1 && (Math.min(x.b, y.b) - Math.max(x.t, y.t)) > 1;
+    const labels = [];
+    for (const el of qa('.floor-zone-label')) labels.push(['plaque:' + el.textContent.trim(), R(el)]);
+    for (const el of qa('.floor-kiosk-title, .floor-kiosk-count')) labels.push(['kiosk:' + el.textContent.trim(), R(el)]);
+    const chairs = { unique: [10.4, 21.4], uniqa: [15.1, 21.4] };
+    for (const [k, [dx, dy, cy]] of Object.entries(${JSON.stringify(DESKS)})) chairs[k] = [dx, cy];
+    const feetOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height * 0.86 }; };
+    const seatedKeys = [];
+    for (const [k, [cx, cy]] of Object.entries(chairs)) {
+      const ch = q('[data-testid="floor-char-' + k + '"]');
+      if (!ch) continue; // Uniqa absent: her ghost label rides the empty-chair element, checked below
+      const f = feetOf(ch);
+      const want = { x: sr.left + (cx / 100) * sr.width, y: sr.top + (cy / 75) * sr.height };
+      if (Math.hypot(f.x - want.x, f.y - want.y) > sr.width * 0.03) continue;
+      seatedKeys.push(k);
+      const nm = ch.querySelector('.floor-char-name');
+      if (nm) labels.push(['name:' + k, R(nm)]);
+      const rl = ch.querySelector('.floor-char-role');
+      if (rl) labels.push(['role:' + k, R(rl)]);
+    }
+    // Uniqa's empty chair carries NO text by design (cleanup
+    // round): her name stands in the org strip, and a label at
+    // her seat has no collision-free slot in the monitors' band.
+    const ghost = q('[data-testid="office-uniqa-seat"] .floor-char-name');
+    if (ghost) labels.push(['name:uniqa-ghost', R(ghost)]);
+    const propSel = '.floor-pc, .floor-deskbar, .floor-hosts-mic, .floor-quran-rug, .floor-media-screen, .floor-racks, .floor-sofa, .floor-coffee-set, .floor-meeting-table, .floor-zone-plant';
+    const props = [];
+    for (const el of qa(propSel)) {
+      const id = (el.getAttribute('data-testid') || el.className.split(' ')[0]);
+      props.push([id, R(el)]);
+    }
+    const collisions = [];
+    for (const [ln, lr] of labels) for (const [pn, pr] of props) if (hits(lr, pr)) collisions.push(ln + ' × ' + pn);
+    const mosque = q('[data-testid="floor-mosque"]');
+    const mosqueInfo = mosque ? (() => { const r = mosque.getBoundingClientRect(); return { w: r.width, h: r.height }; })() : null;
+    const coffeeSet = q('[data-testid="floor-coffee-set"]');
+    const coffeeInfo = coffeeSet ? {
+      table: !!coffeeSet.querySelector('.fcs-table'),
+      cup: !!coffeeSet.querySelector('.fcs-cup'),
+      chairs: coffeeSet.querySelectorAll('.fcs-chair').length,
+    } : null;
+    return { collisions, seatedKeys, mosqueInfo, coffeeInfo, propCount: props.length, labelCount: labels.length };
+  })()`);
+  check('DECLUTTER AUDIT: ZERO overlap between any name/plaque text and any prop (mic, mosque, screens, PCs, sofa, tables, coffee set)',
+    audit.collisions.length === 0, audit.collisions.length ? audit.collisions.join(' ; ') : `${audit.labelCount} texts × ${audit.propCount} props clean; seated=${audit.seatedKeys.join(',')}`);
+  check('MOSQUE: 🕌 present in یوسف zone, SIZED to be plainly visible (not a speck)',
+    !!audit.mosqueInfo && audit.mosqueInfo.w >= 24 && audit.mosqueInfo.h >= 18,
+    JSON.stringify(audit.mosqueInfo));
+  check('COFFEE CORNER: café set rebuilt — round table + cup + 2 chairs around it (and zero plaque overlap per the audit)',
+    !!audit.coffeeInfo && audit.coffeeInfo.table && audit.coffeeInfo.cup && audit.coffeeInfo.chairs === 2,
+    JSON.stringify(audit.coffeeInfo));
+
   // Idle honesty sampler (~2.6s): nothing carried, nobody leaves his zone.
   let idleViolation = null;
   for (let i = 0; i < 10 && !idleViolation; i++) {
@@ -423,7 +538,8 @@ try {
   }
   check('IDLE honesty (2.6s sampler): no 📄 carried, every character inside his OWN zone', !idleViolation, idleViolation || '');
   await shot('01-desktop-idle.png');
-  await shotEl('07-floor-closeup-idle.png', '.office-panel-main .floor-scene');
+  await shotEl('07-floor-closeup-idle.png', '.office-panel-main .floor-wrap');
+  await shotEl('10-coffee-corner.png', '.office-panel-main .floor-zone-coffee');
 
   // ================= B) work + the boss WALKS the file =================
   await ev(`(() => {
@@ -580,8 +696,9 @@ try {
   const d = await ev(`(() => {
     const s = document.querySelector('[data-testid="panel-agent-team-scene"]');
     if (!s) return null;
+    const os = s.querySelector('.floor-scene');
     return {
-      scene: !!s.querySelector('.floor-scene'),
+      scene: !!os,
       chars: s.querySelectorAll('.floor-char').length,
       persons: s.querySelectorAll('.floor-person-svg').length,
       pcs: s.querySelectorAll('.floor-pc').length,
@@ -589,10 +706,14 @@ try {
       zones: s.querySelectorAll('.floor-zone').length,
       sign: !!s.querySelector('.office-sign-brand'),
       emptySeat: !!s.querySelector('[data-testid="office-uniqa-seat"]'),
+      orgStrip: !!s.querySelector('.office-orgstrip'),
+      orgInScene: os ? (os.textContent.includes('باس: یونیک') || os.textContent.includes('مینیجر: یونیکا')) : null,
     };
   })()`);
   check('overlay: the SAME big floor — 8 PEOPLE (person SVGs), 9 desk computers, ZERO robots, 11 zones, sign, Uniqa chair empty',
     !!d && d.scene && d.chars === 8 && d.persons === 8 && d.pcs === 9 && d.robots === 0 && d.zones === 11 && d.sign && d.emptySeat, JSON.stringify(d));
+  check('overlay: org strip rides above the big floor too, scene itself free of org text',
+    !!d && d.orgStrip === true && d.orgInScene === false, JSON.stringify(d && { orgStrip: d.orgStrip, orgInScene: d.orgInScene }));
   await shot('06-desktop-modal-closeup.png');
   await ev(`document.querySelector('[data-testid="panel-agent-team-scene"] [data-testid="floor-char-talash"]').click()`);
   await sleep(600);
@@ -616,6 +737,7 @@ try {
   const e = await ev(`(() => {
     const q = (s) => document.querySelector('${SCOPE}' + s);
     const u = q('[data-testid="floor-char-uniqa"]');
+    const stripStatus = q('[data-testid="org-hosts-status"]');
     const hosts = q('[data-testid="office-hosts-cabin"]');
     const pc = q('[data-testid="floor-pc-uniqa"]');
     const svg = u ? u.querySelector('.floor-person-svg') : null;
@@ -630,12 +752,15 @@ try {
       pcOn: pc ? pc.getAttribute('data-on') : null,
       duo: hosts ? hosts.className.includes('floor-zone-duo') : false,
       emptySeat: !!q('[data-testid="office-uniqa-seat"]'),
+      stripStatus: stripStatus ? stripStatus.textContent.replace(/\\s+/g, ' ').trim() : null,
     };
   })()`);
   check('Uniqa summoned: golden GIRL (person SVG, gold outfit) SEATED at the hosts desk, her computer ON, name + مینیجر label, hosts zone golden',
     !!e && e.char && e.person && e.eyes && e.girlLook && e.name === 'یونیکا' && e.role === 'مینیجر' && e.goldTint && e.pcOn === 'true' && e.duo && !e.emptySeat,
     JSON.stringify(e));
-  await shotEl('08-hosts-duo.png', '.office-panel-main .floor-scene');
+  check('org strip presence line flips LIVE with the duo: «دونوں حاضر ہیں» while Uniqa is summoned',
+    !!e && !!e.stripStatus && e.stripStatus.includes('دونوں حاضر ہیں'), String(e && e.stripStatus));
+  await shotEl('08-hosts-duo.png', '.office-panel-main .floor-wrap');
   await ev(`localStorage.removeItem('unique-ai-persona')`);
   await page.send('Page.navigate', { url: `${APP}/` });
   let soloBack = false;
@@ -644,7 +769,7 @@ try {
     soloBack = await ev(`!!document.querySelector('${SCOPE}[data-testid="office-uniqa-seat"]') && !document.querySelector('${SCOPE}[data-testid="floor-char-uniqa"]')`).catch(() => false);
   }
   check('persona back to default: Uniqa gone, her chair empty again', soloBack === true);
-  await shotEl('09-hosts-unique-alone.png', '.office-panel-main .floor-scene');
+  await shotEl('09-hosts-unique-alone.png', '.office-panel-main .floor-wrap');
 
   // ================= F) phone width =================
   await page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
