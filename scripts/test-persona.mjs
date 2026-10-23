@@ -21,6 +21,10 @@
  *     content, in the speaking persona's grammar; long messages parse
  *     to null.
  *  5. UNIQA'S EDGE VOICE is wired as ur-PK-UzmaNeural.
+ *  6. TALK EMPHASIS (2026-10-23): Uniqa friendly/homely/attentive and
+ *     Unique explains-first guidance records exist and are distinct,
+ *     the server prompt carries the matching ADD-ONLY additions, and
+ *     the locked prompt's original lines remain verbatim.
  *
  * Run: node scripts/test-persona.mjs   (from the repo root)
  */
@@ -178,6 +182,49 @@ check('UNIQA_VOICE_NAME is ur-PK-UzmaNeural', L.UNIQA_VOICE_NAME, 'ur-PK-UzmaNeu
 checkTrue('banter sets are non-empty Urdu line pools',
   L.BANTER_TO_UNIQA.length >= 3 && L.BANTER_TO_UNIQUE.length >= 3 &&
   L.UNIQA_GREETINGS.length >= 3 && L.UNIQUE_GREETINGS.length >= 3);
+
+// ---------------------------------------------------------------------------
+console.log('\n── 6) Talk emphasis 2026-10-23 (Uniqa homely / Unique explains) ──');
+checkTrue('UNIQA_TALK_GUIDANCE exists: friendly + homely + attentive',
+  typeof L.UNIQA_TALK_GUIDANCE === 'string'
+  && L.UNIQA_TALK_GUIDANCE.includes('گھریلو')
+  && L.UNIQA_TALK_GUIDANCE.includes('توجہ')
+  && /friendly/i.test(L.UNIQA_TALK_GUIDANCE),
+  String(L.UNIQA_TALK_GUIDANCE));
+checkTrue('UNIQUE_TALK_GUIDANCE exists: explains/guides, friendly',
+  typeof L.UNIQUE_TALK_GUIDANCE === 'string'
+  && L.UNIQUE_TALK_GUIDANCE.includes('سمجھانا')
+  && /friendly/i.test(L.UNIQUE_TALK_GUIDANCE),
+  String(L.UNIQUE_TALK_GUIDANCE));
+checkTrue('Unique guidance keeps homely chat mainly Uniqa’s domain',
+  typeof L.UNIQUE_TALK_GUIDANCE === 'string' && L.UNIQUE_TALK_GUIDANCE.includes('Uniqa'),
+  String(L.UNIQUE_TALK_GUIDANCE));
+checkTrue('the two guidance records are distinct',
+  L.UNIQA_TALK_GUIDANCE !== L.UNIQUE_TALK_GUIDANCE);
+
+// The operative emphasis lives in the server's LOCKED prompt — appended
+// ADD-ONLY. Prove the additions are present AND the original lines are
+// still there verbatim (a reworded original fails this test).
+{
+  const { readFileSync } = await import('node:fs');
+  const serverSrc = readFileSync(join(repoRoot, 'server/index.js'), 'utf8');
+  checkTrue('server prompt: Uniqa talk emphasis added',
+    serverSrc.includes("UNIQA'S TALK — FRIENDLY, HOMELY AND ATTENTIVE FIRST"));
+  checkTrue('server prompt: Unique talk emphasis added',
+    serverSrc.includes("UNIQUE'S TALK (only while speaking as Unique): your gift is سمجھانا"));
+  const ORIGINALS = [
+    'You are Unique AI (یونیک اے آئی), a friendly, thoughtful personal assistant.',
+    'Never call yourself مائرہ (Maira) in ANY script',
+    "UNIQA'S PERSONALITY (only while speaking as her): she is a warm, homely, romantic-leaning companion",
+    '«آپ کا حال کچھ ٹھیک نہیں لگ رہا، سب خیریت ہے؟»',
+    'TWO PERSONAS live in this app.',
+    'FEELINGS ENGINE — read the user\'s mood from their words before answering',
+    'never fake-build the impossible thing.',
+  ];
+  for (const line of ORIGINALS) {
+    checkTrue(`server prompt original intact: ${line.slice(0, 44)}…`, serverSrc.includes(line));
+  }
+}
 
 console.log(`\n${failed === 0 ? `ALL ${passed} PERSONA CHECKS PASS` : `${failed} FAILED / ${passed} passed`}`);
 process.exit(failed === 0 ? 0 : 1);

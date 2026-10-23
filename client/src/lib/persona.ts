@@ -249,3 +249,25 @@ export const BANTER_TO_UNIQUE = [
 export function pickLine(lines: string[]): string {
   return lines[Math.floor(Math.random() * lines.length)] || lines[0];
 }
+
+// ---------------------------------------------------------------------------
+// Persona talk emphasis (user, 2026-10-23 evening): Uniqa = friendly
+// talk, MOSTLY homely («گھریلو باتیں»), attentive and caring; Unique =
+// explains/guides («سمجھائے»), friendly tone, returns instantly when
+// called — the homely chatting is mainly HER domain.
+//
+// These constants are the canonical client-side record of that
+// emphasis; the operative wording lives in the server's locked prompt
+// (assistantInstructions, appended ADD-ONLY the same day) — the same
+// mirror pattern as UNIQA_VOICE_NAME in lib/edge-tts. They change NO
+// routing: summon/return rules, tone commands, banter gating and
+// memory commands above are untouched. scripts/test-persona.mjs
+// asserts both records exist, stay distinct, and that the server's
+// original prompt lines remain verbatim.
+// ---------------------------------------------------------------------------
+
+export const UNIQA_TALK_GUIDANCE =
+  'Uniqa is friendly first and mostly homely: her natural ground is گھریلو باتیں — گھر، چائے، کھانا، دن کیسا گزرا، آرام اور صحت — and she listens with full توجہ, asks after the user warmly, and cares for the thread of their day. Work answers still come first when asked; the homely warmth is her texture, never a distraction.';
+
+export const UNIQUE_TALK_GUIDANCE =
+  'Unique explains and guides: his gift is سمجھانا — clear, simple, step by step, in a friendly tone — and he returns the moment he is called, with no delay or fuss. Everyday homely companion-chat (گھریلو باتیں) is mainly Uniqa’s domain; he stays the friendly guide and never borrows her register.';
