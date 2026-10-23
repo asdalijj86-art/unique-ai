@@ -168,7 +168,11 @@ body {
   z-index: 4;
   flex: 1;
   display: grid;
-  grid-template-columns: 56px minmax(280px, 1.05fr) minmax(320px, 1.35fr) minmax(230px, 0.8fr);
+  /* rail | chat | hero | status | OFFICE — the office is a main-screen
+     column on wide screens (user decision, 2026-10-23); below 1280px
+     the stacked layout takes over and the office becomes a full-width
+     row/section of its own. */
+  grid-template-columns: 56px minmax(250px, 0.95fr) minmax(300px, 1.25fr) minmax(210px, 0.72fr) minmax(290px, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 14px;
   padding: 14px 16px;
@@ -709,10 +713,10 @@ body {
 /* ================= RESPONSIVE ================= */
 /* Stacked layouts keep the same rule: page locked, ONLY the chat
    messages area scrolls internally; hero + status stay pinned. */
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .jarvis-body {
     grid-template-columns: 52px 1fr;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
     overflow: hidden;
   }
   .jarvis-chat { grid-column: 2; grid-row: 2; min-height: 0; max-height: none; height: 100%; }
@@ -720,6 +724,9 @@ body {
   .status-panel { grid-column: 1 / -1; grid-row: 3; position: static; align-self: start; }
   .status-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 16px; }
   .jarvis-rail { grid-row: 2; align-self: start; }
+  /* Office: full-width row under the status panel — its body scrolls
+     internally, so the cabins stay a bounded, reachable strip. */
+  .office-panel { grid-column: 1 / -1; grid-row: 4; max-height: 400px; }
 }
 @media (max-width: 640px) {
   .jarvis-body {
@@ -1121,6 +1128,9 @@ body {
   .jarvis-rail { order: 2; width: 100%; }
   .jarvis-chat { order: 3; width: 100%; height: 52vh; min-height: 280px; max-height: none; }
   .status-panel { order: 4; width: 100%; max-height: none; overflow: visible; align-self: stretch; }
+  /* Office on phones: a visible section under the status panel — the
+     page scrolls, so the team is one swipe down, never hidden. */
+  .office-panel { order: 5; width: 100%; max-height: none; }
   /* Settings dropdown: centered modal on phones too (same inset+margin technique) */
   .settings-dropdown {
     max-height: 82dvh;
@@ -1238,6 +1248,18 @@ body {
 .office-window { font-size: 20px; }
 .office-rest-caption { color: #fcd9a0; font-size: 12.5px; }
 
+/* Unique's hub at the head of the office — new work is dispatched
+   FROM here (the file-flight origin anchor). */
+.office-hub-row { display: flex; justify-content: center; margin-bottom: 10px; }
+.office-hub {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 13px; border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, .45);
+  background: rgba(8, 30, 52, .8); color: #bae6fd;
+  font-size: 12px; font-weight: 600;
+  box-shadow: 0 0 12px rgba(56, 189, 248, .18);
+}
+
 .office-cabins {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
@@ -1257,11 +1279,13 @@ body {
 }
 button.office-cabin { appearance: none; }
 .office-cabin-selected { outline: 2px solid rgba(56, 189, 248, .7); outline-offset: 1px; }
-/* The computer: a little monitor whose screen only glows with REAL work. */
+/* The computer: a little monitor on the agent's desk whose screen
+   only glows with REAL work. It sits UNDER the agent's avatar now —
+   the desk prop, no longer the cabin's face. */
 .cabin-screen {
-  width: 52px; height: 34px; border-radius: 5px;
-  border: 2px solid rgba(148, 163, 184, .4);
-  background: rgba(2, 6, 16, .9);
+  width: 40px; height: 25px; border-radius: 5px;
+  border: 1.5px solid rgba(148, 163, 184, .45);
+  background: linear-gradient(180deg, rgba(38, 58, 92, .85), rgba(8, 14, 28, .95));
   display: block; position: relative; overflow: hidden;
 }
 .cabin-screen::after { /* monitor stand */
@@ -1269,15 +1293,33 @@ button.office-cabin { appearance: none; }
   transform: translateX(-50%); background: rgba(148, 163, 184, .4); border-radius: 2px;
 }
 .cabin-screen-lines {
-  position: absolute; inset: 5px 6px; border-radius: 2px; opacity: 0;
+  position: absolute; inset: 4px 5px; border-radius: 2px; opacity: .22;
   background: repeating-linear-gradient(180deg, rgba(125, 211, 252, .85) 0 2px, transparent 2px 6px);
 }
-.cabin-figure { font-size: 22px; margin-top: 9px; line-height: 1; }
+/* The agent himself: a lit avatar disc — the cabin reads as an
+   OCCUPIED desk (his screenshot, 2026-10-23: the old layout led with
+   a big dark monitor rectangle that read as an empty black box). */
+.cabin-avatar {
+  position: relative;
+  width: 52px; height: 52px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: radial-gradient(circle at 35% 30%, rgba(167, 139, 250, .38), rgba(15, 28, 52, .92) 68%);
+  border: 1.5px solid rgba(167, 139, 250, .45);
+  box-shadow: inset 0 0 12px rgba(139, 92, 246, .18), 0 2px 10px rgba(0, 0, 0, .35);
+}
+.cabin-avatar-icon { font-size: 27px; line-height: 1; }
+.cabin-avatar-ping {
+  position: absolute; top: 1px; inset-inline-end: 1px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, .95);
+  animation: agent-pulse 1s ease-in-out infinite;
+}
+.cabin-deskline { display: flex; flex-direction: column; align-items: center; margin-top: 6px; }
 .cabin-desk {
-  width: 64px; height: 5px; border-radius: 3px;
+  width: 58px; height: 5px; border-radius: 3px; margin-top: 7px;
   background: linear-gradient(90deg, rgba(120, 72, 20, .0), rgba(180, 120, 60, .55), rgba(120, 72, 20, .0));
 }
-.cabin-plate { font-weight: 700; font-size: 13.5px; margin-top: 3px; }
+.cabin-plate { font-weight: 700; font-size: 13.5px; margin-top: 6px; }
 .cabin-duty { font-size: 11px; opacity: .65; }
 .cabin-status { font-size: 11.5px; min-height: 15px; }
 .cabin-tea { position: absolute; top: 6px; inset-inline-end: 8px; font-size: 12px; opacity: .75; }
@@ -1295,6 +1337,20 @@ button.office-cabin { appearance: none; }
 .office-cabin-done .cabin-status { color: #34d399; }
 .office-cabin-failed { border-color: rgba(248, 113, 113, .5); }
 .office-cabin-failed .cabin-status { color: #f87171; }
+/* Avatar presence per state: the working agent glows amber and
+   gently bobs at his desk; done settles green; failed tints red. */
+.office-cabin-working .cabin-avatar {
+  border-color: rgba(251, 191, 36, .9);
+  box-shadow: 0 0 18px rgba(251, 191, 36, .4), inset 0 0 14px rgba(251, 191, 36, .18);
+  animation: cabin-bob 1.4s ease-in-out infinite alternate;
+}
+.office-cabin-done .cabin-avatar { border-color: rgba(52, 211, 153, .75); box-shadow: 0 0 12px rgba(52, 211, 153, .25); }
+.office-cabin-failed .cabin-avatar { border-color: rgba(248, 113, 113, .7); }
+@keyframes cabin-bob { from { transform: translateY(0); } to { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .office-cabin-working .cabin-avatar,
+  .cabin-avatar-ping { animation: none !important; }
+}
 
 /* یونیکا کا کونا — soft gold; lit ONLY while she is present. */
 .office-uniqa { cursor: default; border-style: dashed; }
@@ -1310,6 +1366,15 @@ button.office-cabin { appearance: none; }
   background: repeating-linear-gradient(180deg, rgba(253, 224, 71, .8) 0 2px, transparent 2px 6px);
 }
 .office-uniqa-lit .cabin-status { color: #fde047; }
+.office-uniqa .cabin-avatar {
+  background: radial-gradient(circle at 35% 30%, rgba(253, 224, 71, .30), rgba(30, 22, 8, .92) 68%);
+  border-color: rgba(253, 224, 71, .4);
+}
+.office-uniqa-lit .cabin-avatar {
+  border-color: rgba(253, 224, 71, .95);
+  box-shadow: 0 0 18px rgba(253, 224, 71, .45), inset 0 0 14px rgba(253, 224, 71, .2);
+}
+.office-uniqa-lit .cabin-avatar-ping { background: #fde047; box-shadow: 0 0 8px rgba(253, 224, 71, .95); }
 
 .office-closeup {
   border: 1px solid rgba(56, 189, 248, .3);
@@ -1322,6 +1387,88 @@ button.office-cabin { appearance: none; }
 .office-closeup-head .tool-results-close { margin-inline-start: auto; }
 .office-closeup-now { font-size: 13.5px; margin: 8px 0; color: #e9d5ff; }
 .office-closeup-done-title { font-weight: 700; font-size: 13px; color: #fde68a; margin-bottom: 5px; }
+
+/* ======= Office on the MAIN SCREEN (user decision, 2026-10-23) =======
+   The persistent panel: beside the chat on wide screens, a full-width
+   row ≤1280px, a stacked section on phones. Same glass language as
+   the chat/status panels; its body scrolls internally on desktop. */
+.office-content { position: relative; }
+.office-panel {
+  background: rgba(8, 17, 33, .62);
+  border: 1px solid rgba(139, 92, 246, .28);
+  border-radius: 18px;
+  backdrop-filter: blur(14px);
+  display: flex; flex-direction: column;
+  min-height: 0; overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(167, 139, 250, .08), 0 8px 32px rgba(0, 0, 0, .35);
+}
+.office-panel-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px 6px;
+}
+.office-panel-title { font-weight: 700; color: #e9d5ff; font-size: 14.5px; }
+.office-panel-live {
+  font-size: 11.5px; color: #a5b4fc;
+  border: 1px solid rgba(139, 92, 246, .35);
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+}
+.office-panel-live.working {
+  color: #fcd34d; border-color: rgba(251, 191, 36, .55);
+  animation: agent-pulse 1.2s ease-in-out infinite;
+}
+.office-panel-expand {
+  margin-inline-start: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 9px;
+  background: rgba(139, 92, 246, .1); color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, .3); cursor: pointer; font-size: 14px;
+}
+.office-panel-expand:hover { background: rgba(139, 92, 246, .22); color: #ede9fe; }
+.office-panel-body {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain;
+  min-height: 0; padding: 4px 12px 12px;
+}
+.office-panel-body::-webkit-scrollbar { width: 6px; }
+.office-panel-body::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, .3); border-radius: 3px; }
+/* Compact cabins inside the panel column: at ~300px wide the grid
+   lands on 3 per row, and the tightened vertical budget (board,
+   floor, desk props) fits all eight desks inside a laptop-height
+   panel — no internal scroll needed at 768px+ viewport heights. */
+.office-panel .office-cabins { grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 7px; }
+.office-panel .office-cabin { padding: 7px 3px 6px; gap: 1px; }
+.office-panel .cabin-avatar { width: 40px; height: 40px; }
+.office-panel .cabin-avatar-icon { font-size: 21px; }
+.office-panel .cabin-plate { font-size: 12px; margin-top: 4px; }
+.office-panel .cabin-duty { font-size: 10.5px; }
+.office-panel .cabin-status { font-size: 11px; min-height: 13px; }
+.office-panel .cabin-deskline { margin-top: 3px; }
+.office-panel .cabin-screen { width: 34px; height: 21px; }
+.office-panel .cabin-desk { margin-top: 5px; }
+.office-panel .office-board { padding: 8px 10px; margin-bottom: 8px; }
+.office-panel .office-floor { padding: 10px 8px 8px; margin-bottom: 0; }
+.office-panel .office-rest-details { margin-bottom: 6px; }
+.office-panel .office-hub-row { margin-bottom: 6px; }
+
+/* ======= File handoff (user refinement, 2026-10-23) =======
+   A 📄 chip flies cabin→cabin ONLY on real state transitions
+   (planned by lib/office-handoff, executed by flyFileOnce with the
+   Web Animations API — transform/opacity only). The layer never
+   intercepts taps and never animates on idle. */
+.office-fly-layer {
+  position: absolute; inset: 0;
+  pointer-events: none; overflow: visible; z-index: 6;
+}
+.office-fly-file {
+  position: absolute; left: 0; top: 0;
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  font-size: 19px; line-height: 1;
+  border-radius: 10px;
+  background: rgba(14, 30, 54, .96);
+  border: 1px solid rgba(125, 211, 252, .7);
+  box-shadow: 0 0 14px rgba(56, 189, 248, .5);
+  will-change: transform, opacity;
+}
 
 /* ======= Call (Phase 4): incoming overlay + live banner ======= */
 .call-overlay {

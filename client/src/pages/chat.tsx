@@ -70,7 +70,7 @@ import { useGestures } from '@/hooks/useGestures';
 import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
 import AppBuilder from '@/components/AppBuilder';
 import ToolResults from '@/components/ToolResults';
-import { AgentTeamStrip, AgentTeamScene } from '@/components/AgentTeam';
+import { AgentTeamStrip, AgentTeamScene, AgentOfficePanel } from '@/components/AgentTeam';
 import {
   detectAgentTasks,
   workingCards,
@@ -3718,6 +3718,18 @@ export default function ChatPage() {
             void playAssistantMessage('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
           }}
         />
+
+        {/* FAR RIGHT: the development office ON the main screen
+            (user decision, 2026-10-23) — cabins beside the chat,
+            lit by the SAME real task state as the strip and the
+            🤖 overlay scene; ⤢ opens that big view. */}
+        <AgentOfficePanel
+          tasks={agentTeam}
+          persona={persona}
+          boardEntries={boardEntries}
+          buildLive={buildLive}
+          onExpand={() => setAgentTeamSceneOpen(true)}
+        />
       </div>
 
       {/* ======= FOCUS VIEW: one thing at a time fills the whole screen ======= */}
@@ -3746,8 +3758,9 @@ export default function ChatPage() {
         <AppBuilder description={appBuild.description} onClose={() => setAppBuild(null)} />
       )}
       {/* Helper-agent team (Task D) — on the MAIN CHAT screen: the live
-          strip while several real actions run, and the team roster
-          scene opened from the 🤖 rail button. */}
+          strip while several real actions run, the persistent office
+          panel in the body grid above, and the office overlay scene
+          (close-up) opened from the 🤖 rail button / the panel's ⤢. */}
       {agentTeam && (
         <AgentTeamStrip tasks={agentTeam} onClose={() => setAgentTeam(null)} />
       )}
