@@ -218,7 +218,7 @@ try {
       const h = document.querySelector('.jarvis-center').getBoundingClientRect();
       return Math.abs(p.top - c.top) < 40 && (cx(p) - cx(h)) * (cx(c) - cx(h)) < 0;
     })()`));
-  check('ALL 8 desks (7 cabins + Uniqa) fully inside the panel viewport area — no internal scroll needed',
+  check('ALL desks (hosts cabin + 7 cabins) fully inside the panel viewport area — no internal scroll needed',
     await ev(`(() => {
       const body = document.querySelector('.office-panel-body');
       return !!body && body.scrollHeight <= body.clientHeight + 2;
@@ -231,19 +231,19 @@ try {
       const el = document.querySelector('.office-panel-main [data-testid="office-cabin-' + k + '"]');
       if (!el) { out[k] = null; continue; }
       const r = el.getBoundingClientRect();
-      const avatar = el.querySelector('.cabin-avatar');
+      const avatar = el.querySelector('.cabin-robot-stage');
       const plate = el.querySelector('.cabin-plate');
       out[k] = { w: r.width, h: r.height, avatar: !!avatar, plate: plate ? plate.textContent : null };
     }
-    const u = document.querySelector('.office-panel-main [data-testid="office-uniqa-corner"]');
+    const u = document.querySelector('.office-panel-main [data-testid="office-hosts-cabin"]');
     const b = document.querySelector('.office-panel-main [data-testid="office-board"]');
     const hub = document.querySelector('.office-panel-main [data-handoff-anchor="hub"]');
     return { cabins: out, uniqa: !!u, board: !!b, hub: !!hub };
   })()`);
-  check('all 7 cabins render in the panel, each with avatar disc + name plate',
+  check('all 7 cabins render in the panel, each with robot stage + name plate',
     cabinKeys.every((k) => cabinsInfo.cabins[k] && cabinsInfo.cabins[k].w > 60 && cabinsInfo.cabins[k].avatar && cabinsInfo.cabins[k].plate),
     JSON.stringify(Object.fromEntries(Object.entries(cabinsInfo.cabins).map(([k, v]) => [k, v && v.plate]))));
-  check('Uniqa corner + آج کا بورڈ + hub present in the panel',
+  check('hosts cabin (hub) + آج کا بورڈ present in the panel',
     cabinsInfo.uniqa && cabinsInfo.board && cabinsInfo.hub);
   check('cabins are NOT lit while idle (honest rest state)',
     await ev(`![...document.querySelectorAll('.office-panel-main .office-cabin')].some((c) => c.className.includes('working'))`));
@@ -402,7 +402,7 @@ try {
     };
   })()`);
   check('phone: composer + chat usable, office present as a section below',
-    !!mobileInfo && mobileInfo.chatH > 200 && mobileInfo.panelW > 300 && mobileInfo.cabins >= 8 && mobileInfo.panelBelowChat,
+    !!mobileInfo && mobileInfo.chatH > 200 && mobileInfo.panelW > 300 && mobileInfo.cabins >= 7 && mobileInfo.panelBelowChat,
     JSON.stringify(mobileInfo));
   await ev(`document.querySelector('[data-testid="panel-office-main"]').scrollIntoView({ block: 'start' })`);
   await sleep(700);

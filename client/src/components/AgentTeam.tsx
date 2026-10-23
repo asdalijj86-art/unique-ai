@@ -25,20 +25,30 @@
  * Tapping a cabin zooms to that agent (current task + today's
  * completed work from the task board). When nobody works, the office
  * rests (warm light, tea, evening). When 2+ work together, light
- * lines link their cabins. Uniqa has her own golden corner, lit only
- * while she is the present persona. The wall board lists today's
- * real completions. Each cabin leads with the agent's avatar disc —
- * an occupied desk, not an empty black screen. CSS/SVG only — no
- * image assets — so it stays smooth on a low-end Chromebook.
+ * lines link their cabins. At the head of the floor sits the joint
+ * hosts' cabin — باس یونیک at his desk, and یونیکا's مینیجر seat
+ * beside him, occupied only while she is the present persona. The
+ * wall board lists today's
+ * real completions. Each cabin is lived in by the agent's robot-boy
+ * (CabinRobot) at his desk — an occupied cabin, not an empty black
+ * screen. CSS/SVG only — no image assets — so it stays smooth on a
+ * low-end Chromebook.
  *
  * فائل ہینڈ آف (user refinement, 2026-10-23): a 📄 visibly passes
  * between cabins on REAL transitions only — planned purely from
  * snapshot diffs by lib/office-handoff (dispatch from Unique's hub
  * when work starts, cabin→cabin when agents activate in sequence,
  * cabin→board when a completion is pinned). Idle = no motion.
+ *
+ * روبوٹ لڑکے (user spec, 2026-10-23 21:43): every cabin is lived in
+ * by a small robot-BOY (components/CabinRobot) — he breathes and
+ * blinks at rest, paces + types while his agent REALLY works, hops
+ * twice when it lands, and a clone of him CARRIES the 📄 on every
+ * flight above. Same real state, no theatre.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { AGENT_DEFS, agentLabel, type AgentTaskState } from '@/lib/agent-team';
+import { CabinRobot, robotSVG, robotTintFor } from './CabinRobot';
 import { formatBoardTime, type BoardEntry } from '@/lib/task-board';
 import { planFlights, type Flight, type OfficeSnapshot } from '@/lib/office-handoff';
 import type { Persona } from '@/lib/persona';
@@ -78,7 +88,7 @@ export type BuildLiveState = { title: string; startedAt: number } | null;
 export type OfficeStateProps = {
   /** The strip's live state — the SINGLE source of agent activity. */
   tasks: AgentTaskState[] | null;
-  /** Who is present (Phase 2) — lights Uniqa's corner. */
+  /** Who is present (Phase 2) — seats Uniqa in the hosts' cabin. */
   persona: Persona;
   /** Today's REAL completions (lib/task-board) — board + close-ups. */
   boardEntries: BoardEntry[];
@@ -140,12 +150,15 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
     if (!prev) return; // first sight of the office: never perform past activity
     const flights = planFlights(prev, snapshot);
     if (!flights.length) return;
-    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    // Reduced motion: the robots stay still and flights become a
+    // gentle fade at the destination (handled inside flyFileOnce).
+    const reducedMotion = typeof window !== 'undefined'
+      && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const run = ++flightRunRef.current;
     void (async () => {
       for (const flight of flights) {
         if (flightRunRef.current !== run) return;
-        await flyFileOnce(wrapRef.current, layerRef.current, flight);
+        await flyFileOnce(wrapRef.current, layerRef.current, flight, reducedMotion);
       }
     })();
     // The signature fully captures the snapshot's flight-relevant
@@ -193,16 +206,73 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
         className={`office-floor${anyWorking ? '' : ' office-resting'}${teamMode ? ' office-teamwork' : ''}`}
         data-testid="office-floor"
       >
+        {/* داخلی بورڈ — the entrance sign over the office floor
+            (user's reference image, 2026-10-23 — with OUR brand:
+            «Unique AI», not the picture's "Hello AI"). */}
+        <div className="office-sign" aria-hidden="true">
+          <span className="office-sign-plant">🪴</span>
+          <span className="office-sign-text">
+            <span className="office-sign-brand" dir="ltr">Unique AI</span>
+            <span className="office-sign-sub">آفس اسسٹنٹ — ایجنٹ ٹیم</span>
+          </span>
+          <span className="office-sign-plant">🪴</span>
+        </div>
+        {/* تنظیمی لکیر — the org chart in one line (user, 2026-10-23
+            21:56): یونیک سب کا باس, یونیکا سات ایجنٹوں کی مینیجر. */}
+        <div className="office-orgline" aria-hidden="true">
+          👑 باس: یونیک <span className="office-orgline-sep">•</span> 💛 مینیجر: یونیکا <span className="office-orgline-sep">•</span> 🤖 ٹیم: 7 ایجنٹ
+        </div>
         {!anyWorking && (
           <div className="office-rest-details" aria-hidden="true">
             <span className="office-window">🌆</span>
             <span className="office-rest-caption">☕ دفتر آرام کر رہا ہے — حکم دیں، ٹیم جاگ جائے گی</span>
           </div>
         )}
-        {/* Unique at the centre of his office — the hub a file
-            leaves from when new work is dispatched. */}
-        <div className="office-hub-row" aria-hidden="true">
-          <span className="office-hub" data-handoff-anchor="hub">🧠 یونیک</span>
+        {/* میزبان کیبن — the JOINT hosts' cabin at the head of the
+            floor (user spec, 2026-10-23 21:55): Unique and Uniqa
+            seated side by side at ONE desk, a microphone in front
+            of them and a computer on the desk. This cabin IS the
+            dispatch hub — every file flight starts from here.
+            Presence honesty: Uniqa's robot sits here ONLY while
+            she is the present persona (her golden-corner rule,
+            moved into this cabin); otherwise her seat is empty
+            and Unique hosts alone. */}
+        <div
+          className={`office-hosts${persona === 'uniqa' ? ' office-hosts-duo' : ''}`}
+          data-testid="office-hosts-cabin"
+          data-handoff-anchor="hub"
+          aria-label={persona === 'uniqa' ? 'میزبان کیبن — یونیک اور یونیکا دونوں حاضر ہیں' : 'میزبان کیبن — یونیک حاضر ہے، یونیکا بلانے پر آتی ہے'}
+        >
+          <span className="cabin-plaque">
+            <span className="cabin-neon-disc" aria-hidden="true">🎙️</span>
+            <span className="cabin-plaque-text">
+              <span className="cabin-plate">یونیک + یونیکا</span>
+              <span className="cabin-duty">میزبان — مرکزی کیبن</span>
+            </span>
+          </span>
+          <span className="hosts-stage" aria-hidden="true">
+            <span className="hosts-seat hosts-seat-unique">
+              <CabinRobot tint={robotTintFor('hub')} />
+              <span className="hosts-role hosts-role-boss">باس — یونیک</span>
+            </span>
+            <span className="hosts-seat hosts-seat-uniqa" data-testid="office-uniqa-seat">
+              {persona === 'uniqa'
+                ? <CabinRobot tint={robotTintFor('uniqa')} />
+                : <span className="hosts-seat-empty" />}
+              <span className="hosts-role hosts-role-manager">مینیجر — یونیکا</span>
+            </span>
+            <span className="hosts-desk">
+              <span className="hosts-desk-row">
+                <span className="hosts-monitor"><span className="cabin-screen-lines" /></span>
+                <span className="hosts-mic">🎙️</span>
+              </span>
+              <span className="hosts-deskbar" />
+            </span>
+          </span>
+          <span className="cabin-status">
+            {persona === 'uniqa' ? 'دونوں حاضر ہیں 💛' : 'یونیک حاضر ہے'}
+          </span>
+          <span className="cabin-plant" aria-hidden="true">🪴</span>
         </div>
         <div className="office-cabins">
           {AGENT_DEFS.map((def) => {
@@ -212,24 +282,37 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
               <button
                 key={def.key}
                 type="button"
+                style={{ '--neon': robotTintFor(def.key) } as CSSProperties}
                 className={`office-cabin office-cabin-${status}${selectedKey === def.key ? ' office-cabin-selected' : ''}`}
                 onClick={() => setSelectedKey(selectedKey === def.key ? null : def.key)}
                 data-testid={`office-cabin-${def.key}`}
                 aria-pressed={selectedKey === def.key}
                 aria-label={`${agentLabel(def)} — ${status === 'working' ? 'کام کر رہا ہے' : status === 'done' ? 'کام مکمل' : 'فارغ'}`}
               >
-                <span className="cabin-avatar" aria-hidden="true">
-                  <span className="cabin-avatar-icon">{def.icon}</span>
+                {/* تختی — the neon plaque ABOVE the cabin (user's
+                    reference image, 2026-10-23): a glowing icon disc
+                    over the door, with his NAME and DUTY written on
+                    the board — «ہر کیبن کے اوپر ان کا نام ہو اور ان
+                    کا کام کا شعبہ لکھا ہو». */}
+                <span className="cabin-plaque">
+                  <span className="cabin-neon-disc" aria-hidden="true">{def.icon}</span>
+                  <span className="cabin-plaque-text">
+                    <span className="cabin-plate">{def.person}</span>
+                    <span className="cabin-duty">{def.duty}</span>
+                  </span>
+                </span>
+                <span className="cabin-robot-stage" aria-hidden="true">
+                  <CabinRobot tint={robotTintFor(def.key)} />
                   {status === 'working' && <span className="cabin-avatar-ping" />}
                 </span>
-                <span className="cabin-plate">{def.person}</span>
-                <span className="cabin-duty">{def.duty}</span>
                 <span className="cabin-deskline" aria-hidden="true">
-                  <span className="cabin-screen">
-                    <span className="cabin-screen-lines" />
+                  <span className="cabin-monitors">
+                    <span className="cabin-screen"><span className="cabin-screen-lines" /></span>
+                    <span className="cabin-screen"><span className="cabin-screen-lines" /></span>
                   </span>
                   <span className="cabin-desk" />
                 </span>
+                <span className="cabin-plant" aria-hidden="true">🪴</span>
                 <span className="cabin-status">
                   {status === 'working' && 'کام کر رہا ہے…'}
                   {status === 'done' && 'ہو گیا ✓'}
@@ -240,27 +323,9 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
               </button>
             );
           })}
-          {/* ⑤ یونیکا کا کونا — her own soft golden corner; lit
-              ONLY while she is the present persona. */}
-          <div
-            className={`office-cabin office-uniqa${persona === 'uniqa' ? ' office-uniqa-lit' : ''}`}
-            data-testid="office-uniqa-corner"
-            aria-label={persona === 'uniqa' ? 'یونیکا حاضر ہے' : 'یونیکا کا کونا — وہ بلانے پر آتی ہے'}
-          >
-            <span className="cabin-avatar" aria-hidden="true">
-              <span className="cabin-avatar-icon">💛</span>
-              {persona === 'uniqa' && <span className="cabin-avatar-ping" />}
-            </span>
-            <span className="cabin-plate">یونیکا</span>
-            <span className="cabin-duty">ساتھی</span>
-            <span className="cabin-deskline" aria-hidden="true">
-              <span className="cabin-screen"><span className="cabin-screen-lines" /></span>
-              <span className="cabin-desk" />
-            </span>
-            <span className="cabin-status">
-              {persona === 'uniqa' ? 'حاضر ہے 💛' : 'بلانے پر آئے گی'}
-            </span>
-          </div>
+          {/* ⑤ یونیکا no longer keeps a separate corner: she sits
+              in the joint hosts' cabin above (her مینیجر seat),
+              present only while summoned — see office-hosts. */}
         </div>
       </div>
 
@@ -311,13 +376,18 @@ export function OfficeSceneContent({ tasks, persona, boardEntries, buildLive, co
   );
 }
 
-/** Animate ONE 📄 from a cabin/hub to a cabin/board inside the
- *  office content. Coordinates come from the elements' real rects;
- *  a missing endpoint (view not mounted) simply skips the flight. */
+/** Animate ONE handoff inside the office: a little robot-BOY
+ *  (the sender's own tint; Unique's sky boy for hub dispatches)
+ *  CARRIES the 📄 from a cabin/hub to a cabin/board, and the
+ *  receiver answers with a small bounce. Coordinates come from the
+ *  elements' real rects; a missing endpoint (view not mounted)
+ *  simply skips the flight. Reduced motion: no travel — the
+ *  traveler just fades in at the destination and away. */
 async function flyFileOnce(
   wrap: HTMLDivElement | null,
   layer: HTMLDivElement | null,
   flight: Flight,
+  reducedMotion = false,
 ): Promise<void> {
   if (!wrap || !layer) return;
   const fromEl = flight.from === 'hub'
@@ -336,32 +406,50 @@ async function flyFileOnce(
   const b = center(toEl);
   const mid = { x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - 34 };
   const chip = document.createElement('div');
-  chip.className = 'office-fly-file';
+  chip.className = 'office-fly-file office-fly-robot';
   chip.setAttribute('data-testid', 'office-fly-file');
   chip.dataset.from = String(flight.from);
   chip.dataset.to = String(flight.to);
   chip.dataset.kind = flight.kind;
-  chip.textContent = '📄';
+  // The traveler IS the sender's robot boy, file in his hands.
+  const tint = robotTintFor(flight.from === 'hub' ? 'hub' : String(flight.from));
+  chip.innerHTML = `${robotSVG(tint)}<span class="office-fly-doc" aria-hidden="true">📄</span>`;
   layer.appendChild(chip);
   const T = (p: { x: number; y: number }, s: number) =>
     `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) scale(${s})`;
   try {
-    const anim = chip.animate(
-      [
-        { transform: T(a, 0.6), opacity: 0 },
-        { transform: T(a, 0.85), opacity: 1, offset: 0.18 },
-        { transform: T(mid, 1.12), opacity: 1, offset: 0.55 },
-        { transform: T(b, 0.9), opacity: 1, offset: 0.85 },
-        { transform: T(b, 0.55), opacity: 0 },
-      ],
-      { duration: 880, easing: 'ease-in-out' },
-    );
+    const anim = reducedMotion
+      ? chip.animate(
+        [
+          { transform: T(b, 0.9), opacity: 0 },
+          { transform: T(b, 0.9), opacity: 1, offset: 0.35 },
+          { transform: T(b, 0.9), opacity: 1, offset: 0.7 },
+          { transform: T(b, 0.9), opacity: 0 },
+        ],
+        { duration: 700, easing: 'ease-in-out' },
+      )
+      : chip.animate(
+        [
+          { transform: T(a, 0.6), opacity: 0 },
+          { transform: T(a, 0.85), opacity: 1, offset: 0.18 },
+          { transform: T(mid, 1.12), opacity: 1, offset: 0.55 },
+          { transform: T(b, 0.9), opacity: 1, offset: 0.85 },
+          { transform: T(b, 0.55), opacity: 0 },
+        ],
+        { duration: 880, easing: 'ease-in-out' },
+      );
     await anim.finished;
   } catch {
     // animation cancelled (view closed mid-flight) — the chip is
     // removed below either way.
   }
   chip.remove();
+  // وصولی — the receiver's little bounce: the cabin's robot hops;
+  // for a delivery the board itself glows once. Pure presentation
+  // of a handoff that really just happened.
+  const receiveClass = flight.to === 'board' ? 'office-board-receive' : 'cabin-receive';
+  toEl.classList.add(receiveClass);
+  window.setTimeout(() => toEl.classList.remove(receiveClass), 750);
 }
 
 /**

@@ -1248,30 +1248,53 @@ body {
 .office-window { font-size: 20px; }
 .office-rest-caption { color: #fcd9a0; font-size: 12.5px; }
 
-/* Unique's hub at the head of the office — new work is dispatched
-   FROM here (the file-flight origin anchor). */
-.office-hub-row { display: flex; justify-content: center; margin-bottom: 10px; }
-.office-hub {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 13px; border-radius: 999px;
-  border: 1px solid rgba(56, 189, 248, .45);
-  background: rgba(8, 30, 52, .8); color: #bae6fd;
-  font-size: 12px; font-weight: 600;
-  box-shadow: 0 0 12px rgba(56, 189, 248, .18);
+/* داخلی بورڈ — the «Unique AI» entrance sign over the office floor
+   (user's reference image, 2026-10-23 — OUR brand on the board, in
+   purple neon like the picture's entrance), planters at its sides,
+   and the org line under it: باس یونیک • مینیجر یونیکا • ٹیم 7. */
+.office-sign {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: fit-content; max-width: 100%;
+  margin: 2px auto 8px; padding: 7px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(167, 139, 250, .55);
+  background: linear-gradient(180deg, rgba(76, 29, 149, .50), rgba(24, 12, 48, .88));
+  box-shadow: 0 0 22px rgba(139, 92, 246, .35), inset 0 0 18px rgba(139, 92, 246, .15);
 }
+.office-sign-text { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.office-sign-brand {
+  font-size: 19px; font-weight: 800; letter-spacing: .4px; line-height: 1.15;
+  color: #ede9fe;
+  text-shadow: 0 0 12px rgba(167, 139, 250, .95), 0 0 30px rgba(139, 92, 246, .6);
+}
+.office-sign-sub { font-size: 10.5px; color: #c4b5fd; }
+.office-sign-plant { font-size: 15px; }
+.office-orgline {
+  text-align: center; font-size: 11.5px; color: #ddd6fe;
+  margin-bottom: 10px; opacity: .92;
+}
+.office-orgline-sep { opacity: .45; margin: 0 2px; }
 
 .office-cabins {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
   gap: 9px;
 }
+/* A glass cabin (user's reference image, 2026-10-23): translucent
+   glass walls with a light sheen, a neon under-glow in the agent's
+   own tint (--neon, set per cabin), his desk inside. */
 .office-cabin {
   position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 10px 6px 9px;
   border-radius: 12px;
-  border: 1px solid rgba(139, 92, 246, .18);
-  background: rgba(13, 22, 42, .75);
+  border: 1px solid rgba(148, 178, 255, .22);
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, .09), transparent 46%),
+    linear-gradient(165deg, rgba(64, 84, 140, .30), rgba(9, 14, 30, .88) 58%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .13),
+    inset 0 0 24px -14px var(--neon, rgba(139, 92, 246, .35));
   color: #e9d5ff;
   font: inherit;
   text-align: center;
@@ -1279,50 +1302,89 @@ body {
 }
 button.office-cabin { appearance: none; }
 .office-cabin-selected { outline: 2px solid rgba(56, 189, 248, .7); outline-offset: 1px; }
-/* The computer: a little monitor on the agent's desk whose screen
-   only glows with REAL work. It sits UNDER the agent's avatar now —
-   the desk prop, no longer the cabin's face. */
+/* تختی — the neon plaque ABOVE each cabin (user's reference image):
+   a glowing icon disc in the agent's own tint over the door, his
+   NAME and DUTY on the board beneath it. */
+.cabin-plaque {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  width: 100%; padding-bottom: 5px; margin-bottom: 4px;
+  border-bottom: 1px solid rgba(148, 178, 255, .14);
+}
+.cabin-neon-disc {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 15px; line-height: 1;
+  border: 1.6px solid var(--neon, rgba(167, 139, 250, .6));
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .16), rgba(8, 12, 26, .92) 70%);
+  box-shadow: 0 0 10px var(--neon, rgba(167, 139, 250, .5)), inset 0 0 8px rgba(255, 255, 255, .07);
+}
+.cabin-plaque-text { display: flex; flex-direction: column; align-items: center; }
+.cabin-plate { font-weight: 700; font-size: 13.5px; }
+.cabin-duty { font-size: 11px; opacity: .65; }
+
+/* The computers: DUAL monitors on the agent's desk (reference
+   image), screens glowing only with REAL work. */
+.cabin-monitors { display: flex; gap: 3px; justify-content: center; }
 .cabin-screen {
-  width: 40px; height: 25px; border-radius: 5px;
+  width: 30px; height: 19px; border-radius: 4px;
   border: 1.5px solid rgba(148, 163, 184, .45);
   background: linear-gradient(180deg, rgba(38, 58, 92, .85), rgba(8, 14, 28, .95));
   display: block; position: relative; overflow: hidden;
 }
 .cabin-screen::after { /* monitor stand */
-  content: ''; position: absolute; left: 50%; bottom: -7px; width: 14px; height: 5px;
+  content: ''; position: absolute; left: 50%; bottom: -6px; width: 10px; height: 4px;
   transform: translateX(-50%); background: rgba(148, 163, 184, .4); border-radius: 2px;
 }
 .cabin-screen-lines {
-  position: absolute; inset: 4px 5px; border-radius: 2px; opacity: .22;
-  background: repeating-linear-gradient(180deg, rgba(125, 211, 252, .85) 0 2px, transparent 2px 6px);
+  position: absolute; inset: 3px 4px; border-radius: 2px; opacity: .22;
+  background: repeating-linear-gradient(180deg, rgba(125, 211, 252, .85) 0 2px, transparent 2px 5px);
 }
-/* The agent himself: a lit avatar disc — the cabin reads as an
-   OCCUPIED desk (his screenshot, 2026-10-23: the old layout led with
-   a big dark monitor rectangle that read as an empty black box). */
-.cabin-avatar {
-  position: relative;
-  width: 52px; height: 52px; border-radius: 50%;
-  display: grid; place-items: center;
-  background: radial-gradient(circle at 35% 30%, rgba(167, 139, 250, .38), rgba(15, 28, 52, .92) 68%);
-  border: 1.5px solid rgba(167, 139, 250, .45);
-  box-shadow: inset 0 0 12px rgba(139, 92, 246, .18), 0 2px 10px rgba(0, 0, 0, .35);
+.cabin-deskline { display: flex; flex-direction: column; align-items: center; margin-top: 5px; }
+.cabin-desk {
+  width: 58px; height: 5px; border-radius: 3px; margin-top: 6px;
+  background: linear-gradient(90deg, rgba(120, 72, 20, .0), rgba(180, 120, 60, .55), rgba(120, 72, 20, .0));
 }
-.cabin-avatar-icon { font-size: 27px; line-height: 1; }
+.cabin-status { font-size: 11.5px; min-height: 15px; }
+.cabin-tea { position: absolute; top: 6px; inset-inline-end: 8px; font-size: 12px; opacity: .75; }
+.cabin-plant { position: absolute; bottom: 5px; inset-inline-start: 6px; font-size: 11px; opacity: .8; }
+
+/* ======= روبوٹ لڑکا (CabinRobot) — the boy in every cabin =======
+   All motion is transform/opacity, keyed off the cabin's REAL state
+   classes: he breathes + blinks at rest; working he PACES at his
+   desk (چلتا پھرتا) with stepping legs and typing arms; done he
+   hops twice, then settles; a receiver hops once (cabin-receive). */
+.cabin-robot-stage { position: relative; display: grid; place-items: center; }
+.cabin-robot { display: block; line-height: 0; width: 52px; height: 64px; }
+.cabin-robot svg { width: 100%; height: 100%; }
 .cabin-avatar-ping {
-  position: absolute; top: 1px; inset-inline-end: 1px;
+  position: absolute; top: 0; inset-inline-end: 2px;
   width: 10px; height: 10px; border-radius: 50%;
   background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, .95);
   animation: agent-pulse 1s ease-in-out infinite;
 }
-.cabin-deskline { display: flex; flex-direction: column; align-items: center; margin-top: 6px; }
-.cabin-desk {
-  width: 58px; height: 5px; border-radius: 3px; margin-top: 7px;
-  background: linear-gradient(90deg, rgba(120, 72, 20, .0), rgba(180, 120, 60, .55), rgba(120, 72, 20, .0));
-}
-.cabin-plate { font-weight: 700; font-size: 13.5px; margin-top: 6px; }
-.cabin-duty { font-size: 11px; opacity: .65; }
-.cabin-status { font-size: 11.5px; min-height: 15px; }
-.cabin-tea { position: absolute; top: 6px; inset-inline-end: 8px; font-size: 12px; opacity: .75; }
+.robot-fig { transform-box: fill-box; transform-origin: 50% 100%; animation: robot-breathe 3.6s ease-in-out infinite alternate; }
+.robot-eyes { transform-box: fill-box; transform-origin: center; animation: robot-blink 4.8s linear infinite; }
+.robot-arm, .robot-leg { transform-box: fill-box; }
+.robot-arm-l, .robot-arm-r { transform-origin: 50% 8%; }
+.robot-leg-l, .robot-leg-r { transform-origin: 50% 6%; }
+@keyframes robot-breathe { from { transform: translateY(0) rotate(-.6deg); } to { transform: translateY(-1.2px) rotate(.6deg); } }
+@keyframes robot-blink { 0%, 93%, 100% { transform: scaleY(1); } 95.5% { transform: scaleY(.1); } }
+@keyframes robot-pace { from { transform: translateX(-3.5px); } to { transform: translateX(3.5px); } }
+@keyframes robot-step { from { transform: rotate(16deg); } to { transform: rotate(-14deg); } }
+@keyframes robot-type { from { transform: rotate(9deg); } to { transform: rotate(-11deg); } }
+@keyframes robot-cheer { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-5px); } 70% { transform: translateY(0) scaleY(.96); } }
+@keyframes robot-receive { 0% { transform: translateY(0) scale(1, 1); } 35% { transform: translateY(-4px) scale(.97, 1.05); } 70% { transform: translateY(0) scale(1.04, .95); } 100% { transform: translateY(0) scale(1, 1); } }
+.office-cabin-working .robot-fig { animation: robot-pace .9s ease-in-out infinite alternate; }
+.office-cabin-working .robot-leg-l { animation: robot-step .26s ease-in-out infinite alternate; }
+.office-cabin-working .robot-leg-r { animation: robot-step .26s ease-in-out infinite alternate-reverse; }
+.office-cabin-working .robot-arm-l { animation: robot-type .3s ease-in-out infinite alternate; }
+.office-cabin-working .robot-arm-r { animation: robot-type .3s ease-in-out infinite alternate-reverse; }
+.office-cabin-working .robot-chest { animation: agent-pulse 1.1s ease-in-out infinite; }
+.office-cabin-done .robot-fig { animation: robot-cheer .5s ease-in-out 2; }
+.office-cabin-failed .robot-fig { animation: none; transform: rotate(-3deg); }
+.cabin-receive .robot-fig { animation: robot-receive .55s ease-in-out 1 !important; }
+.office-board-receive { animation: board-receive .6s ease-in-out 1; }
+@keyframes board-receive { 0%, 100% { box-shadow: 0 0 0 rgba(251, 191, 36, 0); } 40% { box-shadow: 0 0 18px rgba(251, 191, 36, .45); } }
 
 .office-cabin-idle .cabin-status { opacity: .55; }
 .office-cabin-working {
@@ -1337,44 +1399,91 @@ button.office-cabin { appearance: none; }
 .office-cabin-done .cabin-status { color: #34d399; }
 .office-cabin-failed { border-color: rgba(248, 113, 113, .5); }
 .office-cabin-failed .cabin-status { color: #f87171; }
-/* Avatar presence per state: the working agent glows amber and
-   gently bobs at his desk; done settles green; failed tints red. */
-.office-cabin-working .cabin-avatar {
-  border-color: rgba(251, 191, 36, .9);
-  box-shadow: 0 0 18px rgba(251, 191, 36, .4), inset 0 0 14px rgba(251, 191, 36, .18);
-  animation: cabin-bob 1.4s ease-in-out infinite alternate;
-}
-.office-cabin-done .cabin-avatar { border-color: rgba(52, 211, 153, .75); box-shadow: 0 0 12px rgba(52, 211, 153, .25); }
-.office-cabin-failed .cabin-avatar { border-color: rgba(248, 113, 113, .7); }
-@keyframes cabin-bob { from { transform: translateY(0); } to { transform: translateY(-3px); } }
+/* Robot presence per state: the working boy glows amber in his
+   cabin; done settles green; failed tints red; his neon disc
+   brightens with work. */
+.office-cabin-working .cabin-robot-stage { filter: drop-shadow(0 0 10px rgba(251, 191, 36, .45)); }
+.office-cabin-working .cabin-neon-disc { box-shadow: 0 0 16px var(--neon, rgba(167, 139, 250, .6)), inset 0 0 8px rgba(255, 255, 255, .1); }
+.office-cabin-done .cabin-robot-stage { filter: drop-shadow(0 0 8px rgba(52, 211, 153, .35)); }
+.office-cabin-failed .cabin-robot-stage { filter: drop-shadow(0 0 8px rgba(248, 113, 113, .3)); }
 @media (prefers-reduced-motion: reduce) {
-  .office-cabin-working .cabin-avatar,
+  .robot-fig, .robot-eyes, .robot-arm, .robot-leg, .robot-chest,
+  .office-cabin-working .robot-fig, .office-cabin-done .robot-fig,
+  .cabin-receive .robot-fig, .office-board-receive,
+  .office-fly-robot .robot-leg, .office-fly-robot .robot-arm,
   .cabin-avatar-ping { animation: none !important; }
 }
 
-/* یونیکا کا کونا — soft gold; lit ONLY while she is present. */
-.office-uniqa { cursor: default; border-style: dashed; }
-.office-uniqa-lit {
-  border-style: solid;
-  border-color: rgba(253, 224, 71, .8);
-  background: linear-gradient(180deg, rgba(120, 80, 10, .35), rgba(30, 22, 8, .85));
-  box-shadow: 0 0 22px rgba(253, 224, 71, .28), inset 0 0 26px rgba(253, 224, 71, .08);
+/* میزبان کیبن — the JOINT hosts' cabin (user, 2026-10-23): the
+   same glass as the team cabins, at the head of the floor under
+   the «Unique AI» sign. باس یونیک and مینیجر یونیکا seated side by
+   side at ONE desk — a monitor and a standing microphone in front
+   of them; the desk overlaps their legs so they read as SEATED.
+   This cabin is the dispatch hub (data-handoff-anchor="hub").
+   --neon follows presence: sky while Unique hosts alone, GOLD
+   when Uniqa is summoned and seated beside him. */
+.office-hosts {
+  --neon: #7dd3fc;
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 9px 10px 8px; margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 178, 255, .3);
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, .09), transparent 46%),
+    linear-gradient(165deg, rgba(64, 84, 140, .32), rgba(9, 14, 30, .9) 58%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .13), inset 0 0 24px -14px var(--neon);
+  color: #e9d5ff; text-align: center;
 }
-.office-uniqa-lit .cabin-screen { border-color: rgba(253, 224, 71, .75); background: rgba(52, 36, 4, .95); }
-.office-uniqa-lit .cabin-screen-lines {
-  opacity: .85;
-  background: repeating-linear-gradient(180deg, rgba(253, 224, 71, .8) 0 2px, transparent 2px 6px);
+.office-hosts-duo {
+  --neon: #fde047;
+  border-color: rgba(253, 224, 71, .65);
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, .1), transparent 46%),
+    linear-gradient(165deg, rgba(120, 80, 10, .38), rgba(26, 20, 8, .9) 58%);
+  box-shadow: 0 0 22px rgba(253, 224, 71, .25), inset 0 0 26px rgba(253, 224, 71, .08);
 }
-.office-uniqa-lit .cabin-status { color: #fde047; }
-.office-uniqa .cabin-avatar {
-  background: radial-gradient(circle at 35% 30%, rgba(253, 224, 71, .30), rgba(30, 22, 8, .92) 68%);
-  border-color: rgba(253, 224, 71, .4);
+.office-hosts-duo .cabin-status { color: #fde047; }
+.hosts-stage {
+  position: relative;
+  display: flex; justify-content: center; align-items: flex-start; gap: 20px;
+  padding: 2px 8px 15px;
 }
-.office-uniqa-lit .cabin-avatar {
-  border-color: rgba(253, 224, 71, .95);
-  box-shadow: 0 0 18px rgba(253, 224, 71, .45), inset 0 0 14px rgba(253, 224, 71, .2);
+.hosts-seat { position: relative; display: flex; flex-direction: column; align-items: center; }
+.hosts-seat .cabin-robot { width: 46px; height: 57px; }
+.hosts-seat-empty {
+  width: 42px; height: 54px;
+  display: grid; place-items: center;
+  border: 1.5px dashed rgba(253, 224, 71, .35); border-radius: 10px 10px 5px 5px;
 }
-.office-uniqa-lit .cabin-avatar-ping { background: #fde047; box-shadow: 0 0 8px rgba(253, 224, 71, .95); }
+.hosts-seat-empty::after { content: '🪑'; font-size: 15px; opacity: .45; }
+.hosts-role {
+  position: relative; z-index: 2;
+  margin-top: -11px; padding: 1px 8px;
+  font-size: 9.5px; font-weight: 700; white-space: nowrap;
+  border-radius: 999px; background: rgba(8, 12, 26, .92);
+}
+.hosts-role-boss { color: #7dd3fc; border: 1px solid rgba(125, 211, 252, .55); }
+.hosts-role-manager { color: #fde047; border: 1px solid rgba(253, 224, 71, .55); }
+.hosts-desk {
+  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center;
+}
+.hosts-desk-row { display: flex; align-items: flex-end; gap: 7px; }
+.hosts-monitor {
+  width: 36px; height: 22px; border-radius: 4px;
+  border: 1.5px solid rgba(148, 163, 184, .55);
+  background: linear-gradient(180deg, rgba(38, 58, 92, .9), rgba(8, 14, 28, .95));
+  display: block; position: relative; overflow: hidden;
+}
+.office-hosts-duo .hosts-monitor { border-color: rgba(253, 224, 71, .7); }
+.hosts-mic { font-size: 17px; line-height: 1; filter: drop-shadow(0 0 6px rgba(167, 139, 250, .5)); }
+.hosts-deskbar {
+  width: 128px; height: 5px; border-radius: 3px; margin-top: 3px;
+  background: linear-gradient(90deg, rgba(120, 72, 20, .0), rgba(180, 120, 60, .6), rgba(120, 72, 20, .0));
+}
+.office-hosts-duo .hosts-seat-uniqa .robot-chest { animation: agent-pulse 1.4s ease-in-out infinite; }
+.office-hosts-duo .hosts-seat-uniqa { filter: drop-shadow(0 0 9px rgba(253, 224, 71, .5)); }
 
 .office-closeup {
   border: 1px solid rgba(56, 189, 248, .3);
@@ -1434,41 +1543,69 @@ button.office-cabin { appearance: none; }
    lands on 3 per row, and the tightened vertical budget (board,
    floor, desk props) fits all eight desks inside a laptop-height
    panel — no internal scroll needed at 768px+ viewport heights. */
-.office-panel .office-cabins { grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 7px; }
-.office-panel .office-cabin { padding: 7px 3px 6px; gap: 1px; }
-.office-panel .cabin-avatar { width: 40px; height: 40px; }
-.office-panel .cabin-avatar-icon { font-size: 21px; }
-.office-panel .cabin-plate { font-size: 12px; margin-top: 4px; }
-.office-panel .cabin-duty { font-size: 10.5px; }
+/* Panel cabins: FOUR across (the reference's office grid, mini) —
+   two rows of glass cabins, plaque as a row: neon disc beside the
+   name/duty stack. The modal keeps the roomy single-file plaque. */
+.office-panel .office-cabins { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.office-panel .office-cabin { padding: 6px 3px 5px; gap: 1px; }
+.office-panel .cabin-plaque { flex-direction: row; justify-content: center; gap: 4px; padding-bottom: 4px; margin-bottom: 3px; }
+.office-panel .cabin-plaque-text { align-items: flex-start; text-align: start; }
+.office-panel .cabin-neon-disc { width: 22px; height: 22px; font-size: 11px; }
+.office-panel .cabin-robot { width: 36px; height: 45px; }
+.office-panel .cabin-plate { font-size: 11.5px; }
+.office-panel .cabin-duty { font-size: 10px; }
 .office-panel .cabin-status { font-size: 11px; min-height: 13px; }
 .office-panel .cabin-deskline { margin-top: 3px; }
-.office-panel .cabin-screen { width: 34px; height: 21px; }
+.office-panel .cabin-screen { width: 24px; height: 15px; }
 .office-panel .cabin-desk { margin-top: 5px; }
-.office-panel .office-board { padding: 8px 10px; margin-bottom: 8px; }
-.office-panel .office-floor { padding: 10px 8px 8px; margin-bottom: 0; }
-.office-panel .office-rest-details { margin-bottom: 6px; }
-.office-panel .office-hub-row { margin-bottom: 6px; }
+.office-panel .office-board { padding: 6px 10px; margin-bottom: 6px; }
+.office-panel .office-floor { padding: 8px 8px 6px; margin-bottom: 0; }
+.office-panel .office-rest-details { margin-bottom: 4px; }
+.office-panel .office-window { font-size: 16px; }
+.office-panel .office-sign { padding: 4px 10px; margin-bottom: 4px; }
+.office-panel .office-sign-brand { font-size: 15px; }
+.office-panel .office-sign-sub { display: none; }
+.office-panel .office-sign-plant { font-size: 12px; }
+.office-panel .office-orgline { font-size: 10.5px; margin-bottom: 4px; }
+.office-panel .office-hosts { padding: 5px 6px 4px; margin-bottom: 6px; }
+.office-panel .hosts-seat .cabin-robot { width: 34px; height: 42px; }
+.office-panel .hosts-seat-empty { width: 32px; height: 40px; }
+.office-panel .hosts-stage { gap: 12px; padding-bottom: 10px; }
+.office-panel .hosts-monitor { width: 28px; height: 17px; }
+.office-panel .hosts-mic { font-size: 13px; }
+.office-panel .hosts-deskbar { width: 96px; }
 
 /* ======= File handoff (user refinement, 2026-10-23) =======
-   A 📄 chip flies cabin→cabin ONLY on real state transitions
-   (planned by lib/office-handoff, executed by flyFileOnce with the
-   Web Animations API — transform/opacity only). The layer never
-   intercepts taps and never animates on idle. */
+   A robot-BOY carrying the 📄 flies cabin→cabin ONLY on real state
+   transitions (planned by lib/office-handoff, executed by
+   flyFileOnce with the Web Animations API — transform/opacity
+   only). The layer never intercepts taps and never animates on
+   idle. The traveler is the SENDER's own robot (his tint), legs
+   stepping as he goes, the file held in front of him. */
 .office-fly-layer {
   position: absolute; inset: 0;
   pointer-events: none; overflow: visible; z-index: 6;
 }
 .office-fly-file {
   position: absolute; left: 0; top: 0;
-  width: 34px; height: 34px;
+  width: 48px; height: 58px;
   display: grid; place-items: center;
-  font-size: 19px; line-height: 1;
-  border-radius: 10px;
-  background: rgba(14, 30, 54, .96);
+  border-radius: 12px;
+  background: rgba(14, 30, 54, .94);
   border: 1px solid rgba(125, 211, 252, .7);
   box-shadow: 0 0 14px rgba(56, 189, 248, .5);
   will-change: transform, opacity;
 }
+.office-fly-robot svg { width: 33px; height: 41px; }
+.office-fly-doc {
+  position: absolute; bottom: 1px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px; line-height: 1;
+}
+.office-fly-robot .robot-leg-l { animation: robot-step .22s ease-in-out infinite alternate; }
+.office-fly-robot .robot-leg-r { animation: robot-step .22s ease-in-out infinite alternate-reverse; }
+.office-fly-robot .robot-arm-l { transform: rotate(14deg); }
+.office-fly-robot .robot-arm-r { transform: rotate(-14deg); }
 
 /* ======= Call (Phase 4): incoming overlay + live banner ======= */
 .call-overlay {
