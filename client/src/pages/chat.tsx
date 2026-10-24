@@ -2061,32 +2061,26 @@ export default function ChatPage() {
       }
     } catch { /* ignore */ }
     // ── UNIQA's voice chain (Phase 2) ─────────────────────────────────
-    // STRICTLY separate from Unique's chain below: her legs are Uzma
-    // (client Edge → server Edge) then Gemini's FEMALE voice (Sulafat);
-    // if all fail, the caller falls back to the strict female browser
-    // picker. Salman's legs are NEVER in her chain and her legs are
-    // never in his — no accidental cross-gender audio, ever.
+    // STRICTLY separate from Unique's chain below: Salman's legs are
+    // NEVER in her chain and her legs are never in his — no accidental
+    // cross-gender audio, ever. UNIQA-ONLY ORDER (2026-10-24, user-
+    // approved): Gemini Sulafat FIRST, then server Edge (Uzma), then
+    // client Edge (Uzma) last; if all fail, the caller falls back to
+    // the strict female browser picker. WHY this order: on 2026-10-24
+    // the server Edge leg answered 502 for BOTH voices from Render
+    // (throttled datacenter IP) and the client Edge leg can never
+    // connect from Chrome/ChromeOS (UA rejection) — so putting Edge
+    // first burned 20s+ per chunk before Gemini, the leg proven to
+    // speak for Unique on the same laptop, ever got a chance, and
+    // Uniqa was heard as silent. Unique's chain below is UNTOUCHED
+    // by this change.
     if (female) {
       const runUniqaChain = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
-        // Leg 1: client-side Edge — Uzma synthesized in this browser.
-        // On his Chrome devices Microsoft rejects the handshake exactly
-        // as for Salman (the shared module memoizes that failure and
-        // fails fast), so the server leg usually does the real work.
-        try {
-          const r = await synthesizeUniqaClientSide(text, timeoutMs);
-          if (r) return r;
-        } catch { /* fall through */ }
-        // Leg 2: server-side Edge — Uzma (POST /api/tts/edge with
-        // voice:'uniqa'). NO session lockout (2026-10-24 fix): this leg
-        // is attempted on every chunk, like Unique's server leg — a
-        // transient Edge failure must never mute her for the session.
-        try {
-          const r = await synthesizeEdgeSpeech({ text, voice: 'uniqa' });
-          if (r) return r;
-        } catch { /* fall through to Gemini */ }
-        // Leg 3: Gemini — Sulafat, her female voice. Shares the Gemini
+        // Leg 1: Gemini — Sulafat, her female voice. Shares the Gemini
         // leg's session mute (serverTtsDownRef) and 3-strikes counting
         // with Unique's chain: dead keys are dead for both personas.
+        // A Gemini failure here must NOT end the chain — Edge legs
+        // below still get their chance on this same chunk.
         if (!serverTtsDownRef.current) {
           try {
             const r = await synthesizeMairaSpeech({ text, female: true });
@@ -2102,6 +2096,22 @@ export default function ChatPage() {
             }
           }
         }
+        // Leg 2: server-side Edge — Uzma (POST /api/tts/edge with
+        // voice:'uniqa'). NO session lockout (2026-10-24 fix): this leg
+        // is attempted on every chunk — a transient Edge failure must
+        // never mute her for the session.
+        try {
+          const r = await synthesizeEdgeSpeech({ text, voice: 'uniqa' });
+          if (r) return r;
+        } catch { /* fall through to client Edge */ }
+        // Leg 3: client-side Edge — Uzma synthesized in this browser.
+        // On his Chrome devices Microsoft rejects the handshake exactly
+        // as for Salman (the shared module memoizes that failure and
+        // fails fast), so this is only a real leg in an Edge browser.
+        try {
+          const r = await synthesizeUniqaClientSide(text, timeoutMs);
+          if (r) return r;
+        } catch { /* fall through to browser fallback */ }
         setError('⚠️ یونیکا کی آواز وقتی طور پر نہیں بن سکی — Settings میں Gemini key چیک کریں یا تھوڑی دیر بعد پھر کوشش کریں۔');
         return null;
       };
