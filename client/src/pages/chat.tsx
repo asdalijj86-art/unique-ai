@@ -443,12 +443,14 @@ export default function ChatPage() {
   // skip server TTS for the session and go straight to browser voice.
   const serverTtsFailsRef = useRef(0);
   const serverTtsDownRef = useRef(false);
-  // UNIQA voice health (Phase 2): her server-Edge leg (Uzma) gets the
-  // same treatment as Unique's Gemini leg — after 2 consecutive
-  // failures it is skipped for the session (her Gemini voice takes
-  // over) instead of taxing every chunk; a success resets the count.
-  const uniqaEdgeFailsRef = useRef(0);
-  const uniqaEdgeDownRef = useRef(false);
+  // UNIQA voice health (2026-10-24 fix, user-approved): her server-Edge
+  // leg (Uzma) carries NO session lockout any more. The old 2-strike
+  // rule muted that leg for the whole session after 2 transient
+  // failures (the known Render Edge throttling), leaving her silent
+  // on Chrome devices while Unique — whose chain has no such lockout
+  // — kept speaking. Now the server leg is retried on every chunk,
+  // exactly like Unique's, and the per-chunk resilient retries
+  // (650ms / 2000ms) give transient throttling room to clear.
   // SESSION VOICE WARM-UP (2026-10-22, defect: mixed voices at start).
   // At session start every leg of the voice chain is cold: the Render
   // server may be asleep (its routes can eat their whole timeout
@@ -2075,19 +2077,13 @@ export default function ChatPage() {
           if (r) return r;
         } catch { /* fall through */ }
         // Leg 2: server-side Edge — Uzma (POST /api/tts/edge with
-        // voice:'uniqa'). Her own failure memo: 2 consecutive failures
-        // skip this leg for the session (Gemini takes over) instead of
-        // taxing every chunk; a success resets the count.
-        if (!uniqaEdgeDownRef.current) {
-          try {
-            const r = await synthesizeEdgeSpeech({ text, voice: 'uniqa' });
-            uniqaEdgeFailsRef.current = 0;
-            if (r) return r;
-          } catch {
-            uniqaEdgeFailsRef.current += 1;
-            if (uniqaEdgeFailsRef.current >= 2) uniqaEdgeDownRef.current = true;
-          }
-        }
+        // voice:'uniqa'). NO session lockout (2026-10-24 fix): this leg
+        // is attempted on every chunk, like Unique's server leg — a
+        // transient Edge failure must never mute her for the session.
+        try {
+          const r = await synthesizeEdgeSpeech({ text, voice: 'uniqa' });
+          if (r) return r;
+        } catch { /* fall through to Gemini */ }
         // Leg 3: Gemini — Sulafat, her female voice. Shares the Gemini
         // leg's session mute (serverTtsDownRef) and 3-strikes counting
         // with Unique's chain: dead keys are dead for both personas.
