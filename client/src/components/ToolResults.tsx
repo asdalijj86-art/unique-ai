@@ -319,6 +319,7 @@ export default function ToolResults({
           {action.type === 'weather' && '🌤️ موسم'}
           {action.type === 'youtube_results' && '▶️ یوٹیوب ویڈیوز'}
           {action.type === 'news_results' && '📰 تازہ خبریں'}
+          {action.type === 'social_news_results' && '📱 سوشل میڈیا لائیو خبریں'}
           {action.type === 'calc_result' && '🧮 کیلکولیٹر'}
           {action.type === 'currency_result' && '💱 کرنسی'}
           {action.type === 'set_timer' && '⏰ ٹائمر'}
@@ -386,7 +387,7 @@ export default function ToolResults({
           </div>
         )}
 
-        {action.type === 'news_results' && (
+        {(action.type === 'news_results' || action.type === 'social_news_results') && (
           <div>
             {action.headlines.map((h, i) => (
               <a key={i} href={h.url} target="_blank" rel="noopener noreferrer" className="tool-link-card">

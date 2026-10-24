@@ -102,8 +102,8 @@ export const AGENT_DEFS: AgentDef[] = [
   },
   {
     key: 'media', person: 'حمزہ', icon: '🎨', duty: 'میڈیا ایجنٹ',
-    blurb: 'تصویر اور ویڈیو کے سارے کام — بیک گراؤنڈ ہٹانا، تصویر صاف/ری سائز کرنا، تصویر پر متن، ویڈیو تیار کرنا — اور QR کوڈ بنانا۔ ہب والا کام اس کی اپنی اسکرین پر کھلتا ہے۔',
-    actionTypes: ['qr_code', 'video_ideas'],
+    blurb: 'تصویر اور ویڈیو کے سارے کام — بیک گراؤنڈ ہٹانا، تصویر صاف/ری سائز کرنا، تصویر پر متن، ویڈیو تیار کرنا — اور QR کوڈ بنانا۔ سوشل میڈیا کی لائیو خبریں بھی یہی بتاتا ہے — اس وقت کیا چل رہا ہے، کیا نہیں۔ ہب والا کام اس کی اپنی اسکرین پر کھلتا ہے۔',
+    actionTypes: ['qr_code', 'video_ideas', 'social_news_results'],
     tools: ['image_tools', 'video_tools'],
     // The image/video HUBS open as their own screen from the brain's
     // single open_tool action — never predicted for the strip. The QR

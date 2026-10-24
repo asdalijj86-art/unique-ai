@@ -468,7 +468,7 @@ export function isQuranCommand(text) {
  * Classify the latest user message.
  * Returns { intent, ...payload } where intent is one of
  * "open_website" | "calculator" | "timer" | "currency" | "weather" |
- * "youtube_search" | "news" | "notes_save" | "notes_list" | "web_search" |
+ * "youtube_search" | "news" | "social_news" | "notes_save" | "notes_list" | "web_search" |
  * "prayer_times" | "translate" | "unit_convert" | "qr_code" |
  * "youtube_trending" | "world_clock" | "read_webpage" |
  * "android_app" | "build_app" | "build_status" |
@@ -559,6 +559,22 @@ export function classifyIntent(text) {
   if (/(trending|وائرل|viral|آئیڈیا|idea).*(video|ویڈیو|short|شارٹ)|(video|ویڈیو).*(idea|آئیڈیا|trending|وائرل)/.test(normalized)
       || /(یوٹیوب کے لیے|youtube ke liye)/.test(normalized)) {
     return { intent: 'youtube_trending', niche: extractNiche(message) };
+  }
+
+  // --- social-media live news (Hamza, media agent) -------------------------------
+  // "Social media par is waqt kya chal raha hai" — live news from social
+  // platforms. NOT video ideas (those stay youtube_trending above) and
+  // NOT plain headlines (news below): it needs a social/trending marker
+  // plus a news/running-now marker, or an explicit social-media ask.
+  // Runs BEFORE news so a social ask never collapses into plain news.
+  const socialNewsAsk =
+    /(social|سوشل).*(media|میڈیا|خبر|khabar|news|viral|وائرل|trending|ٹرینڈنگ|chal raha|چل رہا|chal rahi|چل رہی)/.test(normalized)
+    || /(viral|وائرل|trending|ٹرینڈنگ).*(khabar|خبر|news)/.test(normalized)
+    || (/(is waqt|اس وقت)/.test(normalized)
+      && /(chal raha|چل رہا|chal rahi|چل رہی)/.test(normalized)
+      && /(social|سوشل|media|میڈیا|khabar|خبر|news)/.test(normalized));
+  if (socialNewsAsk) {
+    return { intent: 'social_news', topic: '' };
   }
 
   // --- news ---------------------------------------------------------------------------
@@ -766,7 +782,20 @@ export function detectDataIntents(text, excludeIntents = []) {
     if (q) add('youtube_search', { query: q }, normalized.search(/(youtube|یوٹیوب)/));
   }
 
-  if (/(تازہ.*خبر|خبریں|news|khabar|khabrein|headlines|سرخیاں|آج کی خبر)/.test(normalized)) {
+  const socialNewsAsk =
+    /(social|سوشل).*(media|میڈیا|خبر|khabar|news|viral|وائرل|trending|ٹرینڈنگ|chal raha|چل رہا|chal rahi|چل رہی)/.test(normalized)
+    || /(viral|وائرل|trending|ٹرینڈنگ).*(khabar|خبر|news)/.test(normalized)
+    || (/(is waqt|اس وقت)/.test(normalized)
+      && /(chal raha|چل رہا|chal rahi|چل رہی)/.test(normalized)
+      && /(social|سوشل|media|میڈیا|khabar|خبر|news)/.test(normalized));
+  if (socialNewsAsk) {
+    add('social_news', { topic: '' }, normalized.search(/(social|سوشل|viral|وائرل|trending|ٹرینڈنگ)/));
+  }
+
+  // Plain headlines — skipped when this is a social ask, so one question
+  // never produces both Hassan's news card AND Hamza's social card.
+  if (!socialNewsAsk
+      && /(تازہ.*خبر|خبریں|news|khabar|khabrein|headlines|سرخیاں|آج کی خبر)/.test(normalized)) {
     add('news', { topic: '' }, normalized.search(/(خبر|news|headlines)/));
   }
 
@@ -834,6 +863,16 @@ export function newsConfirmation(lang) {
   if (lang === 'roman') return `Ji, taza khabrein la raha hoon.`;
   if (lang === 'en') return `Fetching the latest headlines.`;
   return `جی، تازہ خبریں لا رہا ہوں۔`;
+}
+
+/** Spoken FIRST-PERSON report from Hamza, the media agent: the user
+ *  HEARS what's running live on social media right now — the list
+ *  itself is the reply text, not just a card on screen. */
+export function socialNewsText(headlines, lang) {
+  const items = headlines.map((h, i) => `${i + 1}۔ ${h.title}`).join(' ');
+  if (lang === 'roman') return `Main Hamza hoon, media ka kaam karta hoon. Social media par is waqt ye khabrein chal rahi hain: ${items}`;
+  if (lang === 'en') return `I'm Hamza, I handle media. Right now these stories are running on social media: ${items}`;
+  return `میں حمزہ ہوں، میڈیا کا کام کرتا ہوں۔ سوشل میڈیا پر اس وقت یہ خبریں چل رہی ہیں: ${items}`;
 }
 
 export function currencyConfirmation(amount, from, to, result, lang) {

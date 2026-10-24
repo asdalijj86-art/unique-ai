@@ -127,7 +127,7 @@ console.log('\n── 3) Always-failing leg → notice shown, chunks still heard
   check('the chain surfaced its notice (not silent failure)', chain.state.noticeShown, true);
   check('every chunk still heard — via the browser voice', browser.spoken, ['A', 'B']);
   check('no server audio played', player.played, []);
-  check('each chunk got its retry before falling back', [chain.attempts.get('A'), chain.attempts.get('B')], [2, 2]);
+  check('each chunk got its retries before falling back', [chain.attempts.get('A'), chain.attempts.get('B')], [3, 3]);
   check('queue completed, spoke', [res.stopped, res.spokeAny], [false, true]);
 }
 
@@ -217,6 +217,13 @@ console.log('\n── 7) synthesizeChunkResilient units ────────
     isStale: () => false, wait: instantWait,
   });
   check('fail → retry → audio, two calls', [ok2.kind, calls], ['audio', 2]);
+
+  calls = 0;
+  const ok3 = await synthesizeChunkResilient('X', {
+    synthesize: async () => { calls++; return calls <= 2 ? null : audio('X'); },
+    isStale: () => false, wait: instantWait,
+  });
+  check('fail → fail → second retry → audio, three calls', [ok3.kind, calls], ['audio', 3]);
 
   const dead = await synthesizeChunkResilient('X', {
     synthesize: async () => null, isStale: () => false, wait: instantWait,

@@ -402,6 +402,13 @@ export default function ChatPage() {
   // Phone live mic: how many sessions in a row ended without any speech —
   // drives the restart backoff that stops the mic blinking on/off.
   const phoneEmptyEndsRef = useRef(0);
+  // When the current live-mic session started (ms) — lets finishLiveSession
+  // tell a platform refusal (session died almost at once, restart loops
+  // are pointless) from a natural idle end (Android closes quiet
+  // sessions every few seconds — those must reopen at once, or the
+  // growing backoff leaves multi-second dead gaps in which his words
+  // are missed and the mic reads as switching itself off and on).
+  const listenStartedAtRef = useRef(0);
   // PHONE mic-fix refs (2026-10-21): Android Chrome's speech engine returns
   // each phrase as a separate "final" and ends single-shot sessions at
   // brief pauses, so a phone utterance arrives as several fragments across
@@ -2744,18 +2751,31 @@ export default function ChatPage() {
       if (mobileTurn && (phoneTurnTimerRef.current !== null || continuousTextRef.current.trim())) {
         return;
       }
-      // PHONE flap guard: Android ends silent single-shot sessions
-      // every few seconds, and restarting instantly makes the mic
-      // blink on/off forever without ever settling (the user's
-      // complaint). While sessions keep ending EMPTY, back the
-      // restart off (up to 3s); real speech resets it to instant.
+      // PHONE flap guard (revised 2026-10-24): two different empty ends
+      // need two different restarts, and the old code treated them as
+      // one — after a few quiet ends the backoff reached 3s, so the
+      // mic sat dead for seconds at a time while live mode was on:
+      // the user's «kabhi on, kabhi off, khud hi» on his phone.
+      //   • INSTANT end (session died < 1.5s after starting, nothing
+      //     heard): the platform is refusing to listen — restarting
+      //     at once loops forever, so back off (up to 3s).
+      //   • NATURAL end (session lived a while, then Android closed
+      //     the idle session as it does every few seconds): reopen
+      //     at once (400ms) — a growing gap here is only dead air in
+      //     which his words are missed. Real speech resets the count.
       // Desktop keeps its original 400ms restart, untouched.
       let restartDelay = 400;
       if (mobileTurn) {
         if (!sessionGotFinal && !continuousTextRef.current.trim()) {
-          phoneEmptyEndsRef.current += 1;
+          const lifetimeMs = Date.now() - (listenStartedAtRef.current || 0);
+          if (lifetimeMs < 1500) {
+            phoneEmptyEndsRef.current += 1;
+            restartDelay = Math.min(400 + phoneEmptyEndsRef.current * 800, 3000);
+          } else {
+            phoneEmptyEndsRef.current = 0;
+            restartDelay = 400;
+          }
         }
-        restartDelay = Math.min(400 + phoneEmptyEndsRef.current * 800, 3000);
       }
       scheduleLiveMicReopen(restartDelay);
     }
@@ -3196,6 +3216,7 @@ export default function ChatPage() {
 
       continuousRecognitionRef.current = recognition;
       clearLiveReopenTimer(); // this start consumes any pending reopen
+      listenStartedAtRef.current = Date.now();
       recognition.start();
       setVoiceStatus('سن رہا ہوں…');
     } catch {

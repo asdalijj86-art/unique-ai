@@ -11,8 +11,13 @@
  *
  * This module is the orchestration that makes a lost chunk impossible
  * by construction:
- *   1. every chunk's synthesis is RETRIED once before giving up on the
- *      server chain;
+ *   1. every chunk's synthesis is RETRIED TWICE before giving up on
+ *      the server chain (650ms, then 2000ms — the Edge leg's 502s are
+ *      transient throttling, and a later attempt often succeeds where
+ *      the first retry still hit the throttle; the user's 2026-10-24
+ *      report of half-heard replies on his phone is exactly a chunk
+ *      whose chain failed twice and whose device has no male browser
+ *      voice to rescue it);
  *   2. a chunk whose chain still fails falls to the BROWSER VOICE for
  *      THAT CHUNK ALONE (the caller supplies the persona-locked browser
  *      speaker) — never silently dropped, never aborting later chunks;
@@ -30,7 +35,7 @@ export type TtsAudio = { audioBase64: string; mimeType: string };
 
 export type ChunkOutcome =
   | { kind: 'audio'; audio: TtsAudio }
-  /** Server chain failed even after the retry — the caller speaks this
+  /** Server chain failed even after two retries — the caller speaks this
    *  chunk with the persona's browser voice instead. */
   | { kind: 'browser' }
   /** Interrupted (ticket superseded) — stay silent. */
@@ -46,8 +51,11 @@ export interface ChunkSynthDeps {
   isStale: () => boolean;
   /** Injectable for tests; defaults to a real timer. */
   wait?: (ms: number) => Promise<void>;
-  /** Pause before the chunk's single retry (default 650ms). */
+  /** Pause before the chunk's first retry (default 650ms). */
   retryDelayMs?: number;
+  /** Pause before the chunk's second retry (default 2000ms) — the
+   *  longer gap lets transient Edge throttling clear. */
+  secondRetryDelayMs?: number;
 }
 
 const realWait = (ms: number): Promise<void> =>
@@ -55,7 +63,8 @@ const realWait = (ms: number): Promise<void> =>
 
 /**
  * Synthesize ONE chunk with resilience: chain → (stale? stop) → brief
- * pause → chain once more → browser-voice verdict. Never rejects.
+ * pause → chain once more → (stale? stop) → longer pause → chain a
+ * third time → browser-voice verdict. Never rejects.
  */
 export async function synthesizeChunkResilient(
   text: string,
@@ -69,6 +78,11 @@ export async function synthesizeChunkResilient(
   if (deps.isStale()) return { kind: 'stale' };
   const second = await deps.synthesize(text).catch(() => null);
   if (second) return { kind: 'audio', audio: second };
+  if (deps.isStale()) return { kind: 'stale' };
+  await wait(deps.secondRetryDelayMs ?? 2000);
+  if (deps.isStale()) return { kind: 'stale' };
+  const third = await deps.synthesize(text).catch(() => null);
+  if (third) return { kind: 'audio', audio: third };
   if (deps.isStale()) return { kind: 'stale' };
   return { kind: 'browser' };
 }

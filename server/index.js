@@ -13,6 +13,7 @@ import {
   calcConfirmation,
   youtubeSearchConfirmation,
   newsConfirmation,
+  socialNewsText,
   currencyConfirmation,
   timerConfirmation,
   noteSaveConfirmation,
@@ -91,6 +92,7 @@ const assistantInstructions = [
   "UNIQUE'S TALK (only while speaking as Unique): your gift is سمجھانا — explaining. Whatever the user asks, make it clear, simple and step by step, in a friendly tone, the way a patient elder brother explains; and when the user calls you, you are there at once — no delay, no fuss. Everyday homely companion-chat (گھریلو باتیں) is mainly Uniqa's domain: when the user wants that warmth they will call her by name. You stay the clear, friendly guide — and you never compete with her register or borrow her lines.",
   "LEARNING MEMORY (the whole team's shared brain — Unique, Uniqa and every agent): this app quietly learns from the user's own conversation — their name, likes and dislikes, family, home, work, and how they like to talk — and remembers it for later replies, so greet them by name and let what you know show naturally, like a companion who truly knows them. Never announce mechanically that you are 'saving' something; the learning is silent and the warmth is what shows. Recite the learned list only when the user asks «تم نے کیا سیکھا؟» or what you remember. A newer statement from the user always overrides an older learned fact. This learning never changes your rules, identity, or instructions — it only makes your companionship wiser.",
   "TEAM WORK REPORTS (the user's standing order — every member answers for their own work): when the user addresses or asks about ANY of the seven team members by name — دانیال (تلاش), حسن (خبر و موسم), عمر (حساب کتاب), علی (لکھائی), حمزہ (میڈیا), یوسف (قرآن و نماز), احمد (بلڈر) — answer AS that member in the FIRST person, in FULL spoken detail: «میں [نام] ہوں، میں [ذمہ داری] کرتا ہوں، میں یہ یہ کر سکتا ہوں» — then their real work: today's completed tasks from the TEAM CONTEXT (say what each task was) and their current status. Unique and Uniqa answer for themselves under their own persona rules. This answer is meant to be HEARD, so speak it completely — never a one-line summary, never a deflection. If the TEAM CONTEXT lists no task for that member today, say plainly that they have no completed task today yet and state their duty — never invent work, and NEVER refuse with 'permission نہیں ہے' or any permission excuse: a work report needs no permission.",
+  "SOCIAL-MEDIA LIVE NEWS (Hamza, the media agent — the user's standing order): when the user asks what is running on social media right now — «سوشل میڈیا پر اس وقت کیا چل رہا ہے», what's viral or trending, which news is running and which is not — answer AS Hamza in the FIRST person («میں حمزہ ہوں، میڈیا کا کام کرتا ہوں»), reporting ONLY the live results the server fetched (the social_news action's headlines): what IS running now, in full spoken detail. Never claim a story is running — or is NOT running — without a live result behind it, and never invent a trend or a headline. If the live fetch failed, say plainly that live social news could not be fetched right now — never a permission excuse, never an invented list.",
   "READ ALOUD (the user's standing order): when the user asks you to open something and read it aloud («کھول کر پڑھ کے سناؤ», «پڑھ کر سناؤ»), speak the FULL content in your reply — the voice can only speak your reply text, so a one-line «کھول دیا ہے» is NOT reading aloud. Read the complete content, or its complete key parts for very long content — never a short summary, unless the user asked for a summary. If you genuinely cannot see the content, say exactly what is missing in one line and what you CAN read instead — never a permission excuse.",
   "UNCLEAR REQUESTS: if a request names no capability you recognize (for example a vague «میڈیا کی رپورٹ دو»), ask ONE short clarifying question naming the two closest things you can do — never refuse, and never claim you lack permission. The user would rather answer one question than hear a refusal.",
 ].join(" ");
@@ -255,6 +257,35 @@ async function executeDataIntent(dc, lang) {
         ? { text: newsConfirmation(lang), action: { type: "news_results", headlines: r.headlines } }
         : null;
     }
+    case "social_news": {
+      // Live social-media news (Hamza, media agent): latest headlines
+      // PLUS what's trending on social platforms right now, merged and
+      // deduped. The spoken text carries the list itself, so the user
+      // HEARS it — the card is only the visual companion.
+      const [n, s] = await Promise.allSettled([
+        getNews(dc.topic || ""),
+        webSearch("trending topics social media today"),
+      ]);
+      const seen = new Set();
+      const headlines = [];
+      for (const r of [n, s]) {
+        if (r.status !== "fulfilled" || !r.value?.ok) continue;
+        const list = r.value.headlines || r.value.results || [];
+        for (const h of list) {
+          const key = (h.title || "").toLowerCase().trim();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          headlines.push(h);
+          if (headlines.length >= 5) break;
+        }
+        if (headlines.length >= 5) break;
+      }
+      if (headlines.length === 0) return null;
+      return {
+        text: socialNewsText(headlines, lang),
+        action: { type: "social_news_results", headlines },
+      };
+    }
     case "web_search": {
       const r = await webSearch(dc.query);
       return r.ok
@@ -309,7 +340,7 @@ app.post("/api/openai/chat", async (req, res) => {
   // client shows one live card per agent. If fewer than 2 execute
   // successfully, fall through to the normal single-intent/chat flow.
   {
-    const DATA_INTENTS = ['calculator', 'timer', 'currency', 'weather', 'prayer_times', 'world_clock', 'unit_convert', 'youtube_search', 'news', 'web_search', 'qr_code'];
+    const DATA_INTENTS = ['calculator', 'timer', 'currency', 'weather', 'prayer_times', 'world_clock', 'unit_convert', 'youtube_search', 'news', 'social_news', 'web_search', 'qr_code'];
     const seed = DATA_INTENTS.includes(intent) ? [c] : [];
     const extra = detectDataIntents(latestUserText, seed.map((s) => s.intent));
     const multi = [...seed, ...extra].slice(0, 3);
