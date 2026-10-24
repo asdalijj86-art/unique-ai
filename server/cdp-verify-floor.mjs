@@ -78,7 +78,28 @@
  * answered with exact ChatAction shapes) — the same model seam the
  * other verifiers stub, since no Gemini key exists in the sandbox.
  *
- * Screenshots land in the goal's office-cleanup-verify folder.
+ * FIX ROUND 2 (2026-10-24) additions — the user's OWN
+ * screenshot inspection («تمہاری چھوٹی چھوٹی غلطیاں پکڑ رہا ہوں
+ * میں… اپنے کام چیک کر لو») caught what section H's audit
+ * missed: عمر's and احمد's plaques stood at the BACK of their
+ * zones, half-hidden behind their bodies:
+ *  K) Both front-row plaques now stand at the FRONT (bottom) of
+ *     their zones like the other five agents' — desk stacks
+ *     moved up in lib/floor-layout — and an EXTENDED audit
+ *     proves every floor text clear of desk bars, PCs, character
+ *     HOME bodies (rects translated to the chair point, so a
+ *     strolling character cannot hide a collision), every other
+ *     text, and every prop; every plaque vertically contained
+ *     in its zone and the two fixed plaques fully contained
+ *     (the one pre-existing exception — wide «خبر و موسم»
+ *     spilling over empty side rug — is documented at the
+ *     check). The meeting room seats EIGHT chairs in two
+ *     FACING rows of 4 (DOM-asserted, pairs opposite each
+ *     other); the لانج holds TWO sofas facing each other (far
+ *     unflipped, near flipped — DOM-asserted). Zone crops of
+ *     عمر / احمد / meeting / لانج are shot for eyeball review.
+ *
+ * Screenshots land in the goal's office-fix2-verify folder.
  * Prereqs: client built (server/dist), chrome at /opt/meta-chromium/chrome.
  * Run: node server/cdp-verify-floor.mjs   (from repo root)
  */
@@ -92,7 +113,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = 5221;
 const CDP_PORT = 9341;
 const APP = `http://127.0.0.1:${APP_PORT}`;
-const OUT = '/home/hatch/workspace/goals/unique-ai-project-completion/hidden_files/office-cleanup-verify';
+const OUT = '/home/hatch/workspace/goals/unique-ai-project-completion/hidden_files/office-fix2-verify';
 mkdirSync(OUT, { recursive: true });
 
 let failed = 0;
@@ -268,7 +289,7 @@ try {
   const DESKS = {
     talash: [33.25, 19.5, 20.7], 'khabar-mausam': [49.25, 19.5, 20.7], likhai: [65.25, 19.5, 20.7],
     media: [86.5, 21, 22.2], 'quran-namaz': [86.5, 44, 45.2],
-    'hisab-kitab': [34, 65.5, 66.7], builder: [74, 65, 66.2],
+    'hisab-kitab': [33, 62.8, 64], builder: [71, 64.7, 65.9],
   };
   const a = await ev(`(() => {
     const q = (s) => document.querySelector('${SCOPE}' + s);
@@ -513,6 +534,131 @@ try {
     !!audit.coffeeInfo && audit.coffeeInfo.table && audit.coffeeInfo.cup && audit.coffeeInfo.chairs === 2,
     JSON.stringify(audit.coffeeInfo));
 
+  // ================= K) FIX ROUND 2 — EXTENDED AUDIT =================
+  // Section H checked text × props and MISSED the user's catch:
+  // عمر's and احمد's plaques stood at the back of their zones,
+  // half-hidden behind their own BODIES (a body is not in the
+  // prop selector). This audit therefore tests every floor text
+  // against (a) every OTHER text, (b) every character's HOME
+  // body — his body rect translated so his feet land exactly on
+  // his chair point, so a character caught mid-stroll cannot
+  // hide a collision — and (c) full containment of every plaque
+  // inside its own zone. It also DOM-asserts the user's two
+  // furnishing orders: EIGHT meeting chairs in two facing rows
+  // of four (each chair directly opposite its pair, hugging the
+  // table) and TWO لانج sofas facing each other (far unflipped,
+  // near flipped scaleY(-1), same column, both inside the plaza).
+  const audit2 = await ev(`(() => {
+    const q = (s) => document.querySelector('${SCOPE}' + s);
+    const qa = (s) => [...document.querySelectorAll('${SCOPE}' + s)];
+    const scene = q('.floor-scene');
+    const sr = scene.getBoundingClientRect();
+    const R = (el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+    const hits = (x, y) => (Math.min(x.r, y.r) - Math.max(x.l, y.l)) > 1 && (Math.min(x.b, y.b) - Math.max(x.t, y.t)) > 1;
+    const texts = [];
+    for (const el of qa('.floor-zone-label')) texts.push(['plaque:' + el.textContent.trim(), R(el)]);
+    for (const el of qa('.floor-kiosk-title, .floor-kiosk-count')) texts.push(['kiosk:' + el.textContent.trim(), R(el)]);
+    const chairs = { unique: [10.4, 21.4] };
+    for (const [k, [dx, dy, cy]] of Object.entries(${JSON.stringify(DESKS)})) chairs[k] = [dx, cy];
+    const feetOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height * 0.86 }; };
+    const homePt = (cx, cy) => ({ x: sr.left + (cx / 100) * sr.width, y: sr.top + (cy / 75) * sr.height });
+    const homeBodies = [];
+    for (const [k, [cx, cy]] of Object.entries(chairs)) {
+      const ch = q('[data-testid="floor-char-' + k + '"]');
+      if (!ch) continue;
+      const f = feetOf(ch);
+      const want = homePt(cx, cy);
+      if (Math.hypot(f.x - want.x, f.y - want.y) <= sr.width * 0.03) {
+        const nm = ch.querySelector('.floor-char-name');
+        if (nm) texts.push(['name:' + k, R(nm)]);
+        const rl = ch.querySelector('.floor-char-role');
+        if (rl) texts.push(['role:' + k, R(rl)]);
+      }
+      // HOME body: the live body rect shifted so the feet land
+      // on the chair point — where the body stands whenever the
+      // character is home, strolling or not.
+      const bd = ch.querySelector('.floor-char-body');
+      if (bd) {
+        const r = bd.getBoundingClientRect();
+        const dx = want.x - f.x, dy = want.y - f.y;
+        homeBodies.push(['body:' + k, { l: r.left + dx, t: r.top + dy, r: r.right + dx, b: r.bottom + dy }]);
+      }
+    }
+    const collisions2 = [];
+    for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+      if (hits(texts[i][1], texts[j][1])) collisions2.push(texts[i][0] + ' × ' + texts[j][0]);
+    }
+    for (const [tn, tr] of texts) for (const [bn, br] of homeBodies) {
+      if (hits(tr, br)) collisions2.push(tn + ' × ' + bn);
+    }
+    // Containment, scoped honestly: VERTICAL containment for
+    // every plaque (its front/back placement — the axis this
+    // round's fix is about) and FULL containment for the two
+    // FIXED zones. One known, pre-existing exception to full
+    // horizontal containment: «خبر و موسم»'s label is wider
+    // than its narrow zone at panel scale (min-font clamp) and
+    // spills ~1 unit over each side border onto EMPTY neighbor
+    // rug — it covers no text and nothing covers it (proven by
+    // the text × text / body / prop audits above); the user's
+    // approved look, unchanged by this round.
+    const containment = [];
+    for (const z of qa('.floor-zone')) {
+      const lab = z.querySelector('.floor-zone-label');
+      if (!lab) continue;
+      const zr = R(z), lr = R(lab);
+      const vOk = lr.t >= zr.t - 1 && lr.b <= zr.b + 1;
+      const fullOk = vOk && lr.l >= zr.l - 1 && lr.r <= zr.r + 1;
+      const fixed = z.className.includes('floor-zone-hisab-kitab') || z.className.includes('floor-zone-builder');
+      containment.push([lab.textContent.trim(), vOk, fullOk, fixed]);
+    }
+    // MEETING: 8 chairs, two facing rows of 4, pairs opposite.
+    const mzone = q('[data-testid="floor-zone-meeting"]');
+    const surf = mzone ? mzone.querySelector('.fmt-surface') : null;
+    let meeting = null;
+    if (mzone && surf) {
+      const srf = R(surf);
+      const scx = (srf.l + srf.r) / 2, scy = (srf.t + srf.b) / 2;
+      const chs = [...mzone.querySelectorAll('.fmt-chair')].map((c) => { const r = R(c); return { cx: (r.l + r.r) / 2, cy: (r.t + r.b) / 2, t: r.t, b: r.b }; });
+      const topRow = chs.filter((c) => c.cy < scy);
+      const botRow = chs.filter((c) => c.cy >= scy);
+      const pairsOk = topRow.length === 4 && botRow.length === 4
+        && topRow.every((t) => botRow.some((b) => Math.abs(b.cx - t.cx) <= 3));
+      const hugOk = topRow.every((t) => t.b <= srf.t + 2) && botRow.every((b) => b.t >= srf.b - 2);
+      meeting = { count: chs.length, topRow: topRow.length, botRow: botRow.length, pairsOk, hugOk };
+    }
+    // LOUNGE: exactly 2 sofas, facing (one flipped), same column.
+    const pzone = q('[data-testid="floor-zone-plaza"]');
+    let sofas = null;
+    if (pzone) {
+      const zr = R(pzone);
+      const list = [...pzone.querySelectorAll('.floor-sofa')].map((s) => {
+        const r = R(s);
+        const m = getComputedStyle(s).transform || '';
+        return { r, cx: (r.l + r.r) / 2, cy: (r.t + r.b) / 2, flipped: m.indexOf('matrix(1, 0, 0, -1') === 0 };
+      });
+      const flipped = list.filter((s) => s.flipped);
+      const plain = list.filter((s) => !s.flipped);
+      sofas = {
+        count: list.length,
+        facing: list.length === 2 && flipped.length === 1 && plain.length === 1 && flipped[0].cy > plain[0].cy,
+        sameColumn: list.length === 2 && Math.abs(list[0].cx - list[1].cx) <= 4,
+        inside: list.every((s) => s.r.l >= zr.l - 1 && s.r.r <= zr.r + 1 && s.r.t >= zr.t - 1 && s.r.b <= zr.b + 1),
+      };
+    }
+    return { collisions2, containment, meeting, sofas, textCount: texts.length, bodyCount: homeBodies.length };
+  })()`);
+  check('FIX2 AUDIT: ZERO overlap between any floor text and any other text or any character HOME body (the bodies the old audit never tested)',
+    audit2.collisions2.length === 0, audit2.collisions2.length ? audit2.collisions2.join(' ; ') : `${audit2.textCount} texts × ${audit2.bodyCount} home bodies clean`);
+  check('FIX2: every plaque vertically contained in its own zone (front placement, no front/back crossing); the two FIXED plaques (حساب کتاب / بلڈر) fully contained',
+    audit2.containment.every(([, vOk]) => vOk) && audit2.containment.filter(([, , , fixed]) => fixed).every(([, , fullOk]) => fullOk),
+    audit2.containment.map(([t, vOk, fullOk, fixed]) => `${t}:v=${vOk},full=${fullOk}${fixed ? ',FIXED' : ''}`).join(' | '));
+  check('MEETING ROOM: EIGHT chairs in two FACING rows of 4 (each chair opposite its pair, hugging the table)',
+    !!audit2.meeting && audit2.meeting.count === 8 && audit2.meeting.pairsOk && audit2.meeting.hugOk,
+    JSON.stringify(audit2.meeting));
+  check('LOUNGE: exactly TWO sofas FACING each other (far unflipped, near flipped), one column, both inside the plaza',
+    !!audit2.sofas && audit2.sofas.count === 2 && audit2.sofas.facing && audit2.sofas.sameColumn && audit2.sofas.inside,
+    JSON.stringify(audit2.sofas));
+
   // Idle honesty sampler (~2.6s): nothing carried, nobody leaves his zone.
   let idleViolation = null;
   for (let i = 0; i < 10 && !idleViolation; i++) {
@@ -540,6 +686,11 @@ try {
   await shot('01-desktop-idle.png');
   await shotEl('07-floor-closeup-idle.png', '.office-panel-main .floor-wrap');
   await shotEl('10-coffee-corner.png', '.office-panel-main .floor-zone-coffee');
+  // FIX ROUND 2 zone crops — the four spots the user ordered fixed, for eyeball review.
+  await shotEl('11-umar-zone.png', '.office-panel-main .floor-zone-hisab-kitab');
+  await shotEl('12-ahmad-zone.png', '.office-panel-main .floor-zone-builder');
+  await shotEl('13-meeting-room.png', '.office-panel-main .floor-zone-meeting');
+  await shotEl('14-lounge.png', '.office-panel-main .floor-zone-plaza');
 
   // ================= B) work + the boss WALKS the file =================
   await ev(`(() => {

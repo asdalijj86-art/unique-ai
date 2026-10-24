@@ -64,6 +64,22 @@
  * table shrunk off its plaque, and the coffee corner rebuilt as
  * a real little café set — table with chairs around it — with
  * the «کافی» plaque completely untouched).
+ *
+ * FIX ROUND 2 (user, 2026-10-24 — his own screenshot inspection
+ * caught what the geometry audit missed: «تمہاری چھوٹی چھوٹی
+ * غلطیاں پکڑ رہا ہوں میں… اپنے کام چیک کر لو»): (1) عمر's
+ * «حساب کتاب» and (2) احمد's «بلڈر» plaques stood at the BACK
+ * (top) of their zones, half-hidden behind their bodies — both
+ * now stand at the FRONT (bottom) like every other agent's,
+ * with the desk stacks moved up inside the zones (and احمد's
+ * column shifted off his plaque's) so nothing covers them;
+ * (3) the meeting room held SIX chairs — it now seats EIGHT in
+ * two facing rows of four, one chair per person; (4) the لانج
+ * held ONE sofa — a second now stands opposite it, the pair
+ * facing each other. The verifier's audit was extended in the
+ * same round: text × desk bars / PCs / character home bodies /
+ * other texts / zone containment, plus DOM assertions for the
+ * 8 chairs and the facing sofas.
  */
 import { useEffect, useRef, useState } from 'react';
 import { AGENT_DEFS, type AgentTaskState } from '@/lib/agent-team';
@@ -574,15 +590,26 @@ function FloorZoneView({
       )}
       {zone.key === 'quran-namaz' && <span className="floor-quran-rug" data-testid="floor-mosque" aria-hidden="true">🕌</span>}
       {zone.key === 'meeting' && (
+        /* EIGHT chairs — two facing rows of four (user,
+           2026-10-24: eight people, eight chairs, آمنے سامنے;
+           the room held six). Backrest shading in index.css
+           turns each row toward the other. */
         <span className="floor-meeting-table" aria-hidden="true">
-          <i className="fmt-chair fmt-c1" /><i className="fmt-chair fmt-c2" /><i className="fmt-chair fmt-c3" />
-          <i className="fmt-chair fmt-c4" /><i className="fmt-chair fmt-c5" /><i className="fmt-chair fmt-c6" />
+          <i className="fmt-chair fmt-c1" /><i className="fmt-chair fmt-c2" /><i className="fmt-chair fmt-c3" /><i className="fmt-chair fmt-c4" />
+          <i className="fmt-chair fmt-c5" /><i className="fmt-chair fmt-c6" /><i className="fmt-chair fmt-c7" /><i className="fmt-chair fmt-c8" />
           <span className="fmt-surface" />
         </span>
       )}
       {zone.key === 'plaza' && (
         <>
+          {/* TWO sofas FACING each other (user, 2026-10-24:
+              «ایک اس کے سامنے اور رکھو — آمنے سامنے ان کے
+              چہرے ہوں»): the far sofa unflipped, the near one
+              flipped vertically, a conversation gap between
+              them — both clear of the board kiosk and of every
+              plaque (audited in cdp-verify-floor). */}
           <span className="floor-sofa" aria-hidden="true">🛋️</span>
+          <span className="floor-sofa floor-sofa-near" aria-hidden="true">🛋️</span>
           <span
             className={`floor-kiosk${kioskGlow ? ' floor-kiosk-glow' : ''}`}
             style={local(BOARD_KIOSK)}

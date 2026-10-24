@@ -1354,14 +1354,17 @@ body {
   padding: 0 8px; border-radius: 999px; line-height: 1.55;
 }
 /* FRONT-row zones (حساب کتاب / بلڈر) wear their plaque at the
-   TOP (cleanup round, geometry-audited): these zones are short
-   and their desk stack (character + deskbar + computer in front)
-   fills the bottom — a bottom plaque there was painted over by
-   the monitor and the deskbar. The top band is the one clear
-   slot: below the agent's floating name pill, above his
-   computer. Like a sign over the desk. */
-.floor-zone-hisab-kitab .floor-zone-label { bottom: auto; top: 3px; }
-.floor-zone-builder .floor-zone-label { bottom: auto; top: 4px; left: 47%; }
+   FRONT — the same bottom slot as every other zone (FIX ROUND
+   2, user 2026-10-24: he caught the cleanup round's top plaques
+   himself — the writing stood BEHIND عمر and احمد, half-hidden
+   by their bodies: «پیچھے لکھا ہوا ہے، آگے کرو — جیسے دوسروں
+   کے بنائے ہوئے ہیں»). The clearance is made in the GEOMETRY,
+   not in the label: both desk stacks moved up inside their
+   zones (and احمد's column shifted left, off his plaque's
+   column) in lib/floor-layout, so the bottom band holds the
+   plaque alone — no per-zone label override remains, and the
+   extended audit in cdp-verify-floor measures plaque × PC /
+   deskbar / body / every other text at exactly zero overlap. */
 .floor-zone-working {
   border-color: rgba(251, 191, 36, .85);
   box-shadow: 0 0 16px rgba(251, 191, 36, .35), inset 0 0 24px -8px rgba(251, 191, 36, .55);
@@ -1452,10 +1455,30 @@ body {
   font-size: clamp(10px, 2.6cqw, 18px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
 }
-.fmt-chair { position: absolute; width: 13%; height: 15%; background: rgba(30, 20, 10, .65); border: 1px solid rgba(255, 220, 160, .3); border-radius: 3px; }
-.fmt-c1 { top: 0; left: 12%; } .fmt-c2 { top: 0; left: 43.5%; } .fmt-c3 { top: 0; right: 12%; }
-.fmt-c4 { bottom: 0; left: 12%; } .fmt-c5 { bottom: 0; left: 43.5%; } .fmt-c6 { bottom: 0; right: 12%; }
-.floor-sofa { position: absolute; left: 5%; bottom: 9%; font-size: clamp(16px, 4.4cqw, 34px); }
+.fmt-chair { position: absolute; width: 13%; height: 15%; border: 1px solid rgba(255, 220, 160, .3); border-radius: 3px; }
+/* EIGHT chairs in two FACING rows of four (FIX ROUND 2, user
+   2026-10-24: «ٹوٹل آٹھ لوگ ہیں نا؟ تو آٹھ کرسیاں لگاؤ نا،
+   آمنے سامنے» — the room held six). Each row's backrest shades
+   the edge AWAY from the table — the north row's backrests on
+   their north edge, the south row's on their south edge — so
+   the two rows visibly sit facing each other across the
+   surface, each chair directly opposite its pair. */
+.fmt-c1 { top: 0; left: 10%; } .fmt-c2 { top: 0; left: 32%; } .fmt-c3 { top: 0; left: 54%; } .fmt-c4 { top: 0; left: 76%; }
+.fmt-c5 { bottom: 0; left: 10%; } .fmt-c6 { bottom: 0; left: 32%; } .fmt-c7 { bottom: 0; left: 54%; } .fmt-c8 { bottom: 0; left: 76%; }
+.fmt-c1, .fmt-c2, .fmt-c3, .fmt-c4 { background: linear-gradient(180deg, rgba(96, 62, 26, .95) 0 34%, rgba(30, 20, 10, .65) 34%); }
+.fmt-c5, .fmt-c6, .fmt-c7, .fmt-c8 { background: linear-gradient(0deg, rgba(96, 62, 26, .95) 0 34%, rgba(30, 20, 10, .65) 34%); }
+/* The لانج sofa pair (FIX ROUND 2, user 2026-10-24: «لانچ کے
+   اندر دو صوفے رکھو — ایک رکھا ہوا ہے، ایک اس کے سامنے اور
+   رکھو، یعنی آمنے سامنے ان کے چہرے ہوں»): TWO sofas down the
+   plaza's left column, FACING each other — the far sofa stands
+   unflipped (backrest on the far side, facing in) and the near
+   sofa is flipped vertically (backrest on the near side,
+   facing in). line-height:1 keeps each span hugging its glyph
+   so the pair and the conversation gap between them fit the
+   zone's height; the near span's bottom edge ends clear of
+   عمر's name pill, which floats just below the plaza. */
+.floor-sofa { position: absolute; left: 5%; top: 8%; font-size: clamp(16px, 4.4cqw, 34px); line-height: 1; }
+.floor-sofa-near { top: auto; bottom: 12%; transform: scaleY(-1); }
 .floor-kiosk {
   position: absolute; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; align-items: center;

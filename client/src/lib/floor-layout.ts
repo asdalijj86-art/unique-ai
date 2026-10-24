@@ -78,11 +78,23 @@ export const FLOOR_ZONES: FloorZone[] = [
     stroll: { x: 76, y: 47.5, w: 21, h: 4.5 } },
   // ——— front row ———
   { key: 'coffee', label: 'کافی', rect: { x: 1, y: 59, w: 19, h: 14.5 } },
+  // FIX ROUND 2 (user, 2026-10-24 — he inspected the cleanup
+  // screenshots himself and caught it: «عمر کا حساب کتاب اس کے
+  // پیچھے لکھ دیا ہے… احمد کا بھی پیچھے لکھا ہوا ہے — آگے کرو,
+  // جیسے دوسروں کے بنائے ہوئے ہیں»): the front row's plaques
+  // stand at the FRONT (bottom) of their zones like every other
+  // zone's — so the desk stacks had to move UP inside these
+  // shallow zones to leave the bottom band to the plaque alone
+  // (عمر: desk/chair up 2.7, column 1 left so his floating name
+  // also clears the لانج plaque diagonally; احمد: column 3 left
+  // so his monitor stands clear of the «بلڈر» plaque's column,
+  // chair up 0.3 so his deskbar clears it too). All clearances
+  // are measured live by cdp-verify-floor's extended audit.
   { key: 'hisab-kitab', label: 'حساب کتاب', rect: { x: 24, y: 59, w: 20, h: 14.5 },
-    desk: { x: 34, y: 65.5 }, chair: { x: 34, y: 66.7 }, front: { x: 34, y: 60.6 },
-    stroll: { x: 26, y: 61, w: 16, h: 3.6 } },
+    desk: { x: 33, y: 62.8 }, chair: { x: 33, y: 64 }, front: { x: 33, y: 60.6 },
+    stroll: { x: 25.5, y: 61, w: 16, h: 3.2 } },
   { key: 'builder', label: 'بلڈر', rect: { x: 62, y: 58, w: 37, h: 16 },
-    desk: { x: 74, y: 65 }, chair: { x: 74, y: 66.2 }, front: { x: 74, y: 60.1 },
+    desk: { x: 71, y: 64.7 }, chair: { x: 71, y: 65.9 }, front: { x: 71, y: 60.1 },
     stroll: { x: 64, y: 60.8, w: 15, h: 3.8 } },
 ];
 
