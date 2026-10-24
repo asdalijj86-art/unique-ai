@@ -56,6 +56,7 @@ import {
   loadBoardEntries,
   recordBoardCompletion,
   isRecordableAction,
+  formatBoardTime,
   type BoardEntry,
 } from '@/lib/task-board';
 import {
@@ -83,6 +84,7 @@ import {
   workingCards,
   finalizeCards,
   agentForActionType,
+  AGENT_DEFS,
   type AgentDef,
   type AgentTaskState,
 } from '@/lib/agent-team';
@@ -98,6 +100,37 @@ import type { ChatAction } from '@/lib/api';
 type ChatRole = 'user' | 'assistant';
 type ChatMessage = { id: string; role: ChatRole; content: string; createdAt: string; image?: string };
 type Conversation = { id: string; title: string; updatedAt: string; messages: ChatMessage[] };
+
+// TEAM CONTEXT (2026-10-24, his standing order): when he asks any team
+// member about their work («حسن کیا کر رہا ہے؟», «میڈیا کی رپورٹ دو»),
+// the brain must answer in that member's own first person, in FULL
+// spoken detail — name, duty, capabilities, today's REAL completed
+// tasks and current status. The brain cannot know any of that from
+// the chat history alone, so this block rides with every send: the
+// seven duties (single source: AGENT_DEFS), today's real board pins
+// (only server-confirmed completions, never invented), the in-flight
+// strip, and the builder's live job. When nothing is recorded for a
+// member, the brain says plainly that they have no task today yet.
+function buildTeamBlock(
+  entries: BoardEntry[],
+  team: AgentTaskState[] | null,
+  build: { title: string; startedAt: number } | null,
+): string | undefined {
+  const duties = AGENT_DEFS.map((d) => `${d.person} (${d.duty}): ${d.blurb}`).join(' | ');
+  const parts = [`Team: ${duties}`];
+  const today = entries.slice(-20);
+  if (today.length) {
+    parts.push(`Aaj ke mukammal kaam: ${today.map((e) => `${e.person} — ${e.label} (${formatBoardTime(e.at)})`).join('; ')}`);
+  }
+  if (team) {
+    const working = team.filter((t) => t.status === 'working');
+    if (working.length) {
+      parts.push(`Abhi kaam mein: ${working.map((t) => `${t.label}${t.detail ? ` (${t.detail})` : ''}`).join('; ')}`);
+    }
+  }
+  if (build) parts.push(`Builder ka jaari kaam: ${build.title}`);
+  return parts.join(' || ');
+}
 
 // Router-hijack guard (2026-10-22): local canned commands (focus views,
 // surah recitation, website opens) may fire ONLY on command-shaped
@@ -1188,6 +1221,10 @@ export default function ChatPage() {
           // whole team (Unique / Uniqa / every agent) answers with
           // that knowledge — name first, capped, never instructions.
           memory: buildRecallBlock(loadLearnings(window.localStorage)) || undefined,
+          // Team-work context (2026-10-24): today's real team state so
+          // any member asked about their work can answer in full
+          // spoken detail from facts, never invention or refusal.
+          team: buildTeamBlock(boardEntries, agentTeam, buildLive),
           onDelta: (delta: string) => {
             // Append streamed text to the placeholder message in real time
             updateConversation(id, (item) => ({
@@ -2725,17 +2762,23 @@ export default function ChatPage() {
   }
 
   // ------------------------------------------------------------------
-  // BARGE-IN (2026-10-22): while a reply speaks in live mode, a separate
-  // listen-only recognition watches for the user starting to talk. The
-  // detection bar is deliberately conservative — tuned to NEVER kill a
-  // reply over a stray word or the AI's own echo:
-  //   • speech must be SUSTAINED (>= 450ms of arriving results), and
-  //   • at least 3 words, of which at least 2 do NOT appear in the
-  //     reply being spoken and >= 34% are novel (echo of the AI's own
+  // BARGE-IN (2026-10-22; ECHO-HARDENED 2026-10-24): while a reply speaks
+  // in live mode, a separate listen-only recognition watches for the
+  // user starting to talk. The detection bar is deliberately
+  // conservative — tuned to NEVER kill a reply over a stray word or
+  // the AI's own echo:
+  //   • speech must be SUSTAINED (>= 800ms of arriving results), and
+  //   • at least 5 words, of which at least 3 do NOT appear in the
+  //     reply being spoken and >= 50% are novel (echo of the AI's own
   //     voice through the speakers transcribes the reply's own words —
-  //     novelty is what separates the user from the echo), or
-  //   • a FINAL result of >= 4 words that is >= 50% novel (finals are
-  //     the engine's settled verdict — trusted sooner).
+  //     novelty is what separates the user from the echo).
+  //   • there is NO instant-kill fast path for a final result any
+  //     more: on his phone (2026-10-24 device test) the old fast path
+  //     (one >= 4-word >= 50%-novel FINAL, no sustain) fired on the
+  //     first misrecognized echo fragment — the reply died after its
+  //     first line while the rest was never heard. A single final can
+  //     still SEED a candidate; only sustained genuinely-new speech
+  //     confirms. Real speak-over still works: ~1s of new words.
   // A candidate decays if results stop arriving for > 1200ms, so stray
   // fragments never accumulate into a false trigger. On confirmation
   // the SAME recognition is adopted as the live session (mode flips to
@@ -2745,12 +2788,10 @@ export default function ChatPage() {
   // during playback (errors / instant end loops), the listener gives up
   // for the span and tap-to-interrupt remains as the guarantee.
   // ------------------------------------------------------------------
-  const BARGE_MIN_SUSTAIN_MS = 450;
-  const BARGE_MIN_WORDS = 3;
-  const BARGE_MIN_NOVEL_WORDS = 2;
-  const BARGE_NOVEL_RATIO = 0.34;
-  const BARGE_FAST_FINAL_WORDS = 4;
-  const BARGE_FAST_FINAL_NOVEL_RATIO = 0.5;
+  const BARGE_MIN_SUSTAIN_MS = 800;
+  const BARGE_MIN_WORDS = 5;
+  const BARGE_MIN_NOVEL_WORDS = 3;
+  const BARGE_NOVEL_RATIO = 0.5;
   const BARGE_GAP_RESET_MS = 1200;
   const BARGE_MAX_RESTARTS = 12;
   const BARGE_MAX_EMPTY_ENDS = 4;
@@ -2901,7 +2942,6 @@ export default function ChatPage() {
         // the freshest hypothesis of everything heard in this window.
         let heard = '';
         let heardFinals = '';
-        let gotFinalNow = false;
         for (let i = 0; i < event.results.length; i += 1) {
           const result = event.results[i];
           if (!result) continue;
@@ -2909,7 +2949,6 @@ export default function ChatPage() {
           heard += `${transcript} `;
           if (result.isFinal) {
             heardFinals += `${transcript} `;
-            if (i >= event.resultIndex) gotFinalNow = true;
           }
         }
         candidate.text = heard;
@@ -2938,11 +2977,12 @@ export default function ChatPage() {
         const novelRatio = novelWords / words.length;
         const sustained = now - candidate.firstAt >= BARGE_MIN_SUSTAIN_MS;
         const genuineSpeech = novelWords >= BARGE_MIN_NOVEL_WORDS && novelRatio >= BARGE_NOVEL_RATIO;
-        const trustedFinal = gotFinalNow
-          && words.length >= BARGE_FAST_FINAL_WORDS
-          && novelWords >= BARGE_MIN_NOVEL_WORDS
-          && novelRatio >= BARGE_FAST_FINAL_NOVEL_RATIO;
-        if ((sustained && genuineSpeech) || trustedFinal) {
+        // ECHO-HARDENED 2026-10-24: NO fast-final instant kill — a single
+        // final result, however novel it looks, never confirms on its
+        // own. Phone echo arrives as short misrecognized finals; only
+        // sustained genuinely-new speech (see the bar above) may stop
+        // a reply. The stop-phrase fast path above is untouched.
+        if (sustained && genuineSpeech) {
           confirmBargeIn(recognition, mobileTurn, () => { captureGotFinal = true; });
         }
       };

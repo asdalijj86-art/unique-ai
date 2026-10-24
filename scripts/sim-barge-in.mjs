@@ -5,10 +5,12 @@
  * client/src/pages/chat.tsx (2026-10-22):
  *   - the speech TICKET (interruptSpeech orphans every queued chunk,
  *     pending eager audio and browser-voice sentence),
- *   - the barge-in DETECTOR thresholds (sustained >= 450ms, >= 3 words,
- *     >= 2 novel words, >= 34% novel vs the text being spoken; fast path
- *     for a >= 4-word >= 50%-novel FINAL; candidate decays after a
- *     > 1200ms result gap),
+ *   - the barge-in DETECTOR thresholds (ECHO-HARDENED 2026-10-24:
+ *     sustained >= 800ms, >= 5 words, >= 3 novel words, >= 50% novel
+ *     vs the text being spoken; NO instant-kill fast path for a final
+ *     result — the old fast path fired on the first misrecognized
+ *     echo fragment on his phone and killed replies after line one;
+ *     candidate decays after a > 1200ms result gap),
  *   - the STOP-PHRASE fast path («رک جاؤ» / «رکو» / «بس کرو» / "bas
  *     karo" / "stop" ...): an utterance consisting of / dominated by a
  *     stop command interrupts IMMEDIATELY — no sustain, no word count,
@@ -43,12 +45,10 @@ function advance(ms) {
 }
 
 // ---- constants mirrored from chat.tsx --------------------------------------
-const BARGE_MIN_SUSTAIN_MS = 450;
-const BARGE_MIN_WORDS = 3;
-const BARGE_MIN_NOVEL_WORDS = 2;
-const BARGE_NOVEL_RATIO = 0.34;
-const BARGE_FAST_FINAL_WORDS = 4;
-const BARGE_FAST_FINAL_NOVEL_RATIO = 0.5;
+const BARGE_MIN_SUSTAIN_MS = 800;
+const BARGE_MIN_WORDS = 5;
+const BARGE_MIN_NOVEL_WORDS = 3;
+const BARGE_NOVEL_RATIO = 0.5;
 const BARGE_GAP_RESET_MS = 1200;
 const BARGE_MAX_RESTARTS = 12;
 const BARGE_MAX_EMPTY_ENDS = 4;
@@ -208,12 +208,11 @@ function makeWorld({ recognitionAvailable = true } = {}) {
     if (c.lastAt && now - c.lastAt > BARGE_GAP_RESET_MS) {
       c.firstAt = 0; c.text = ''; c.finals = '';
     }
-    let heard = ''; let heardFinals = ''; let gotFinalNow = false;
+    let heard = ''; let heardFinals = '';
     results.forEach((r, i) => {
       heard += `${r.transcript} `;
-      if (r.isFinal) { heardFinals += `${r.transcript} `; if (i >= isFinalEventIdx && isFinalEventIdx >= 0) gotFinalNow = true; }
+      if (r.isFinal) { heardFinals += `${r.transcript} `; }
     });
-    if (isFinalEventIdx >= 0) gotFinalNow = results.some((r, i) => i >= isFinalEventIdx && r.isFinal);
     c.text = heard; c.finals = heardFinals;
     if (!c.firstAt) c.firstAt = now;
     c.lastAt = now;
@@ -236,9 +235,9 @@ function makeWorld({ recognitionAvailable = true } = {}) {
     const ratio = novel / words.length;
     const sustained = now - c.firstAt >= BARGE_MIN_SUSTAIN_MS;
     const genuine = novel >= BARGE_MIN_NOVEL_WORDS && ratio >= BARGE_NOVEL_RATIO;
-    const trustedFinal = gotFinalNow && words.length >= BARGE_FAST_FINAL_WORDS
-      && novel >= BARGE_MIN_NOVEL_WORDS && ratio >= BARGE_FAST_FINAL_NOVEL_RATIO;
-    if ((sustained && genuine) || trustedFinal) confirmBargeIn();
+    // ECHO-HARDENED 2026-10-24: no fast-final instant kill — a single
+    // final, however novel, never confirms on its own.
+    if (sustained && genuine) confirmBargeIn();
   }
 
   function confirmBargeIn() {
@@ -340,15 +339,20 @@ async function scenario2() {
   await run(1500); // chunk 1 done, chunk 2 playing
   check('chunk 2 is playing', W.chunksStarted.length === 2);
   // User starts speaking over the reply: novel words, sustained.
+  // ECHO-HARDENED bar: confirmation needs >= 800ms of sustained
+  // genuinely-new speech, so feed 7 results over 900ms.
   const speechStart = now;
   const words = ['مجھے', 'ایک', 'اور', 'سوال', 'پوچھنا', 'ہے'];
-  for (let i = 0; i < 4; i++) {
-    feedDetect([{ isFinal: false, transcript: words.slice(0, 2 + i).join(' ') }], -1);
-    if (i < 3) advance(150);
+  for (let i = 0; i < 7; i++) {
+    feedDetect([{ isFinal: false, transcript: words.slice(0, Math.min(2 + i, words.length)).join(' ') }], -1);
+    // run(), not raw advance(): chunk transitions ride on promise
+    // continuations, so the clock must flush microtasks between feeds
+    // or the playing chunk's handover never lands before the confirm.
+    if (i < 6) await run(150);
   }
   await settle();
   check('barge-in confirmed', W.bargeMode === 'capture', `mode=${W.bargeMode}`);
-  check('audio stopped fast (<=~0.5s of sustained speech)', W.audioStoppedAt !== null && W.audioStoppedAt - speechStart <= 500,
+  check('audio stopped within ~1.1s of sustained speech', W.audioStoppedAt !== null && W.audioStoppedAt - speechStart <= 1100,
     `stoppedAt=${W.audioStoppedAt} start=${speechStart}`);
   check('reply aborted', (await done) === 'aborted');
   await run(300);
@@ -359,7 +363,7 @@ async function scenario2() {
   check('captured turn dispatched exactly once', W.dispatched.length === 1, `got ${JSON.stringify(W.dispatched)}`);
   check('dispatched text is the user utterance', W.dispatched[0] === 'مجھے ایک اور سوال پوچھنا ہے');
   await run(10000);
-  check('old reply never resumed (chunks 3-5 never started)', W.chunksStarted.length === 2, `started=${W.chunksStarted.join(',')}`);
+  check('old reply never resumed (chunks 4-5 never started)', W.chunksStarted.length <= 3, `started=${W.chunksStarted.join(',')}`);
   check('no duplicate dispatch', W.dispatched.length === 1);
 }
 
@@ -573,6 +577,43 @@ async function scenario11() {
   check('no chunk of the dead reply ever started again', W.chunksStarted.length === 1);
 }
 
+// ---- Scenario 12: noisy phone echo — misrecognized fragments must NOT kill the reply ----
+// The 2026-10-24 device-test failure: on his phone the reply died after
+// its first line. The old fast path killed on ONE >= 4-word >= 50%-novel
+// FINAL; phone echo arrives exactly as such short misrecognized finals.
+// Under the hardened bar neither a short all-novel final nor sustained
+// low-novelty echo may confirm.
+async function scenario12() {
+  console.log('Scenario 12: noisy phone echo (misrecognized fragments + short novel final) — reply survives');
+  now = 0; timers.clear();
+  const { W, playReply, feedDetect } = makeWorld();
+  const done = playReply(REPLY, CHUNKS.slice(0, 3));
+  await run(1100); // chunk 2 playing
+  // (a) A short FINAL with 2 novel words of 4 (50% novel) — the old
+  // fast path would have killed the reply on this single event. New
+  // bar: 4 words < 5, and no sustain yet — ignored.
+  feedDetect([{ isFinal: true, transcript: 'جی اچھا ٹھیک ہے' }], 0);
+  await settle();
+  check('short novel final did not kill the reply', W.bargeMode !== 'capture' && W.audioStoppedAt === null);
+  // (b) Sustained echo of the reply's own words with misrecognitions
+  // mixed in: at most 1 novel word, far below the 3-novel / 50% bar,
+  // sustained well past 800ms — must never confirm.
+  const echoLines = [
+    'آج موسم بہت اچھا ہے جی',
+    'آج موسم بہت اچھا ہے کل بھی جی',
+    'آج موسم بہت اچھا ہے کل بھی دھوپ رہے گی',
+  ];
+  for (let i = 0; i < echoLines.length; i++) {
+    feedDetect([{ isFinal: i === 2, transcript: echoLines[i] }], i === 2 ? 0 : -1);
+    await run(700);
+  }
+  await run(1500);
+  check('sustained noisy echo never confirmed', W.bargeMode !== 'capture');
+  check('reply completed despite noisy echo', (await done) === 'completed');
+  check('all chunks played', W.chunksCompleted.length === 3);
+  check('no dispatch from echo', W.dispatched.length === 0);
+}
+
 await scenario1();
 await scenario2();
 await scenario3();
@@ -584,6 +625,7 @@ await scenario8();
 await scenario9();
 await scenario10();
 await scenario11();
+await scenario12();
 
 console.log(failures === 0 ? '\nALL SCENARIOS PASSED' : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);
