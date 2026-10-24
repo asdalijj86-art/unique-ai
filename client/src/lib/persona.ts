@@ -138,6 +138,10 @@ export function pickUrduFemaleVoiceFrom<T extends VoiceLike>(voices: readonly T[
 // called Uniqa) matches neither shape and returns null — the same
 // anti-hijack discipline as the router gate: conversation must always
 // reach the brain untouched.
+// Spoken calls are normalized first (Arabic/Urdu codepoints, leading
+// call particles like «اے/ارے», Roman ASR variants like unika/yunika),
+// so «اے یونیکا» and «ارے یونیکا، کہانی سناؤ» summon exactly like a
+// bare «یونیکا» — the name called is the persona who answers.
 // ---------------------------------------------------------------------------
 
 export type PersonaSummon = { target: Persona; rest: string; pure: boolean };
@@ -145,16 +149,38 @@ export type PersonaSummon = { target: Persona; rest: string; pure: boolean };
 // یونیکا BEFORE یونیک: "یونیکا" contains "یونیک" as a prefix — checking
 // the female name first (and requiring یونیک NOT be followed by ا)
 // keeps the two names unambiguous.
-const UNIQA_NAME_RE = /(یونیکا|uniqa|unica)/i;
+const UNIQA_NAME_RE = /(یونیکا|uniqa|unica|unika|yunika|younika|uniquea)/i;
 const UNIQUE_NAME_RE = /(یونیک(?![اa-z])|unique(?![a-z])|uniq(?!a))/i;
 const SUMMON_VERB_RE = /(کو بلاؤ|کو بلا لو|کو بلانا|سے بات کرو|سے بات کراؤ|بلاؤ|بلا لو|بات کرو|بات کراؤ|talk to|call|summon)/i;
+
+// A spoken call opens with a particle — «اے یونیکا!» / «ارے یونیکا» /
+// «hello Uniqa» — and speech engines return Arabic codepoints (ي/ك)
+// where Urdu writes (ی/ک). Both used to defeat detection outright:
+// the name did not lead (prefix failed) and the residue was not empty
+// (pure failed), so the call fell through to Unique by default — the
+// user's 2026-10-24 report (three straight calls, Unique answered).
+// Normalize first, then strip leading call particles (never message
+// content — the particle is only how the name was called). The strip
+// requires a separator after the particle, so «اوپر» / «ایک» / «ohh»
+// never match — only a real standalone opener is removed.
+const CALL_OPENER_RE = /^\s*(اے|ارے|اوہ|او|ہیلو|aye|arey|hey|hello|oh)\s*[،,:\-—]?\s+/i;
+
+function normalizeCallText(raw: string): string {
+  let t = String(raw || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim();
+  for (let i = 0; i < 3; i++) {
+    const stripped = t.replace(CALL_OPENER_RE, '');
+    if (stripped === t) break;
+    t = stripped;
+  }
+  return t;
+}
 
 function countWords(text: string): number {
   return String(text || '').trim().split(/\s+/).filter(Boolean).length;
 }
 
 export function detectPersonaSummon(rawText: string, current: Persona): PersonaSummon | null {
-  const text = String(rawText || '').trim();
+  const text = normalizeCallText(rawText);
   if (!text) return null;
   const target: Persona | null = UNIQA_NAME_RE.test(text)
     ? 'uniqa'

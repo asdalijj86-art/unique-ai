@@ -115,6 +115,15 @@ check('"Uniqa" → Uniqa, pure', S('Uniqa', 'unique'), { target: 'uniqa', pure: 
 check('«یونیکا سے بات کرو» → Uniqa, pure', S('یونیکا سے بات کرو', 'unique'), { target: 'uniqa', pure: true, rest: '' });
 check('«یونیک کو بلاؤ» from Uniqa → Unique, pure', S('یونیک کو بلاؤ', 'uniqa'), { target: 'unique', pure: true, rest: '' });
 check('«یونیکا کو بلاؤ» while Uniqa present → null (no re-summon)', S('یونیکا کو بلاؤ', 'uniqa'), null);
+check('«اے یونیکا» (desi call opener) → Uniqa, pure', S('اے یونیکا', 'unique'), { target: 'uniqa', pure: true, rest: '' });
+check('«ارے یونیکا» → Uniqa, pure', S('ارے یونیکا', 'unique'), { target: 'uniqa', pure: true, rest: '' });
+const prefOpener = S('ارے یونیکا، مجھے ایک کہانی سناؤ', 'unique');
+checkTrue('opener + prefix request switches to Uniqa and forwards rest', prefOpener?.target === 'uniqa' && prefOpener?.pure === false && prefOpener.rest.includes('کہانی'), JSON.stringify(prefOpener));
+check('Roman ASR variant "unika" → Uniqa, pure', S('unika', 'unique'), { target: 'uniqa', pure: true, rest: '' });
+check('Roman ASR variant "yunika" → Uniqa, pure', S('yunika', 'unique'), { target: 'uniqa', pure: true, rest: '' });
+check('Arabic-codepoint «يونيكا» → Uniqa, pure', S('يونيكا', 'unique'), { target: 'uniqa', pure: true, rest: '' });
+check('«اے یونیک» while Unique present → null (already Unique)', S('اے یونیک', 'unique'), null);
+check('«اوپر یونیکا کا ذکر تھا» (opener lookalike + mention) → null', S('اوپر یونیکا کا ذکر تھا', 'unique'), null);
 const pref = S('یونیکا، مجھے ایک کہانی سناؤ', 'unique');
 checkTrue('name-prefixed request switches to Uniqa', pref?.target === 'uniqa' && pref?.pure === false, JSON.stringify(pref));
 checkTrue('name-prefixed request forwards the rest', !!pref && pref.rest.includes('کہانی'), pref?.rest);
