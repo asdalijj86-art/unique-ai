@@ -1469,16 +1469,58 @@ body {
 .fmt-c5, .fmt-c6, .fmt-c7, .fmt-c8 { background: linear-gradient(0deg, rgba(96, 62, 26, .95) 0 34%, rgba(30, 20, 10, .65) 34%); }
 /* The لانج sofa pair (FIX ROUND 2, user 2026-10-24: «لانچ کے
    اندر دو صوفے رکھو — ایک رکھا ہوا ہے، ایک اس کے سامنے اور
-   رکھو، یعنی آمنے سامنے ان کے چہرے ہوں»): TWO sofas down the
-   plaza's left column, FACING each other — the far sofa stands
-   unflipped (backrest on the far side, facing in) and the near
-   sofa is flipped vertically (backrest on the near side,
-   facing in). line-height:1 keeps each span hugging its glyph
-   so the pair and the conversation gap between them fit the
-   zone's height; the near span's bottom edge ends clear of
-   عمر's name pill, which floats just below the plaza. */
-.floor-sofa { position: absolute; left: 5%; top: 8%; font-size: clamp(16px, 4.4cqw, 34px); line-height: 1; }
-.floor-sofa-near { top: auto; bottom: 12%; transform: scaleY(-1); }
+   رکھو، یعنی آمنے سامنے ان کے چہرے ہوں»; REBUILT in FIX ROUND 3,
+   same day, on his live-floor inspection: «ایک صوفہ الٹا رکھ
+   دیا ہے اور ساتھ میں جو لیمپ لگایا ہے وہ بھی الٹی کر دی ہے —
+   برابر میں کر دو، تاکہ ڈائریکشن سیدھی ہو»): TWO sofas down the
+   plaza's left column, FACING each other, now DRAWN in CSS —
+   backrest bar + two-cushion seat + armrests — each built
+   upright in its OWN facing direction: the far sofa's backrest
+   stands on the far side, the near sofa's backrest on the near
+   side (its children simply render seat-then-back). NO transform
+   flip anywhere, so nothing can ever hang upside down again.
+   The FLOOR LAMP is its own upright element standing at the
+   pair's right end between them — shade up, pole, base — the
+   🛋️ emoji's built-in lamp died with the emoji. The near sofa's
+   bottom edge still ends clear of عمر's name pill, which floats
+   just below the plaza (audited in cdp-verify-floor). */
+.floor-sofa {
+  position: absolute; left: 3.5%; top: 8%;
+  width: clamp(30px, 7.6cqw, 52px); height: clamp(17px, 4.6cqw, 34px);
+  display: flex; flex-direction: column;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .4));
+}
+.floor-sofa-near { top: auto; bottom: 12%; }
+.fsofa-back {
+  display: block; height: 34%; border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  border: 1px solid rgba(147, 197, 253, .55);
+}
+.floor-sofa-near .fsofa-back { border-radius: 2px 2px 5px 5px; background: linear-gradient(0deg, #2563eb, #1d4ed8); }
+.fsofa-seat {
+  display: block; flex: 1; border-radius: 2px 2px 5px 5px;
+  background:
+    linear-gradient(90deg, transparent 49%, rgba(30, 58, 138, .8) 49%, rgba(30, 58, 138, .8) 51%, transparent 51%),
+    linear-gradient(180deg, #60a5fa, #3b82f6);
+  border: 1px solid rgba(147, 197, 253, .55);
+  border-left: clamp(3px, .9cqw, 6px) solid #1e40af;
+  border-right: clamp(3px, .9cqw, 6px) solid #1e40af;
+}
+.floor-sofa-near .fsofa-seat { border-radius: 5px 5px 2px 2px; background:
+    linear-gradient(90deg, transparent 49%, rgba(30, 58, 138, .8) 49%, rgba(30, 58, 138, .8) 51%, transparent 51%),
+    linear-gradient(0deg, #60a5fa, #3b82f6); }
+.floor-lamp {
+  position: absolute; top: 32%; left: 32.6%;
+  display: flex; flex-direction: column; align-items: center;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .4));
+}
+.flamp-shade {
+  display: block; width: clamp(9px, 2.4cqw, 15px); height: clamp(6px, 1.7cqw, 10px);
+  background: linear-gradient(180deg, #fde68a, #f59e0b);
+  border-radius: 3px 3px 1px 1px; box-shadow: 0 0 9px rgba(251, 191, 36, .75);
+}
+.flamp-pole { display: block; width: 2px; height: clamp(7px, 2cqw, 13px); background: #92400e; }
+.flamp-base { display: block; width: clamp(6px, 1.7cqw, 10px); height: 2px; background: #92400e; border-radius: 1px; }
 .floor-kiosk {
   position: absolute; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; align-items: center;

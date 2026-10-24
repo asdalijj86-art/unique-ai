@@ -95,11 +95,19 @@
  *     spilling over empty side rug — is documented at the
  *     check). The meeting room seats EIGHT chairs in two
  *     FACING rows of 4 (DOM-asserted, pairs opposite each
- *     other); the لانج holds TWO sofas facing each other (far
- *     unflipped, near flipped — DOM-asserted). Zone crops of
- *     عمر / احمد / meeting / لانج are shot for eyeball review.
+ *     other); the لانج holds TWO sofas facing each other (FIX
+ *     ROUND 3: both DRAWN upright in CSS, no flip anywhere, the
+ *     floor lamp upright between them — DOM-asserted). Zone crops
+ *     of عمر / احمد / meeting / لانج are shot for eyeball review.
  *
- * Screenshots land in the goal's office-fix2-verify folder.
+ * FIX ROUND 3 (2026-10-24, the user's live-floor inspection)
+ * additions: L) the idle amble — an idle agent stays SEATED at
+ *     his desk; a ~21s sampler asserts every agent spends the
+ *     clear majority of samples within 2.5 units of his chair
+ *     (the old stroll left یوسف standing far from his computer:
+ *     «یوسف دیکھو کہاں پہ ہے… کمپیوٹر دیکھو کہاں پہ ہے»).
+ *
+ * Screenshots land in the goal's office-fix3-verify folder.
  * Prereqs: client built (server/dist), chrome at /opt/meta-chromium/chrome.
  * Run: node server/cdp-verify-floor.mjs   (from repo root)
  */
@@ -113,7 +121,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = 5221;
 const CDP_PORT = 9341;
 const APP = `http://127.0.0.1:${APP_PORT}`;
-const OUT = '/home/hatch/workspace/goals/unique-ai-project-completion/hidden_files/office-fix2-verify';
+const OUT = '/home/hatch/workspace/goals/unique-ai-project-completion/hidden_files/office-fix3-verify';
 mkdirSync(OUT, { recursive: true });
 
 let failed = 0;
@@ -507,7 +515,7 @@ try {
     // her seat has no collision-free slot in the monitors' band.
     const ghost = q('[data-testid="office-uniqa-seat"] .floor-char-name');
     if (ghost) labels.push(['name:uniqa-ghost', R(ghost)]);
-    const propSel = '.floor-pc, .floor-deskbar, .floor-hosts-mic, .floor-quran-rug, .floor-media-screen, .floor-racks, .floor-sofa, .floor-coffee-set, .floor-meeting-table, .floor-zone-plant';
+    const propSel = '.floor-pc, .floor-deskbar, .floor-hosts-mic, .floor-quran-rug, .floor-media-screen, .floor-racks, .floor-sofa, .floor-lamp, .floor-coffee-set, .floor-meeting-table, .floor-zone-plant';
     const props = [];
     for (const el of qa(propSel)) {
       const id = (el.getAttribute('data-testid') || el.className.split(' ')[0]);
@@ -546,8 +554,10 @@ try {
   // inside its own zone. It also DOM-asserts the user's two
   // furnishing orders: EIGHT meeting chairs in two facing rows
   // of four (each chair directly opposite its pair, hugging the
-  // table) and TWO لانج sofas facing each other (far unflipped,
-  // near flipped scaleY(-1), same column, both inside the plaza).
+  // table) and TWO لانج sofas facing each other (FIX ROUND 3:
+  // both DRAWN upright in CSS — no scaleY(-1) flip anywhere —
+  // far backrest above its seat, near backrest below its seat,
+  // same column, both inside the plaza, lamp upright between).
   const audit2 = await ev(`(() => {
     const q = (s) => document.querySelector('${SCOPE}' + s);
     const qa = (s) => [...document.querySelectorAll('${SCOPE}' + s)];
@@ -626,7 +636,14 @@ try {
       const hugOk = topRow.every((t) => t.b <= srf.t + 2) && botRow.every((b) => b.t >= srf.b - 2);
       meeting = { count: chs.length, topRow: topRow.length, botRow: botRow.length, pairsOk, hugOk };
     }
-    // LOUNGE: exactly 2 sofas, facing (one flipped), same column.
+    // LOUNGE (FIX ROUND 3): exactly 2 sofas, both DRAWN upright —
+    // NO flip transform on either (the old scaleY(-1) emoji flip
+    // hung its lamp upside down; the user caught it on the live
+    // floor) — facing proven by construction: the far sofa's
+    // backrest stands ABOVE its seat, the near sofa's backrest
+    // BELOW its seat; same column; both inside the plaza. Plus
+    // the floor LAMP: present, inside the plaza, shade ABOVE its
+    // pole (upright, as a lamp stands).
     const pzone = q('[data-testid="floor-zone-plaza"]');
     let sofas = null;
     if (pzone) {
@@ -634,15 +651,39 @@ try {
       const list = [...pzone.querySelectorAll('.floor-sofa')].map((s) => {
         const r = R(s);
         const m = getComputedStyle(s).transform || '';
-        return { r, cx: (r.l + r.r) / 2, cy: (r.t + r.b) / 2, flipped: m.indexOf('matrix(1, 0, 0, -1') === 0 };
+        const back = s.querySelector('.fsofa-back');
+        const seat = s.querySelector('.fsofa-seat');
+        const br = back ? R(back) : null;
+        const tr = seat ? R(seat) : null;
+        return {
+          r, cx: (r.l + r.r) / 2, cy: (r.t + r.b) / 2,
+          flipped: m.indexOf('matrix(1, 0, 0, -1') === 0 || m.indexOf('matrix(-1') === 0,
+          backAboveSeat: !!(br && tr && br.b <= tr.t + 2),
+          backBelowSeat: !!(br && tr && br.t >= tr.b - 2),
+        };
       });
-      const flipped = list.filter((s) => s.flipped);
-      const plain = list.filter((s) => !s.flipped);
+      const far = list.find((s) => s.backAboveSeat);
+      const near = list.find((s) => s.backBelowSeat);
+      const lampEl = pzone.querySelector('.floor-lamp');
+      let lamp = null;
+      if (lampEl) {
+        const lr = R(lampEl);
+        const shade = lampEl.querySelector('.flamp-shade');
+        const pole = lampEl.querySelector('.flamp-pole');
+        const shr = shade ? R(shade) : null;
+        const por = pole ? R(pole) : null;
+        lamp = {
+          inside: lr.l >= zr.l - 1 && lr.r <= zr.r + 1 && lr.t >= zr.t - 1 && lr.b <= zr.b + 1,
+          upright: !!(shr && por && shr.b <= por.t + 2),
+        };
+      }
       sofas = {
         count: list.length,
-        facing: list.length === 2 && flipped.length === 1 && plain.length === 1 && flipped[0].cy > plain[0].cy,
+        noneFlipped: list.length === 2 && list.every((s) => !s.flipped),
+        facing: list.length === 2 && !!far && !!near && far !== near && far.cy < near.cy,
         sameColumn: list.length === 2 && Math.abs(list[0].cx - list[1].cx) <= 4,
         inside: list.every((s) => s.r.l >= zr.l - 1 && s.r.r <= zr.r + 1 && s.r.t >= zr.t - 1 && s.r.b <= zr.b + 1),
+        lamp,
       };
     }
     return { collisions2, containment, meeting, sofas, textCount: texts.length, bodyCount: homeBodies.length };
@@ -655,8 +696,9 @@ try {
   check('MEETING ROOM: EIGHT chairs in two FACING rows of 4 (each chair opposite its pair, hugging the table)',
     !!audit2.meeting && audit2.meeting.count === 8 && audit2.meeting.pairsOk && audit2.meeting.hugOk,
     JSON.stringify(audit2.meeting));
-  check('LOUNGE: exactly TWO sofas FACING each other (far unflipped, near flipped), one column, both inside the plaza',
-    !!audit2.sofas && audit2.sofas.count === 2 && audit2.sofas.facing && audit2.sofas.sameColumn && audit2.sofas.inside,
+  check('LOUNGE (FIX3): exactly TWO sofas FACING each other, BOTH drawn upright (no flip anywhere), one column, inside the plaza — plus the floor lamp standing upright (shade above pole) inside the plaza',
+    !!audit2.sofas && audit2.sofas.count === 2 && audit2.sofas.noneFlipped && audit2.sofas.facing && audit2.sofas.sameColumn && audit2.sofas.inside
+      && !!audit2.sofas.lamp && audit2.sofas.lamp.inside && audit2.sofas.lamp.upright,
     JSON.stringify(audit2.sofas));
 
   // Idle honesty sampler (~2.6s): nothing carried, nobody leaves his zone.
@@ -683,6 +725,50 @@ try {
     if (!idleViolation) await sleep(260);
   }
   check('IDLE honesty (2.6s sampler): no 📄 carried, every character inside his OWN zone', !idleViolation, idleViolation || '');
+
+  // L) SEATED-MAJORITY sampler (FIX ROUND 3, user 2026-10-24:
+  // «یوسف دیکھو کہاں پہ ہے… اور اس کا کمپیوٹر دیکھو کہاں پہ
+  // ہے»): the old idle stroll parked agents at random points far
+  // from their desks. An idle agent must now spend the clear
+  // majority of a ~30s window SEATED at his own chair (his
+  // computer in front of him) — a short out-and-back amble is
+  // the only absence allowed. Feet = the char element's bottom
+  // centre; at his chair that sits ~1.9 units below the chair
+  // point (measured), so seated = within 2.2 units of
+  // (chair.x, chair.y + 1.9) on both axes.
+  const seatSamples = {};
+  for (let i = 0; i < 20; i++) {
+    const snap = await ev(`(() => {
+      const scene = document.querySelector('${SCOPE}.floor-scene');
+      if (!scene) return null;
+      const sr = scene.getBoundingClientRect();
+      const out = {};
+      for (const k of ${JSON.stringify(AGENTS.map(([k]) => k))}) {
+        const el = document.querySelector('${SCOPE}[data-testid="floor-char-' + k + '"]');
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        out[k] = {
+          fx: ((r.left + r.width / 2 - sr.left) / sr.width) * 100,
+          fy: ((r.bottom - sr.top) / sr.height) * 75,
+        };
+      }
+      return out;
+    })()`);
+    if (snap) {
+      for (const [k, chair] of Object.entries(DESKS)) {
+        const s = snap[k];
+        if (!s) continue;
+        seatSamples[k] = seatSamples[k] || { seated: 0, total: 0 };
+        seatSamples[k].total++;
+        if (Math.abs(s.fx - chair[0]) <= 2.2 && Math.abs(s.fy - (chair[2] + 1.9)) <= 2.2) seatSamples[k].seated++;
+      }
+    }
+    await sleep(1500);
+  }
+  const seatReport = Object.entries(seatSamples).map(([k, v]) => `${k}:${v.seated}/${v.total}`).join(' ');
+  check('FIX3 SEATED MAJORITY: every idle agent sits at his OWN desk (computer in front) for the majority (≥55%) of a 30s window — ambles return home (the old stroll scored ~0–20%)',
+    Object.keys(seatSamples).length === 7 && Object.values(seatSamples).every((v) => v.total >= 14 && v.seated / v.total >= 0.55),
+    seatReport);
   await shot('01-desktop-idle.png');
   await shotEl('07-floor-closeup-idle.png', '.office-panel-main .floor-wrap');
   await shotEl('10-coffee-corner.png', '.office-panel-main .floor-zone-coffee');

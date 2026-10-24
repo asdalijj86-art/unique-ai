@@ -80,6 +80,20 @@
  * same round: text × desk bars / PCs / character home bodies /
  * other texts / zone containment, plus DOM assertions for the
  * 8 chairs and the facing sofas.
+ *
+ * FIX ROUND 3 (user, 2026-10-24 — his live-floor inspection):
+ * (1) «یوسف دیکھو کہاں پہ ہے… اور اس کا کمپیوٹر دیکھو کہاں پہ
+ * ہے» — the idle stroll LEFT agents standing at random points
+ * far from their desks; idle now means SEATED at his desk, with
+ * only a short out-and-back amble inside his own zone (see the
+ * amble effect). (2) The لانج's near sofa was the 🛋️ emoji
+ * flipped scaleY(-1) — its built-in lamp hung upside down with
+ * it («ایک صوفہ الٹا رکھ دیا ہے اور لیمپ بھی الٹی کر دی ہے»).
+ * Both sofas are now DRAWN in CSS, each built upright in its own
+ * facing direction (backrest on the far side for the far sofa,
+ * on the near side for the near one — no flip anywhere), and the
+ * lamp stands separately between them, shade up, as a floor lamp
+ * should.
  */
 import { useEffect, useRef, useState } from 'react';
 import { AGENT_DEFS, type AgentTaskState } from '@/lib/agent-team';
@@ -287,7 +301,18 @@ export function FloorScene(props: FloorSceneProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusSig]);
 
-  // ---------- idle strolls: ambience inside the character's OWN zone ----------
+  // ---------- idle ambles: a short stretch, then BACK to his desk ----------
+  // FIX ROUND 3 (user, 2026-10-24 — he looked at the live floor and
+  // asked «یوسف دیکھو کہاں پہ ہے، یہ کام کिधर کر رہا ہے — اور
+  // یوسف کا کمپیوٹر دیکھو کہاں پہ ہے»): the old stroll walked an
+  // idle agent to a random point in his zone and LEFT him standing
+  // there, far from his desk and his computer, until chance moved
+  // him again — at any glance the floor looked abandoned. An idle
+  // agent now stays SEATED at his desk (his computer in front of
+  // him, like the reference video's working floor); only now and
+  // then does he take a SHORT amble — a step or two from his desk
+  // (the stroll point is pulled to within 5 units of his chair),
+  // a breath, and straight BACK to his chair.
   useEffect(() => {
     if (reducedRef.current) return;
     const iv = setInterval(() => {
@@ -297,16 +322,47 @@ export function FloorScene(props: FloorSceneProps) {
         const status = stateByKey.get(d.key)?.status || 'idle';
         if (status === 'working' || status === 'failed') continue;
         if (busyRef.current.has(d.key)) continue;
-        if (Math.random() > 0.16) continue;
+        if (Math.random() > 0.06) continue;
         const zone = zoneByKey(d.key);
-        if (!zone) continue;
-        const target = strollPoint(zone, Math.random);
-        if (!target) continue;
+        if (!zone?.chair) continue;
+        const home = zone.chair;
         const cur = posRef.current[d.key];
-        if (Math.hypot(target.x - cur.x, target.y - cur.y) < 3) continue;
+        // An amble only ever starts FROM his seat — a character who
+        // is anywhere else is on real business (or walking home).
+        if (Math.hypot(home.x - cur.x, home.y - cur.y) > 2.5) continue;
+        const raw = strollPoint(zone, Math.random);
+        if (!raw) continue;
+        // The amble stays a step or two from his desk: the stroll
+        // point is pulled toward home to at most 5 units, so even
+        // mid-amble he reads as «at his workplace», never parked
+        // across the zone away from his computer.
+        const dx = raw.x - home.x;
+        const dy = raw.y - home.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 3) continue;
+        const target = dist > 5
+          ? { x: home.x + (dx / dist) * 5, y: home.y + (dy / dist) * 5 }
+          : raw;
         busyRef.current.add(d.key);
-        void walkChar(d.key, [target], WALK_SPEEDS.stroll)
-          .finally(() => busyRef.current.delete(d.key));
+        void (async () => {
+          try {
+            const arrived = await walkChar(d.key, [target], WALK_SPEEDS.stroll);
+            if (!arrived) return; // superseded — the new owner has him
+            const tk = ctrlOf(d.key).token;
+            // A short breath at the amble point (abortable the
+            // moment real work takes him over).
+            for (let waited = 0; waited < 1400; waited += 200) {
+              await sleep(200);
+              if (ctrlOf(d.key).token !== tk) return;
+              const st = stateByKey.get(d.key)?.status || 'idle';
+              if (st === 'working' || st === 'failed') break;
+            }
+            if (ctrlOf(d.key).token !== tk) return;
+            await walkChar(d.key, routePath(posRef.current[d.key], home), WALK_SPEEDS.stroll);
+          } finally {
+            busyRef.current.delete(d.key);
+          }
+        })();
       }
     }, 3000);
     return () => clearInterval(iv);
@@ -604,12 +660,25 @@ function FloorZoneView({
         <>
           {/* TWO sofas FACING each other (user, 2026-10-24:
               «ایک اس کے سامنے اور رکھو — آمنے سامنے ان کے
-              چہرے ہوں»): the far sofa unflipped, the near one
-              flipped vertically, a conversation gap between
-              them — both clear of the board kiosk and of every
-              plaque (audited in cdp-verify-floor). */}
-          <span className="floor-sofa" aria-hidden="true">🛋️</span>
-          <span className="floor-sofa floor-sofa-near" aria-hidden="true">🛋️</span>
+              چہرے ہوں»), both DRAWN upright in CSS (FIX ROUND 3,
+              same day: the near sofa used to be the 🛋️ emoji
+              flipped scaleY(-1), which hung its lamp upside
+              down too — «برابر میں کر دو، ڈائریکشن سیدھی ہو»).
+              Each sofa is built in its own facing direction —
+              backrest on the far side for the far sofa, on the
+              near side for the near one — no flip anywhere; the
+              floor lamp stands separately between them, shade
+              UP. All clear of the kiosk and every plaque
+              (audited in cdp-verify-floor). */}
+          <span className="floor-sofa floor-sofa-far" aria-hidden="true">
+            <i className="fsofa-back" /><i className="fsofa-seat" />
+          </span>
+          <span className="floor-sofa floor-sofa-near" aria-hidden="true">
+            <i className="fsofa-seat" /><i className="fsofa-back" />
+          </span>
+          <span className="floor-lamp" aria-hidden="true">
+            <i className="flamp-shade" /><i className="flamp-pole" /><i className="flamp-base" />
+          </span>
           <span
             className={`floor-kiosk${kioskGlow ? ' floor-kiosk-glow' : ''}`}
             style={local(BOARD_KIOSK)}
