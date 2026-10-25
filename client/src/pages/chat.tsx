@@ -438,9 +438,18 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // TTS prefetch: start synthesizing the first sentence while text still streams,
   // so voice begins almost immediately after the reply completes.
-  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string } | null>; eagerPlayed: boolean; playPromise: Promise<void> | null; ticket: number } | null>(null);
-  // TTS health: track consecutive server TTS failures. After 3 failures,
-  // skip server TTS for the session and go straight to browser voice.
+  // VOICE-OWNER SNAPSHOT (2026-10-25 role-swap fix): the prefetch
+  // entry carries the persona that OWNED this reply, so the eager
+  // first chunk can never be synthesized in a different gender than
+  // the rest of the reply if the user switches persona mid-stream.
+  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string } | null>; eagerPlayed: boolean; playPromise: Promise<void> | null; ticket: number; female: boolean } | null>(null);
+  // TTS health counters (2026-10-25 NEVER-DOWN fix): these are
+  // DIAGNOSTIC ONLY now. They used to mute the Gemini leg for the
+  // whole session after a quota/auth answer or 3 soft failures — one
+  // dead key then silenced BOTH personas until reload, even when
+  // other saved keys or the Edge legs could still speak. Nothing may
+  // read these refs to skip a leg any more: every chunk retries the
+  // full leg order fresh (see synthesizeWithTimeout).
   const serverTtsFailsRef = useRef(0);
   const serverTtsDownRef = useRef(false);
   // UNIQA voice health (2026-10-24 fix, user-approved): her server-Edge
@@ -1211,6 +1220,15 @@ export default function ChatPage() {
     // speaking is orphaned (its chunk loops stop at their next check),
     // and an interrupt during streaming orphans THIS send's speech.
     const speechTicket = ++speechTicketRef.current;
+    // VOICE-OWNER SNAPSHOT (2026-10-25 role-swap fix): the persona
+    // that OWNS this reply is captured ONCE, here, at send time. The
+    // old code re-read personaRef at prefetch time AND again at
+    // playback time — if the user switched persona mid-stream, the
+    // eager first chunk spoke in one gender and the rest of the
+    // reply in the other (the reported «کبھی لڑکے والی آواز، کبھی
+    // لڑکی کی» flip inside a single reply). Every voice decision
+    // for this reply now uses sendFemale, never the live persona.
+    const sendFemale = personaRef.current === 'uniqa';
     // Reset TTS prefetch for this new message
     ttsPrefetchRef.current = null;
     streamedTextRef.current = '';
@@ -1251,10 +1269,12 @@ export default function ChatPage() {
               if (firstSentence && firstSentence.length >= 20) {
                 const entry = {
                   text: firstSentence,
-                  promise: synthesizeWithTimeout(firstSentence, 12000, personaRef.current === 'uniqa'),
+                  // Owner snapshot, NOT the live persona (role-swap fix).
+                  promise: synthesizeWithTimeout(firstSentence, 12000, sendFemale),
                   eagerPlayed: false,
                   playPromise: null as Promise<void> | null,
                   ticket: speechTicket,
+                  female: sendFemale,
                 };
                 ttsPrefetchRef.current = entry;
                 setIsPreparingVoice(true);
@@ -1372,7 +1392,8 @@ export default function ChatPage() {
         setToolAction(result.action as ChatAction);
       }
       // The assistant speaks EVERY reply aloud automatically — no mic or button needed.
-      void playAssistantMessage(result.text, speechTicket);
+      // Owner snapshot travels with the reply (role-swap fix).
+      void playAssistantMessage(result.text, speechTicket, sendFemale);
     } catch (sendError) {
       // Remove the streaming placeholder on failure
       setAgentTeam(null);
@@ -1395,7 +1416,7 @@ export default function ChatPage() {
       // dead". The spoken path also resumes the live mic for the next
       // turn. setError runs after, because playAssistantMessage clears
       // the error banner on entry.
-      void playAssistantMessage(failureMessage, speechTicket);
+      void playAssistantMessage(failureMessage, speechTicket, sendFemale);
       setError(failureMessage);
     }
   }
@@ -2045,13 +2066,14 @@ export default function ChatPage() {
   // internal cap; Gemini: its per-key 15s cap) — no single outer race
   // cutting the fallback legs off before they can start.
   // If all legs fail, the Gemini classification (quota/auth/network)
-  // explains WHY in Urdu. serverTtsDown tracks the GEMINI leg only:
-  // Edge has no quota, so a transient Edge failure must never mute
-  // the session.
+  // explains WHY in Urdu. NEVER-DOWN (2026-10-25): NO leg is ever
+  // muted for the session — a transient failure must never silence
+  // later chunks; every chunk retries the full order fresh.
   // Returns null on failure (caller falls back to browser voice).
   function synthesizeWithTimeout(text: string, timeoutMs = 12000, female = false): Promise<{ audioBase64: string; mimeType: string } | null> {
-    // Keys changed since the last attempt? Forget any earlier "TTS down"
-    // verdict and try fresh — the new keys may work even if the old failed.
+    // Keys changed since the last attempt? Reset the diagnostic
+    // counters — the new keys may work even if the old failed. (No
+    // leg is ever skipped on these counters any more — 2026-10-25.)
     try {
       const fp = getGeminiKeys().join('|');
       if (ttsKeysFingerprintRef.current !== fp) {
@@ -2076,24 +2098,21 @@ export default function ChatPage() {
     // by this change.
     if (female) {
       const runUniqaChain = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
-        // Leg 1: Gemini — Sulafat, her female voice. Shares the Gemini
-        // leg's session mute (serverTtsDownRef) and 3-strikes counting
-        // with Unique's chain: dead keys are dead for both personas.
-        // A Gemini failure here must NOT end the chain — Edge legs
-        // below still get their chance on this same chunk.
-        if (!serverTtsDownRef.current) {
-          try {
-            const r = await synthesizeMairaSpeech({ text, female: true });
-            serverTtsFailsRef.current = 0;
-            if (r) return r;
-          } catch (e: any) {
-            const et = e?.data?.errorType;
-            if (et === 'quota' || et === 'auth') {
-              serverTtsDownRef.current = true;
-            } else {
-              serverTtsFailsRef.current += 1;
-              if (serverTtsFailsRef.current >= 3) serverTtsDownRef.current = true;
-            }
+        // Leg 1: Gemini — Sulafat, her female voice. NEVER-DOWN
+        // (2026-10-25): NO session mute — this leg is attempted on
+        // EVERY chunk, and api.ts rotates through ALL saved keys per
+        // call. A quota/auth answer kills only that key for this call
+        // (api.ts moves on to the next key); it never mutes Uniqa, and
+        // never Unique. A Gemini failure here must NOT end the chain
+        // — Edge legs below still get their chance on this same chunk.
+        try {
+          const r = await synthesizeMairaSpeech({ text, female: true });
+          serverTtsFailsRef.current = 0;
+          if (r) return r;
+        } catch (e: any) {
+          // Diagnostic counter only — never gates a later chunk.
+          if (e?.data?.errorType !== 'quota' && e?.data?.errorType !== 'auth') {
+            serverTtsFailsRef.current += 1;
           }
         }
         // Leg 2: server-side Edge — Uzma (POST /api/tts/edge with
@@ -2130,13 +2149,14 @@ export default function ChatPage() {
       }
     } catch { /* ignore */ }
     const tryBoth = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
-      // Gemini leg. Once every saved key has answered quota/auth the leg
-      // is muted for the session (serverTtsDownRef) and skipped without a
-      // network call. Its classified error is captured, not shown yet —
-      // the Edge leg may still save this reply.
+      // Gemini leg. NEVER-DOWN (2026-10-25): attempted on every chunk
+      // with all saved keys in rotation — never muted for the session.
+      // Its classified error is captured, not shown yet — the Edge leg
+      // may still save this reply.
       let geminiErr: any = null;
+      // NEVER-DOWN (2026-10-25): no session gate — Gemini is attempted
+      // on every chunk, rotating through all saved keys per call.
       const attemptGemini = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
-        if (serverTtsDownRef.current) return null;
         try {
           const result = await synthesizeMairaSpeech({ text });
           serverTtsFailsRef.current = 0;
@@ -2190,16 +2210,10 @@ export default function ChatPage() {
         if (!result) result = await attemptClientEdge();
         if (!result) result = await attemptEdge();
       }
-      // Gemini bookkeeping: a quota/auth answer is DEFINITIVE — mute the
-      // Gemini leg for the rest of the session even if Edge rescued this
-      // reply, so later replies don't burn slow attempts re-asking dead
-      // keys. (The female Google voice is NEVER a fallback — user demand.)
-      if (geminiErr) {
-        const et = geminiErr?.data?.errorType;
-        if (et === 'quota' || et === 'auth') {
-          serverTtsDownRef.current = true;
-        }
-      }
+      // Gemini bookkeeping (2026-10-25 NEVER-DOWN): a quota/auth answer
+      // is NO LONGER a session mute — the next chunk retries all keys
+      // fresh. (The female Google voice is NEVER a fallback — user
+      // demand.) Nothing is recorded here that gates a later chunk.
       if (result) {
         // Salman was selected but only Gemini could speak: SAY so on
         // screen instead of staying silent — otherwise the user hears
@@ -2230,16 +2244,14 @@ export default function ChatPage() {
               : '⚠️ مردانہ آواز وقتی طور پر بند ہے — دوبارہ کوشش کرو۔';
       // Show the reason (stays visible so the user knows what to fix).
       setError(reasonMsg);
-      // Count the failure toward the Gemini leg's 3-strikes mute (soft
-      // failures only — quota/auth already muted it above) and return
-      // null (browser TTS with male settings will be tried by the caller).
-      // Judged on GEMINI's own error type, not the surfaced one.
+      // Diagnostic counter only (2026-10-25): soft failures are counted
+      // but NEVER mute a later chunk — return null and let the caller
+      // try the browser voice for this chunk, then retry the full
+      // chain fresh on the next chunk. Judged on GEMINI's own error
+      // type, not the surfaced one.
       const geminiErrorType = geminiErr?.data?.errorType;
       if (geminiErr && geminiErrorType !== 'quota' && geminiErrorType !== 'auth') {
         serverTtsFailsRef.current += 1;
-        if (serverTtsFailsRef.current >= 3) {
-          serverTtsDownRef.current = true; // stop wasting time on dead TTS
-        }
       }
       return null;
     };
@@ -2248,7 +2260,7 @@ export default function ChatPage() {
     return tryBoth();
   }
 
-  async function playAssistantMessage(text: string, ticket: number = ++speechTicketRef.current) {
+  async function playAssistantMessage(text: string, ticket: number = ++speechTicketRef.current, femaleOverride?: boolean) {
     setError('');
     if (!appSettings.voiceEnabled) {
       setIsPreparingVoice(false);
@@ -2266,8 +2278,15 @@ export default function ChatPage() {
     stopOtherAudio('chat');
     // The persona captured ONCE for this whole reply: it was spoken TO
     // this persona, so it is spoken BY this persona's voice chain —
-    // even if the user switches persona mid-reply.
-    const female = personaRef.current === 'uniqa';
+    // even if the user switches persona mid-reply. VOICE-OWNER
+    // SNAPSHOT (2026-10-25 role-swap fix): a streaming reply passes
+    // its send-time owner in (femaleOverride); the old code re-read
+    // personaRef here, AFTER streaming finished — so a mid-stream
+    // persona switch made the rest of the reply speak in the NEW
+    // persona's gender while the eager first chunk already spoke in
+    // the old one. Non-streaming callers (confirmations, greetings)
+    // are generated in the current persona, so they keep the default.
+    const female = femaleOverride ?? personaRef.current === 'uniqa';
     const speechStale = () => ticket !== speechTicketRef.current;
     // FIRST-REPLY HOLD (2026-10-22): if this is the session's first
     // spoken reply and the warm-up probe is still in flight, wait for
@@ -2297,7 +2316,9 @@ export default function ChatPage() {
     // that started playing during streaming (only if it matches this reply).
     const prefetch = ttsPrefetchRef.current;
     ttsPrefetchRef.current = null; // consume once
-    const prefetchMatches = !!(prefetch && prefetch.ticket === ticket && text.startsWith(prefetch.text) && prefetch.text.length >= 20);
+    // Defense in depth: an eager chunk synthesized for the OTHER
+    // persona's gender must never play, even if a ticket is reused.
+    const prefetchMatches = !!(prefetch && prefetch.ticket === ticket && prefetch.female === female && text.startsWith(prefetch.text) && prefetch.text.length >= 20);
     const hasEagerAudio = !!(prefetchMatches && prefetch!.eagerPlayed && prefetch!.playPromise);
     if (!hasEagerAudio) {
       stopSpeaking(); // also stops any stale/non-matching eager audio

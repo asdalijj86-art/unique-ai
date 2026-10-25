@@ -229,21 +229,17 @@ export function getActiveGeminiKey(): string | undefined {
  * rotation to the next key when one hits quota.
  * Sends the user's selected voice (Charon/Fenrir) from settings.
  */
-// Session dead-key memory: once a key answers quota/auth it is dead for
-// the rest of the session — re-asking it on every reply burned several
-// slow server attempts before the voice arrived (or never did). Dead keys
-// are skipped with NO network call. The memory is forgotten the moment
-// the saved key list itself changes (a fresh paste gets a fresh chance).
-const deadTtsKeys = new Set<string>();
-let deadTtsKeysFingerprint: string | null = null;
-
-function refreshDeadTtsKeys(keys: string[]) {
-  const fp = keys.join('|');
-  if (deadTtsKeysFingerprint !== fp) {
-    deadTtsKeysFingerprint = fp;
-    deadTtsKeys.clear();
-  }
-}
+// NEVER-DOWN VOICE (2026-10-25 fix): there is NO session dead-key
+// memory any more. The old version remembered a quota/auth key as dead
+// for the rest of the session (cleared only when the key list changed),
+// and chat.tsx additionally muted the whole Gemini leg — so ONE dead
+// key silenced BOTH personas for the session even though other saved
+// keys (or the Edge legs) could still speak. Every call now tries the
+// full key rotation fresh: a key that failed on the last chunk gets a
+// new chance on the next chunk (quota/auth answers come back fast, so
+// re-asking a dead key costs little, while skipping it forever cost
+// the whole reply). Within one call each key is still tried at most
+// once, in rotation order starting from the active key.
 
 /** Uniqa's Gemini voice (Phase 2): a warm FEMALE prebuilt voice. Used
  *  ONLY for her turns — Unique's turns never carry it, and hers never
@@ -264,18 +260,12 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
     } catch { return 'Charon'; }
   })();
   const keys = getGeminiKeys();
-  refreshDeadTtsKeys(keys);
   const attempts = keys.length > 0 ? keys : [undefined];
   let lastErr: any = null;
   const startIdx = keys.length > 0 ? getActiveKeyIndex() % keys.length : 0;
   for (let a = 0; a < attempts.length; a++) {
     const keyIdx = keys.length > 0 ? (startIdx + a) % keys.length : 0;
     const userApiKey = keys.length > 0 ? keys[keyIdx] : undefined;
-    // Known-dead this session — skip instantly, no network call at all.
-    if (userApiKey && deadTtsKeys.has(userApiKey)) {
-      lastErr = { data: { errorType: 'quota' } };
-      continue;
-    }
     // Hard 15s cap per key attempt: a stalled speech request must fail as
     // a classifiable timeout, never hang the voice pipeline.
     const ctrl = new AbortController();
@@ -295,19 +285,26 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
     } catch (e: any) {
       clearTimeout(timer);
       if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
+        // A stalled key must NOT kill the chunk: rotate to the next
+        // saved key (never-down rule). Only the last key's stall
+        // surfaces as a timeout for the caller to fall through to Edge.
+        if (a < attempts.length - 1) {
+          lastErr = { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
+          continue;
+        }
         throw { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
       }
-      // Network failure — rotating keys cannot fix the network; fail now.
+      // Network failure — rotating keys cannot fix the network; fail now
+      // so the caller falls through to the Edge legs immediately.
       throw e;
     }
     clearTimeout(timer);
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       const t = errData?.errorType;
-      // Rotate to the next key ONLY on quota/auth — and remember this key
-      // as dead so later replies don't waste time asking it again.
+      // Rotate to the next key ONLY on quota/auth. No session memory:
+      // the next chunk retries this key fresh (see header comment).
       if (t === 'quota' || t === 'auth') {
-        if (userApiKey) deadTtsKeys.add(userApiKey);
         if (keys.length > 1) {
           setActiveKeyIndex(keyIdx);
           lastErr = { data: errData };
@@ -368,29 +365,43 @@ export async function testGeminiKey(userApiKey: string): Promise<{ ok: boolean; 
  * of hanging the voice pipeline.
  */
 export async function synthesizeEdgeSpeech({ text, voice }: { text: string; voice?: 'uniqa' }) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20000);
-  let res: Response;
-  try {
-    res = await fetch('/api/tts/edge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // voice:'uniqa' asks the server for HER Edge voice (Uzma); absent
-      // = Salman, Unique's voice — the default is never hers.
-      body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
-      signal: ctrl.signal,
-    });
-  } catch (e: any) {
-    if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
-      throw { data: { errorType: 'timeout' } };
+  // NEVER-DOWN (2026-10-25): one client-side retry on a transient
+  // network failure (the server already retries 3x internally; this
+  // extra attempt covers a throttle that clears just after the
+  // server gave up). Only network errors retry — quota/auth-style
+  // errors fail at once, and the 20s cap still bounds each attempt.
+  let lastErr: any = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    try {
+      const res = await fetch('/api/tts/edge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // voice:'uniqa' asks the server for HER Edge voice (Uzma); absent
+        // = Salman, Unique's voice — the default is never hers.
+        body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData?.errorType === 'network' && attempt === 0) {
+          lastErr = { data: errData };
+          await new Promise((r) => setTimeout(r, 500));
+          continue;
+        }
+        throw { data: errData };
+      }
+      return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+    } catch (e: any) {
+      if (e?.data) throw e;
+      if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
+        throw { data: { errorType: 'timeout' } };
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
     }
-    throw e;
-  } finally {
-    clearTimeout(timer);
   }
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw { data: errData };
-  }
-  return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+  throw lastErr || { data: { errorType: 'network' } };
 }
