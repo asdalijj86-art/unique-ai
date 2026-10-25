@@ -2359,8 +2359,6 @@ export default function ChatPage() {
           }
         }
         if (rc.trim()) restChunks.push(rc.trim());
-        // Start synthesizing all rest chunks immediately (in background).
-        const restPromises = restChunks.map((c) => synthesizeWithTimeout(c, 12000, female));
         const chunkDeps = {
           synthesize: (c: string) => synthesizeWithTimeout(c, 12000, female),
           isStale: speechStale,
@@ -2392,29 +2390,25 @@ export default function ChatPage() {
           }
         }
         if (speechStale()) return; // barged in / stopped — the rest is never spoken
-        const restResults = await Promise.all(restPromises.map((p) => p.catch(() => null)));
-        for (let ri = 0; ri < restResults.length; ri++) {
-          if (speechStale()) return; // interrupted mid-reply: abandon the queue
-          const r = restResults[ri];
-          if (r) {
-            restSpokeAny = true;
-            await playAudioChunk(r.audioBase64, r.mimeType, ticket);
-            continue;
-          }
-          // This chunk's synthesis failed — per-chunk rescue: one retry
-          // through the chain, then the browser voice for THIS chunk
-          // alone. Its words are never just skipped (the old loop
-          // dropped failed chunks silently — the «کبھی کبھی آواز
-          // missing» the user heard), and later chunks still play.
-          const rescued = await synthesizeChunkResilient(restChunks[ri], chunkDeps);
-          if (speechStale() || rescued.kind === 'stale') return;
-          if (rescued.kind === 'audio') {
-            restSpokeAny = true;
-            await playAudioChunk(rescued.audio.audioBase64, rescued.audio.mimeType, ticket);
-          } else if (await speakChunkWithBrowserVoice(restChunks[ri], female, ticket)) {
-            restSpokeAny = true;
-          }
-        }
+        // UNIQA TRUNCATION HARDENING (2026-10-25, local only — device
+        // cause still unproven, see report): the old code fired ALL
+        // rest chunks concurrently (Promise.all) and, when a chunk's
+        // server chain failed AND its browser rescue had no qualifying
+        // voice on the device, simply skipped it while restSpokeAny
+        // was already true from the eager first chunk — so the user
+        // heard only the first line with no reason given. The rest
+        // now uses the same serialized queue as the fallback path
+        // (current chunk + next prefetch only, no concurrent chain
+        // contention), and any chunk that sounds in neither form is
+        // counted and surfaced with a visible notice below.
+        const restQueue = await speakChunksInOrder(restChunks, {
+          synthesize: (c) => synthesizeWithTimeout(c, 12000, female),
+          isStale: speechStale,
+          playAudio: (a) => playAudioChunk(a.audioBase64, a.mimeType, ticket),
+          speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
+        });
+        if (restQueue.stopped || speechStale()) return; // interrupted — no notice, the user stopped it
+        if (restQueue.spokeAny) restSpokeAny = true;
         if (speechStale()) return;
         if (!restSpokeAny && restChunks.length > 0 && !hasEagerAudio) {
           speakWithBrowser(text, ticket, female);
@@ -2423,6 +2417,12 @@ export default function ChatPage() {
           // synthesis succeeded — fall back to the browser voice so the
           // reply is still heard instead of going silent.
           speakWithBrowser(text, ticket, female);
+        } else if (restSpokeAny && restQueue.dropped > 0) {
+          // Part of this reply could not be spoken in either voice
+          // form — say so visibly instead of ending after the first
+          // line in silence. The full text stays on screen to read.
+          // Never use the other persona's voice as a rescue.
+          setError('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
         }
         resumeContinuousAfterTts();
         return;
@@ -2461,6 +2461,10 @@ export default function ChatPage() {
       } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
         // Same autoplay-block fallback as the prefetch path above.
         speakWithBrowser(text, ticket, female);
+      } else if (queue.dropped > 0) {
+        // Same visible-notice rule as the prefetch path: a partial
+        // reply must never end in silence for its dropped chunks.
+        setError('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
       }
       resumeContinuousAfterTts();
       return;

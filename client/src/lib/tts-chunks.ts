@@ -20,7 +20,12 @@
  *      voice to rescue it);
  *   2. a chunk whose chain still fails falls to the BROWSER VOICE for
  *      THAT CHUNK ALONE (the caller supplies the persona-locked browser
- *      speaker) — never silently dropped, never aborting later chunks;
+ *      speaker) — never aborting later chunks. If that browser rescue
+ *      also cannot speak (no qualifying voice of this persona's gender
+ *      on the device), the chunk IS counted as dropped and the caller
+ *      must surface a visible notice — it must never vanish silently
+ *      (2026-10-25 Uniqa hardening: a reply heard only up to its first
+ *      line, with the rest silent, is exactly this case);
  *   3. the NEXT chunk's synthesis starts while the current chunk plays
  *      (prefetch), so inter-chunk gaps disappear;
  *   4. a stop/barge-in (isStale) abandons everything instantly: the
@@ -105,12 +110,16 @@ export interface SpeakQueueDeps extends ChunkSynthDeps {
  * case the prefetched chunk (if any) was NEVER played or spoken.
  * `spokeAny` tells the caller whether the reply sounded at all (it
  * drives the standing whole-reply browser fallback + mic resumes).
+ * `dropped` counts chunks that sounded in NEITHER form: server chain
+ * failed and the browser rescue could not speak them. A stopped queue
+ * never counts its unplayed tail as dropped — the user stopped it.
  */
 export async function speakChunksInOrder(
   chunks: readonly string[],
   deps: SpeakQueueDeps,
-): Promise<{ spokeAny: boolean; stopped: boolean }> {
+): Promise<{ spokeAny: boolean; stopped: boolean; dropped: number }> {
   let spokeAny = false;
+  let dropped = 0;
   const outcomes: (Promise<ChunkOutcome> | null)[] = chunks.map(() => null);
   const startOutcome = (idx: number): void => {
     if (idx >= 0 && idx < chunks.length && !outcomes[idx]) {
@@ -125,10 +134,10 @@ export async function speakChunksInOrder(
   startOutcome(0);
   startOutcome(1);
   for (let i = 0; i < chunks.length; i++) {
-    if (deps.isStale()) return { spokeAny, stopped: true };
+    if (deps.isStale()) return { spokeAny, stopped: true, dropped };
     const outcome = await outcomes[i]!;
     if (deps.isStale() || outcome.kind === 'stale') {
-      return { spokeAny, stopped: true };
+      return { spokeAny, stopped: true, dropped };
     }
     // While chunk i plays, chunk i+1 must already be synthesizing.
     startOutcome(i + 1);
@@ -138,11 +147,15 @@ export async function speakChunksInOrder(
     } else {
       // kind === 'browser': rescue THIS chunk with the browser voice;
       // the queue then moves on — later chunks are never sacrificed
-      // for one chunk's failure.
+      // for one chunk's failure. If the rescue cannot speak, count
+      // the chunk as dropped so the caller surfaces a notice; a
+      // stop that lands mid-rescue is NOT a drop.
       const ok = await deps.speakBrowserChunk(chunks[i]);
+      if (deps.isStale()) return { spokeAny, stopped: true, dropped };
       if (ok) spokeAny = true;
+      else dropped += 1;
     }
-    if (deps.isStale()) return { spokeAny, stopped: true };
+    if (deps.isStale()) return { spokeAny, stopped: true, dropped };
   }
-  return { spokeAny, stopped: false };
+  return { spokeAny, stopped: false, dropped };
 }
