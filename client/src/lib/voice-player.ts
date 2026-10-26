@@ -165,6 +165,12 @@ export interface VoicePlayerDeps {
   /** Plain-words leg-failure detail for a `failed` banner, e.g.
    *  'quota' | 'auth' | 'network' | 'edge' | '' (generic). */
   failureDetail?: () => string;
+  /** Full plain-words leg diagnostic for a `failed`/`partial`
+   *  banner, e.g. 'Gemini کی آج کی حد ختم، سرور Edge کی آواز ناکام،
+   *  اس ڈیوائس کی آواز نہیں ملی۔' — supplied by the caller from
+   *  the legs it actually tried. When present it replaces the
+   *  single-detail reason; it never carries keys or transcripts. */
+  legDiagnostic?: () => string;
   /** Called while a chunk is in extended retry (waiting notice). */
   onChunkWaiting?: () => void;
   /** Called when a chunk's extended retry ends. */
@@ -199,6 +205,33 @@ export function failureReasonText(detail: string): string {
     return 'نیٹ یا سرور کی آواز وقتی طور پر بند ہے — تھوڑی دیر بعد دوبارہ کوشش کرو۔';
   }
   return 'سرور کی آواز اور اس ڈیوائس کی آواز دونوں دستیاب نہیں — تھوڑی دیر بعد دوبارہ کوشش کرو۔';
+}
+
+/** Which legs failed during one reply — diagnostic only, never a
+ *  key, transcript, or secret. The caller (chat.tsx) records these
+ *  from the chain it actually ran; the player only renders them. */
+export interface LegFailures {
+  /** Gemini errorType for this reply: 'quota' | 'auth' | 'network' | '' */
+  gemini: string;
+  /** True when a server/client Edge attempt failed this reply. */
+  edge: boolean;
+  /** True when the browser-voice attempt found no qualifying voice
+   *  or every sentence failed this reply. */
+  browser: boolean;
+}
+
+/** Plain-Urdu leg list for a banner, e.g. 'Gemini کی آج کی حد ختم،
+ *  سرور Edge کی آواز ناکام، اس ڈیوائس کی آواز نہیں ملی۔' Empty
+ *  when no leg failure was recorded (caller falls back to the
+ *  single-detail reason in that case). */
+export function legDiagnosticText(failures: LegFailures): string {
+  const parts: string[] = [];
+  if (failures.gemini === 'quota') parts.push('Gemini کی آج کی حد ختم');
+  else if (failures.gemini === 'auth') parts.push('Gemini key میں مسئلہ');
+  else if (failures.gemini) parts.push('Gemini کی آواز ناکام');
+  if (failures.edge) parts.push('سرور Edge کی آواز ناکام');
+  if (failures.browser) parts.push('اس ڈیوائس کی آواز نہیں ملی');
+  return parts.length ? `${parts.join('، ')}۔` : '';
 }
 
 /**
@@ -240,13 +273,16 @@ export async function runVoiceReply(
   let dropped = 0;
   let totalChunks = 0;
 
-  const fail = (): VoiceOutcome => ({
-    terminal: 'failed',
-    heard,
-    dropped,
-    totalChunks,
-    failureReason: failureReasonText(deps.failureDetail?.() ?? ''),
-  });
+  const fail = (): VoiceOutcome => {
+    const diag = deps.legDiagnostic?.() ?? '';
+    return {
+      terminal: 'failed',
+      heard,
+      dropped,
+      totalChunks,
+      failureReason: diag || failureReasonText(deps.failureDetail?.() ?? ''),
+    };
+  };
 
   // --- Head: eager prefetch (if it matches this reply) --------------
   let restChunks: string[];
@@ -331,7 +367,7 @@ export async function runVoiceReply(
   if (deps.isStale()) return { terminal: 'stopped', heard, dropped, totalChunks, failureReason: '' };
   if (!heard) return fail();
   if (dropped > 0) {
-    return { terminal: 'partial', heard: true, dropped, totalChunks, failureReason: '' };
+    return { terminal: 'partial', heard: true, dropped, totalChunks, failureReason: deps.legDiagnostic?.() ?? '' };
   }
   return { terminal: 'spoken', heard: true, dropped: 0, totalChunks, failureReason: '' };
 }

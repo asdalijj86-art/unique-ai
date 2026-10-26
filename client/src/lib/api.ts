@@ -304,9 +304,14 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
       const t = errData?.errorType;
       // Rotate to the next key ONLY on quota/auth. No session memory:
       // the next chunk retries this key fresh (see header comment).
+      // When user keys exist, a quota/auth answer NEVER throws here:
+      // the loop records it and moves on, so the server-key fallback
+      // below gets its one chance after every user key has failed.
+      // (With no user keys, this attempt already WAS the server key,
+      // so there is nothing further to fall back to — throw at once.)
       if (t === 'quota' || t === 'auth') {
-        if (keys.length > 1) {
-          setActiveKeyIndex(keyIdx);
+        if (keys.length > 0) {
+          if (keys.length > 1) setActiveKeyIndex(keyIdx);
           lastErr = { data: errData };
           continue;
         }
@@ -315,6 +320,43 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
     }
     // Success — remember this key as the active one.
     if (keys.length > 0) setActiveKeyIndex(keyIdx);
+    return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+  }
+  // NIGHT BACKUP (2026-10-27, user-approved): after ALL saved user
+  // keys returned quota/auth for this call, make EXACTLY ONE final
+  // attempt with NO userApiKey, so the server falls back to its own
+  // env key (server/index.js: `userApiKey || process.env.GEMINI_API_KEY`
+  // — proven from code, no server change needed). Only when user
+  // keys existed and failed on quota/auth — never as the first
+  // attempt, never in place of user keys, and never in a loop: if
+  // this attempt also fails on quota/auth, that error is thrown and
+  // the caller ends in its normal terminal failed outcome (then
+  // falls through to the Edge / browser legs as before). No key is
+  // recorded or changed here; a server-key success does not move
+  // the user's active-key index.
+  if (keys.length > 0 && (lastErr?.data?.errorType === 'quota' || lastErr?.data?.errorType === 'auth')) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    let res: Response;
+    try {
+      res = await fetch('/api/openai/speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voiceName }),
+        signal: ctrl.signal,
+      });
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
+        throw { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
+      }
+      throw e;
+    }
+    clearTimeout(timer);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw { data: errData };
+    }
     return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
   }
   throw lastErr || { data: { errorType: 'quota' } };

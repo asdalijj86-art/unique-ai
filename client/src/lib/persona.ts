@@ -121,6 +121,28 @@ export function pickUrduMaleVoiceFrom<T extends VoiceLike>(voices: readonly T[])
   return pickVoiceByGender(voices, 'male');
 }
 
+/** Device-voice diagnostic (2026-10-27 night backup, read-only):
+ *  describes a speechSynthesis voice list WITHOUT changing any
+ *  picker or selection — each voice is flagged by the SAME strict
+ *  name tests the live pickers use, so Settings can show exactly
+ *  why a Chromebook's browser rescue does or does not qualify.
+ *  No voice is ever added, removed, or re-picked here. */
+export interface DeviceVoiceInfo {
+  name: string;
+  lang: string;
+  passesMale: boolean;
+  passesFemale: boolean;
+}
+
+export function describeDeviceVoices(voices: readonly VoiceLike[]): DeviceVoiceInfo[] {
+  return voices.map((v) => ({
+    name: v.name,
+    lang: v.lang,
+    passesMale: isExplicitMaleVoiceName(v.name),
+    passesFemale: isExplicitFemaleVoiceName(v.name),
+  }));
+}
+
 export function pickUrduFemaleVoiceFrom<T extends VoiceLike>(voices: readonly T[]): T | undefined {
   return pickVoiceByGender(voices, 'female');
 }

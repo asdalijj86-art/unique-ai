@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, MapPin, Mic, Hand, Volume2, Trash2, Smartphone } from 'lucide-react';
 import { testGeminiKey, parseGeminiKeys } from '../lib/api';
+import { describeDeviceVoices, pickUrduMaleVoiceFrom, pickUrduFemaleVoiceFrom } from '../lib/persona';
 import PermissionsWarmup from './PermissionsWarmup';
 
 export type AppSettings = {
@@ -241,6 +242,88 @@ function VoiceSelector() {
 }
 
 /**
+ * DeviceVoiceDiagnostic — Settings-only, read-only (2026-10-27
+ * night backup): lists this device's browser voices (name + lang)
+ * and flags which, if any, pass the EXISTING strict pickers for
+ * Unique (male) and Uniqa (female). Diagnostic only: it never
+ * changes a picker, a selection, or any setting — it exists so
+ * a Chromebook's browser-rescue failure can be seen, not guessed.
+ * Voices load asynchronously in Chrome, so the list is refreshed
+ * on tap (with one bounded voiceschanged wait) instead of being
+ * read once at panel open.
+ */
+function DeviceVoiceDiagnostic() {
+  const [voices, setVoices] = useState<{ name: string; lang: string }[] | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const check = async () => {
+    if (!('speechSynthesis' in window)) { setVoices([]); return; }
+    setChecking(true);
+    const synth = window.speechSynthesis;
+    let list = synth.getVoices();
+    if (list.length === 0) {
+      list = await new Promise<typeof list>((resolve) => {
+        let settled = false;
+        const go = () => {
+          if (settled) return;
+          settled = true;
+          synth.removeEventListener('voiceschanged', go);
+          resolve(synth.getVoices());
+        };
+        synth.addEventListener('voiceschanged', go);
+        setTimeout(go, 1500);
+      });
+    }
+    setVoices(list.map((v) => ({ name: v.name, lang: v.lang })));
+    setChecking(false);
+  };
+
+  const described = voices ? describeDeviceVoices(voices) : [];
+  const malePick = voices ? pickUrduMaleVoiceFrom(voices) : undefined;
+  const femalePick = voices ? pickUrduFemaleVoiceFrom(voices) : undefined;
+
+  return (
+    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+      <span className="setting-label">🔍 اس ڈیوائس کی آوازیں (صرف جانچ)</span>
+      <span style={{ fontSize: 11, opacity: 0.6 }}>
+        یہ فہرست صرف دکھاتی ہے کہ اس لیپ ٹاپ/فون میں کون سی آوازیں ہیں اور کون سی یونیک یا یونیکا کے لیے منظور ہوتی ہیں۔ یہ کوئی آواز نہیں بدلتی۔
+      </span>
+      <button
+        type="button"
+        onClick={check}
+        disabled={checking}
+        data-testid="button-device-voices"
+        style={{
+          background: 'rgba(255,255,255,0.12)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 8,
+          padding: '4px 12px',
+          color: 'inherit',
+          fontSize: 13,
+          cursor: checking ? 'wait' : 'pointer',
+          opacity: checking ? 0.6 : 1,
+          alignSelf: 'flex-start',
+        }}
+      >
+        {checking ? '⏳ چیک ہو رہی…' : 'آوازوں کی فہرست دکھائیں'}
+      </button>
+      {voices && (
+        <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+          <div>یونیک کے لیے: {malePick ? malePick.name : 'کوئی منظور شدہ آواز نہیں'}</div>
+          <div>یونیکا کے لیے: {femalePick ? femalePick.name : 'کوئی منظور شدہ آواز نہیں'}</div>
+          {described.length === 0 && <div>اس ڈیوائس میں کوئی آواز نہیں ملی۔</div>}
+          {described.map((v) => (
+            <div key={`${v.name}-${v.lang}`}>
+              {v.name} ({v.lang || '—'}) — {v.passesMale ? '✅ مردانہ ' : ''}{v.passesFemale ? '✅ زنانہ ' : ''}{!v.passesMale && !v.passesFemale ? '❌ کسی کے لیے منظور نہیں' : ''}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * ApiKeySetting — lets the user save their own free Gemini API key
  * (from aistudio.google.com) for voice. Stored only in this browser's
  * localStorage; sent with TTS requests so their personal quota is used.
@@ -465,6 +548,7 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
           )}
           <ApiKeySetting />
           <VoiceSelector />
+          <DeviceVoiceDiagnostic />
           <div className="settings-group">کنٹرول</div>
           <Toggle
             label="ہاتھ کے اشارے"

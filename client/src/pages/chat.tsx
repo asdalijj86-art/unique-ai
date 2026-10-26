@@ -24,6 +24,7 @@ import {
   runVoiceReply,
   isDuplicateHeard,
   failureReasonText,
+  legDiagnosticText,
   type VoiceOutcome,
 } from '@/lib/voice-player';
 import {
@@ -491,6 +492,12 @@ export default function ChatPage() {
   // state the reason in plain words instead of a silent drop.
   // Diagnostic only — it never gates a leg (see NEVER-DOWN above).
   const lastVoiceFailureRef = useRef('');
+  // NIGHT BACKUP leg diagnostic (2026-10-27): which legs failed
+  // during THIS reply, for the terminal banner only. Recorded by
+  // synthesizeWithTimeout + the browser-voice paths below, reset
+  // at every playAssistantMessage start. Diagnostic only — it
+  // never gates a leg, never carries a key or transcript.
+  const lastLegFailuresRef = useRef<{ gemini: string; edge: boolean; browser: boolean }>({ gemini: '', edge: false, browser: false });
   // UNIQA voice health (2026-10-24 fix, user-approved): her server-Edge
   // leg (Uzma) carries NO session lockout any more. The old 2-strike
   // rule muted that leg for the whole session after 2 transient
@@ -2161,7 +2168,9 @@ export default function ChatPage() {
           } catch (e: any) {
             if (e?.data?.errorType === 'quota' || e?.data?.errorType === 'auth') {
               circuit.geminiDead = true;
+              lastLegFailuresRef.current.gemini = e.data.errorType;
             } else {
+              lastLegFailuresRef.current.gemini = e?.data?.errorType || 'network';
               serverTtsFailsRef.current += 1;
             }
           }
@@ -2180,6 +2189,7 @@ export default function ChatPage() {
             if (r) return r;
           } catch {
             circuit.edgeDeadUntil = Date.now() + 60000;
+            lastLegFailuresRef.current.edge = true;
             /* fall through to client Edge */
           }
         }
@@ -2190,7 +2200,10 @@ export default function ChatPage() {
         try {
           const r = await synthesizeUniqaClientSide(text, timeoutMs);
           if (r) return r;
-        } catch { /* fall through to browser fallback */ }
+        } catch {
+          lastLegFailuresRef.current.edge = true;
+          /* fall through to browser fallback */
+        }
         lastVoiceFailureRef.current = circuit.geminiDead ? 'quota' : 'edge';
         setError('⚠️ یونیکا کی آواز وقتی طور پر نہیں بن سکی — Settings میں Gemini key چیک کریں یا تھوڑی دیر بعد پھر کوشش کریں۔');
         return null;
@@ -2224,6 +2237,7 @@ export default function ChatPage() {
           return result;
         } catch (e: any) {
           geminiErr = e;
+          lastLegFailuresRef.current.gemini = e?.data?.errorType || 'network';
           // Fail-fast (2026-10-26): quota/auth will not revive
           // for later chunks of this reply — skip Gemini then.
           if (e?.data?.errorType === 'quota' || e?.data?.errorType === 'auth') {
@@ -2248,6 +2262,7 @@ export default function ChatPage() {
           return await synthesizeSalmanClientSide(text, timeoutMs);
         } catch (e: any) {
           if (!salmanErr) salmanErr = e;
+          lastLegFailuresRef.current.edge = true;
           return null;
         }
       };
@@ -2259,6 +2274,7 @@ export default function ChatPage() {
           return await synthesizeEdgeSpeech({ text });
         } catch (e: any) {
           if (!salmanErr) salmanErr = e;
+          lastLegFailuresRef.current.edge = true;
           // Fail-fast (2026-10-26): Edge throttling lasts minutes —
           // mark it dead for 60s of this reply, not for the session.
           circuit.edgeDeadUntil = Date.now() + 60000;
@@ -2379,6 +2395,7 @@ export default function ChatPage() {
     // lastSpokenRef is updated only from a heard terminal outcome
     // below, so the message "سنیں" button always works after a failure.
     lastVoiceFailureRef.current = '';
+    lastLegFailuresRef.current = { gemini: '', edge: false, browser: false };
     playbackBlockedRef.current = false;
     playbackStartedRef.current = false;
     // Check for eager prefetch BEFORE stopping — don't kill our own eager audio
@@ -2439,7 +2456,7 @@ export default function ChatPage() {
       if (outcome.terminal === 'spoken') {
         setSpeechReplayText(null);
       } else if (outcome.terminal === 'partial') {
-        setSpeechNotice('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
+        setSpeechNotice(`⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — ${outcome.failureReason ? `${outcome.failureReason} ` : ''}باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔`);
         setSpeechReplayText(text);
       } else if (outcome.terminal === 'failed') {
         setSpeechNotice(`⚠️ یہ جواب آواز میں نہیں سنایا جا سکا — ${outcome.failureReason} باقی حصہ اسکرین پر موجود ہے۔`);
@@ -2467,12 +2484,21 @@ export default function ChatPage() {
         {
           synthesize: (c) => synthesizeWithTimeout(c, 12000, female),
           playAudio: async (a) => (await playAudioChunk(a.audioBase64, a.mimeType, ticket)).heard,
-          speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
-          speakBrowserWhole: async (t) => (await speakBrowserWhole(t, ticket, female)).heard,
+          speakBrowserChunk: async (c) => {
+            const heard = await speakChunkWithBrowserVoice(c, female, ticket);
+            if (!heard && !speechStale()) lastLegFailuresRef.current.browser = true;
+            return heard;
+          },
+          speakBrowserWhole: async (t) => {
+            const whole = await speakBrowserWhole(t, ticket, female);
+            if (!whole.heard && whole.reason !== 'stopped' && whole.reason !== 'voice-off') lastLegFailuresRef.current.browser = true;
+            return whole.heard;
+          },
           isStale: speechStale,
           shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
           wasPlaybackBlocked: () => playbackBlockedRef.current,
           failureDetail: () => lastVoiceFailureRef.current,
+          legDiagnostic: () => legDiagnosticText(lastLegFailuresRef.current),
           onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
           onChunkWaitingEnd: () => setSpeechNotice(''),
         },
@@ -2491,7 +2517,9 @@ export default function ChatPage() {
       if (whole.heard) {
         finish({ terminal: 'spoken', heard: true, dropped: 0, totalChunks: 0, failureReason: '' });
       } else {
-        finish({ terminal: 'failed', heard: false, dropped: 0, totalChunks: 0, failureReason: failureReasonText(lastVoiceFailureRef.current) });
+        if (whole.reason !== 'stopped' && whole.reason !== 'voice-off') lastLegFailuresRef.current.browser = true;
+        const diag = legDiagnosticText(lastLegFailuresRef.current);
+        finish({ terminal: 'failed', heard: false, dropped: 0, totalChunks: 0, failureReason: diag || failureReasonText(lastVoiceFailureRef.current) });
       }
     }
   }
