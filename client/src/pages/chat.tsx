@@ -218,6 +218,14 @@ export default function ChatPage() {
   const [activeId, setActiveId] = useState<string | null>(() => readConversations()[0]?.id ?? null);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
+  // SPEECH NOTICE (2026-10-26 truncation fix): a VISIBLE banner for a
+  // reply that ended early — never only the 24px X icon's tooltip
+  // (the old setError rendering, which the user missed with Settings
+  // open). Set for dropped chunks and for an audible reply stopped
+  // by tap / stop-phrase / barge-in / chat switch; cleared on the
+  // next send and by its own dismiss button. Never set for a reply
+  // the user stopped before it spoke, and never for a fresh send.
+  const [speechNotice, setSpeechNotice] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -894,7 +902,7 @@ export default function ChatPage() {
   function startNewChat() {
     // Leaving this chat silences its reply — a voice from a chat the
     // user has already left must never keep talking over the new one.
-    interruptSpeech();
+    interruptSpeech('chat-switch');
     // Toggle: if we're already on an empty new chat, go BACK to the most
     // recent conversation with messages. Uses the persisted conversations
     // list (survives refresh) — NOT a ref (which is wiped on reload).
@@ -1166,6 +1174,7 @@ export default function ChatPage() {
       // storage unavailable — the reply matters, not the learning
     }
     setError('');
+    setSpeechNotice('');
     let conversation = activeConversation;
     if (!conversation) {
       conversation = {
@@ -1679,7 +1688,7 @@ export default function ChatPage() {
 
   function deleteConversation(id: string) {
     if (!window.confirm('کیا اس آلے سے یہ گفتگو حذف کرنی ہے؟')) return;
-    if (activeId === id) interruptSpeech(); // don't let a deleted chat keep talking
+    if (activeId === id) interruptSpeech('chat-switch'); // don't let a deleted chat keep talking
     setConversations((current) => current.filter((conversation) => conversation.id !== id));
     if (activeId === id) setActiveId(null);
   }
@@ -1820,7 +1829,24 @@ export default function ChatPage() {
   // in live mode the mic is invited back so the user's new turn can be
   // captured (the barge-in adoption path has already moved its session
   // into continuousRecognitionRef, which this deliberately never stops).
-  function interruptSpeech() {
+  // STOP REASON (2026-10-26 truncation fix): when a reply that was
+  // already audible stops, the user must SEE why it stopped — a
+  // silent ticket bump after the eager first line read exactly like
+  // the one-line truncation bug. Only labelled call sites set a
+  // banner, and only when something was actually speaking; every
+  // other interruptSpeech() call keeps its old silent behaviour.
+  type InterruptReason = 'stop-phrase' | 'barge-in' | 'tap' | 'chat-switch' | 'chat-cleared';
+  function interruptReasonText(reason: InterruptReason): string {
+    switch (reason) {
+      case 'stop-phrase': return 'جواب آپ کے «رکو» کہنے پر روک دیا گیا — باقی حصہ اسکرین پر موجود ہے۔';
+      case 'barge-in': return 'جواب اس لیے روک دیا گیا کہ آپ نے بیچ میں بولنا شروع کر دیا — باقی حصہ اسکرین پر موجود ہے۔';
+      case 'tap': return 'جواب آپ کے ٹیپ کرنے پر روک دیا گیا — باقی حصہ اسکرین پر موجود ہے۔';
+      case 'chat-switch': return 'جواب گفتگو بدلنے پر روک دیا گیا — باقی حصہ اسکرین پر موجود ہے۔';
+      case 'chat-cleared': return 'جواب گفتگو صاف کرنے پر روک دیا گیا — باقی حصہ اسکرین پر موجود ہے۔';
+    }
+  }
+  function interruptSpeech(reason?: InterruptReason) {
+    const wasAudible = ttsActiveRef.current || isSpeaking;
     speechTicketRef.current += 1;
     ttsPrefetchRef.current = null;
     stopBargeInListener();
@@ -1828,6 +1854,7 @@ export default function ChatPage() {
     ttsActiveRef.current = false;
     currentSpeechTextRef.current = '';
     lastSpokenRef.current = null; // the interrupted reply may be replayed fresh later
+    if (reason && wasAudible) setSpeechNotice(interruptReasonText(reason));
     if (continuousIntendedRef.current) scheduleLiveMicReopen(500);
   }
 
@@ -2422,7 +2449,7 @@ export default function ChatPage() {
           // form — say so visibly instead of ending after the first
           // line in silence. The full text stays on screen to read.
           // Never use the other persona's voice as a rescue.
-          setError('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
+          setSpeechNotice('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
         }
         resumeContinuousAfterTts();
         return;
@@ -2464,7 +2491,7 @@ export default function ChatPage() {
       } else if (queue.dropped > 0) {
         // Same visible-notice rule as the prefetch path: a partial
         // reply must never end in silence for its dropped chunks.
-        setError('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
+        setSpeechNotice('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
       }
       resumeContinuousAfterTts();
       return;
@@ -2813,7 +2840,7 @@ export default function ChatPage() {
   }
 
   // ------------------------------------------------------------------
-  // BARGE-IN (2026-10-22; ECHO-HARDENED 2026-10-24): while a reply speaks
+  // BARGE-IN (2026-10-22; ECHO-HARDENED 2026-10-24; DESKTOP BAR RAISED 2026-10-26): while a reply speaks
   // in live mode, a separate listen-only recognition watches for the
   // user starting to talk. The detection bar is deliberately
   // conservative — tuned to NEVER kill a reply over a stray word or
@@ -2899,9 +2926,20 @@ export default function ChatPage() {
     return false;
   }
 
+  // Script-variant folding (2026-10-26): the recognizer and the
+  // reply text can spell the same Urdu word with Arabic Yeh/Kaf
+  // (ي/ك) vs Urdu Yeh/Kaf (ی/ک), or with diacritics/tatweel — without
+  // folding, echo of the reply looked "novel" and could stop it.
+  // Both sides (heard text AND spoken text) go through this same
+  // function, so folding can only reduce false novelty, never hide
+  // genuinely new user words (they still differ as whole words).
   function normalizeSpeechWords(text: string): string[] {
     return text
       .toLowerCase()
+      .replace(/[يى]/g, 'ی')
+      .replace(/ك/g, 'ک')
+      .replace(/ة/g, 'ہ')
+      .replace(/[\u0640\u064B-\u0652]/g, '')
       .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
       .split(/\s+/)
       .filter(Boolean);
@@ -3017,17 +3055,27 @@ export default function ChatPage() {
         const stopPhrase = matchStopPhrase(normalizeSpeechWords(candidate.text));
         if (stopPhrase
           && !wordsContainPhrase(normalizeSpeechWords(currentSpeechTextRef.current), stopPhrase)) {
-          interruptSpeech();
+          interruptSpeech('stop-phrase');
           return;
         }
 
         const words = normalizeSpeechWords(candidate.text);
-        if (words.length < BARGE_MIN_WORDS) return;
+        // DESKTOP (laptop speakers, 2026-10-26): echo risk is highest
+        // here, so the bar is higher than on phones — longer sustain,
+        // more words, more novel words, and at least one FINAL result
+        // (interim-only fragments never confirm). Phones keep the
+        // 2026-10-24 bar unchanged.
+        const desktopBar = !mobileTurn;
+        const minSustain = desktopBar ? 1200 : BARGE_MIN_SUSTAIN_MS;
+        const minWords = desktopBar ? 6 : BARGE_MIN_WORDS;
+        const minNovelWords = desktopBar ? 4 : BARGE_MIN_NOVEL_WORDS;
+        if (words.length < minWords) return;
         const spokenWords = new Set(normalizeSpeechWords(currentSpeechTextRef.current));
         const novelWords = words.filter((w) => !spokenWords.has(w)).length;
         const novelRatio = novelWords / words.length;
-        const sustained = now - candidate.firstAt >= BARGE_MIN_SUSTAIN_MS;
-        const genuineSpeech = novelWords >= BARGE_MIN_NOVEL_WORDS && novelRatio >= BARGE_NOVEL_RATIO;
+        const sustained = now - candidate.firstAt >= minSustain;
+        const genuineSpeech = novelWords >= minNovelWords && novelRatio >= BARGE_NOVEL_RATIO
+          && (!desktopBar || candidate.finals.trim().length > 0);
         // ECHO-HARDENED 2026-10-24: NO fast-final instant kill — a single
         // final result, however novel it looks, never confirms on its
         // own. Phone echo arrives as short misrecognized finals; only
@@ -3151,7 +3199,7 @@ export default function ChatPage() {
     // Silence the reply and kill its queue. interruptSpeech never stops
     // continuousRecognitionRef, so the adopted session survives; its
     // scheduled reopen also no-ops while this session exists.
-    interruptSpeech();
+    interruptSpeech('barge-in');
   }
 
   // Nudge the live mic open, retrying briefly: right after an interrupt
@@ -3172,7 +3220,7 @@ export default function ChatPage() {
   // everything at once and open the mic for his new turn.
   function interruptSpeechAndListen() {
     const wasLive = continuousIntendedRef.current;
-    interruptSpeech();
+    interruptSpeech('tap');
     if (wasLive) {
       turnInFlightRef.current = false;
       pokeLiveListening();
@@ -3628,7 +3676,7 @@ export default function ChatPage() {
             <button
               className="history-select"
               dir="auto"
-              onClick={() => { interruptSpeech(); setActiveId(conversation.id); setShowHistory(false); }}
+              onClick={() => { interruptSpeech('chat-switch'); setActiveId(conversation.id); setShowHistory(false); }}
               data-testid={`button-open-conversation-${conversation.id}`}
               title={conversation.title}
             >
@@ -3681,6 +3729,20 @@ export default function ChatPage() {
           )}
         </div>
       </header>
+
+      {speechNotice && (
+        <div dir="rtl" data-testid="banner-speech-notice" style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          margin: '8px 12px 0', padding: '10px 14px', borderRadius: 12,
+          background: 'rgba(251,191,36,0.18)', border: '1px solid rgba(251,191,36,0.5)', color: '#fef3c7',
+          fontSize: 13.5, lineHeight: 1.8,
+        }}>
+          <span style={{ flex: 1, minWidth: 220 }}>{speechNotice}</span>
+          <button type="button" onClick={() => setSpeechNotice('')} aria-label="یہ اطلاع بند کریں" style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid transparent', background: 'transparent', color: '#fde68a', cursor: 'pointer' }}>
+            ✕
+          </button>
+        </div>
+      )}
 
       {showPermHint && (
         <div dir="rtl" data-testid="banner-permissions" style={{
@@ -3954,7 +4016,7 @@ export default function ChatPage() {
           onBackupDownload={() => { downloadBrainBackup(); }}
           onBackupRestore={() => backupInputRef.current?.click()}
           onClearChat={() => {
-            interruptSpeech(); // the cleared chat's reply stops with it
+            interruptSpeech('chat-cleared'); // the cleared chat's reply stops with it
             if (activeConversation) {
               // Clear messages of active conversation
               setConversations(prev => prev.map(c =>
