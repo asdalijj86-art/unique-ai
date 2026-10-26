@@ -31,6 +31,9 @@
  *     cleared before the next chunk;
  *  10. STOP during an extended-retry wait silences the queue at once
  *     — the stopped chunk is NOT counted as dropped.
+ *  11. FAIL-FAST (2026-10-26): a caller-flagged persistent failure
+ *     skips extended retry entirely — dropped at once, no waiting
+ *     notice burned, later chunks still play.
  *
  * Run: node scripts/test-tts-chunks.mjs   (from the repo root)
  */
@@ -306,6 +309,30 @@ console.log('\n── 10) Stop during extended-retry wait → stopped, NOT dropp
   check('only the already-playing chunk sounded', player.played, ['b64:A']);
   check('stopped chunk is NOT counted as dropped', res.dropped, 0);
   check('queue reports the stop', res.stopped, true);
+}
+
+console.log('\n── 11) Fail-fast: persistent dead legs skip extended retry ──');
+{
+  // 2026-10-26 evening recurrence: legs dead for the whole reply
+  // (quota/throttle), not a transient blip — extended retry would
+  // only add minutes of silence per chunk. The caller flags this
+  // via shouldSkipExtendedRetry; the chunk is counted dropped at
+  // once, with NO waiting notice, and later chunks still play.
+  const chain = stubChain({ A: [true], B: [false], C: [true] });
+  const player = stubPlayer();
+  let waiting = 0;
+  const res = await speakChunksInOrder(['A', 'B', 'C'], {
+    synthesize: chain.synthesize, isStale: () => false, wait: instantWait,
+    playAudio: player.playAudio,
+    speakBrowserChunk: async () => false,
+    shouldSkipExtendedRetry: () => true,
+    onChunkWaiting: () => { waiting++; },
+    onChunkWaitingEnd: () => {},
+  });
+  check('healthy chunks still played', player.played, ['b64:A', 'b64:C']);
+  check('dead chunk counted as dropped at once', res.dropped, 1);
+  check('no waiting notice burned for a persistent failure', waiting, 0);
+  check('queue completed (not stopped), spoke', [res.stopped, res.spokeAny], [false, true]);
 }
 
 console.log(`\n${failed === 0 ? '✅ ALL PASS' : '❌ FAILURES'} — ${passed} passed, ${failed} failed`);

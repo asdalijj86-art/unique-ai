@@ -460,6 +460,21 @@ export default function ChatPage() {
   // full leg order fresh (see synthesizeWithTimeout).
   const serverTtsFailsRef = useRef(0);
   const serverTtsDownRef = useRef(false);
+  // PER-REPLY FAIL-FAST CIRCUIT (2026-10-26, user instruction: fix the
+  // voice itself, change NO voice): the evening recurrence proved a
+  // dead leg is often dead for the whole reply, not seconds — Gemini
+  // TTS quota dies by evening, Render Edge throttles for minutes.
+  // Re-asking those legs on EVERY chunk (3 resilient passes + 2
+  // extended passes = 9 full chain runs, each burning up to a 20s
+  // Edge cap) is what made a reply speak line-by-line minutes late
+  // and still drop. So, per reply ticket only (never session, never
+  // across replies): a Gemini quota/auth answer marks Gemini dead
+  // for this reply, and an Edge failure marks Edge dead for 60s.
+  // Later chunks skip the dead leg at once instead of burning
+  // another 20s+ on it. A new ticket, or new keys, resets it. No
+  // voice, chain order, or picker changes — only dead legs are
+  // skipped, and only for this reply.
+  const replyCircuitRef = useRef<{ ticket: number; geminiDead: boolean; edgeDeadUntil: number }>({ ticket: -1, geminiDead: false, edgeDeadUntil: 0 });
   // UNIQA voice health (2026-10-24 fix, user-approved): her server-Edge
   // leg (Uzma) carries NO session lockout any more. The old 2-strike
   // rule muted that leg for the whole session after 2 transient
@@ -2109,6 +2124,14 @@ export default function ChatPage() {
         serverTtsFailsRef.current = 0;
       }
     } catch { /* ignore */ }
+    // Per-reply circuit: a new speech ticket starts fresh; an old
+    // reply's dead-leg verdicts never leak into the next reply.
+    // (New keys also reset it, via the fingerprint block above
+    // combined with the ticket check on the next reply.)
+    if (replyCircuitRef.current.ticket !== speechTicketRef.current) {
+      replyCircuitRef.current = { ticket: speechTicketRef.current, geminiDead: false, edgeDeadUntil: 0 };
+    }
+    const circuit = replyCircuitRef.current;
     // ── UNIQA's voice chain (Phase 2) ─────────────────────────────────
     // STRICTLY separate from Unique's chain below: Salman's legs are
     // NEVER in her chain and her legs are never in his — no accidental
@@ -2132,24 +2155,39 @@ export default function ChatPage() {
         // (api.ts moves on to the next key); it never mutes Uniqa, and
         // never Unique. A Gemini failure here must NOT end the chain
         // — Edge legs below still get their chance on this same chunk.
-        try {
-          const r = await synthesizeMairaSpeech({ text, female: true });
-          serverTtsFailsRef.current = 0;
-          if (r) return r;
-        } catch (e: any) {
-          // Diagnostic counter only — never gates a later chunk.
-          if (e?.data?.errorType !== 'quota' && e?.data?.errorType !== 'auth') {
-            serverTtsFailsRef.current += 1;
+        // Fail-fast (2026-10-26): a quota/auth answer in this reply
+        // means Gemini will not revive for later chunks — skip it
+        // at once instead of re-asking a dead key per chunk.
+        if (!circuit.geminiDead) {
+          try {
+            const r = await synthesizeMairaSpeech({ text, female: true });
+            serverTtsFailsRef.current = 0;
+            if (r) return r;
+          } catch (e: any) {
+            if (e?.data?.errorType === 'quota' || e?.data?.errorType === 'auth') {
+              circuit.geminiDead = true;
+            } else {
+              serverTtsFailsRef.current += 1;
+            }
           }
         }
         // Leg 2: server-side Edge — Uzma (POST /api/tts/edge with
         // voice:'uniqa'). NO session lockout (2026-10-24 fix): this leg
         // is attempted on every chunk — a transient Edge failure must
-        // never mute her for the session.
-        try {
-          const r = await synthesizeEdgeSpeech({ text, voice: 'uniqa' });
-          if (r) return r;
-        } catch { /* fall through to client Edge */ }
+        // never mute her for the session. Fail-fast (2026-10-26):
+        // Edge throttling lasts minutes, so if it failed in this
+        // reply within the last 60s, do not burn another 20s cap
+        // on it for this chunk — the client Edge leg below (real in
+        // an Edge browser, fail-fast memoised in Chrome) still runs.
+        if (Date.now() >= circuit.edgeDeadUntil) {
+          try {
+            const r = await synthesizeEdgeSpeech({ text, voice: 'uniqa' });
+            if (r) return r;
+          } catch {
+            circuit.edgeDeadUntil = Date.now() + 60000;
+            /* fall through to client Edge */
+          }
+        }
         // Leg 3: client-side Edge — Uzma synthesized in this browser.
         // On his Chrome devices Microsoft rejects the handshake exactly
         // as for Salman (the shared module memoizes that failure and
@@ -2190,6 +2228,11 @@ export default function ChatPage() {
           return result;
         } catch (e: any) {
           geminiErr = e;
+          // Fail-fast (2026-10-26): quota/auth will not revive
+          // for later chunks of this reply — skip Gemini then.
+          if (e?.data?.errorType === 'quota' || e?.data?.errorType === 'auth') {
+            circuit.geminiDead = true;
+          }
           return null;
         }
       };
@@ -2220,6 +2263,9 @@ export default function ChatPage() {
           return await synthesizeEdgeSpeech({ text });
         } catch (e: any) {
           if (!salmanErr) salmanErr = e;
+          // Fail-fast (2026-10-26): Edge throttling lasts minutes —
+          // mark it dead for 60s of this reply, not for the session.
+          circuit.edgeDeadUntil = Date.now() + 60000;
           return null;
         }
       };
@@ -2227,15 +2273,15 @@ export default function ChatPage() {
       let spokeViaGemini = false;
       if (selection === 'Salman') {
         result = await attemptClientEdge();
-        if (!result) result = await attemptEdge();
-        if (!result) {
+        if (!result && Date.now() >= circuit.edgeDeadUntil) result = await attemptEdge();
+        if (!result && !circuit.geminiDead) {
           result = await attemptGemini();
           spokeViaGemini = !!result;
         }
       } else {
-        result = await attemptGemini();
+        if (!circuit.geminiDead) result = await attemptGemini();
         if (!result) result = await attemptClientEdge();
-        if (!result) result = await attemptEdge();
+        if (!result && Date.now() >= circuit.edgeDeadUntil) result = await attemptEdge();
       }
       // Gemini bookkeeping (2026-10-25 NEVER-DOWN): a quota/auth answer
       // is NO LONGER a session mute — the next chunk retries all keys
@@ -2412,6 +2458,9 @@ export default function ChatPage() {
               speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
               onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
               onChunkWaitingEnd: () => setSpeechNotice(''),
+              // Fail-fast (2026-10-26): both legs dead for this
+              // reply — extended retry would only add minutes.
+              shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
             });
             if (headQueue.stopped || speechStale()) return;
             if (headQueue.spokeAny) restSpokeAny = true;
@@ -2437,6 +2486,9 @@ export default function ChatPage() {
           speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
           onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
           onChunkWaitingEnd: () => setSpeechNotice(''),
+          // Fail-fast (2026-10-26): both legs dead for this
+          // reply — extended retry would only add minutes.
+          shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
         });
         if (restQueue.stopped || speechStale()) return; // interrupted — no notice, the user stopped it
         if (restQueue.spokeAny) restSpokeAny = true;
@@ -2486,6 +2538,9 @@ export default function ChatPage() {
         speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
         onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
         onChunkWaitingEnd: () => setSpeechNotice(''),
+        // Fail-fast (2026-10-26): both legs dead for this
+        // reply — extended retry would only add minutes.
+        shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
       });
       const spokeAny = queue.spokeAny;
       if (queue.stopped || speechStale()) return;

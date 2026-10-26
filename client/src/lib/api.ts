@@ -365,13 +365,16 @@ export async function testGeminiKey(userApiKey: string): Promise<{ ok: boolean; 
  * of hanging the voice pipeline.
  */
 export async function synthesizeEdgeSpeech({ text, voice }: { text: string; voice?: 'uniqa' }) {
-  // NEVER-DOWN (2026-10-25): one client-side retry on a transient
-  // network failure (the server already retries 3x internally; this
-  // extra attempt covers a throttle that clears just after the
-  // server gave up). Only network errors retry — quota/auth-style
-  // errors fail at once, and the 20s cap still bounds each attempt.
+  // FAIL-FAST (2026-10-26): single client attempt only. The server
+  // already retries 3x internally, so the old second client attempt
+  // burned another full 20s cap per chain pass — 9 passes per dead
+  // chunk in the evening recurrence, which is a large part of why a
+  // reply spoke line-by-line minutes late. A throttle that clears
+  // is re-probed by the next chunk (or the 60s per-reply circuit
+  // in chat.tsx), not by burning another 20s here. The 20s cap
+  // still bounds this one attempt.
   let lastErr: any = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 1; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
     try {

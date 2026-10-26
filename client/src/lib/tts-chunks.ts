@@ -128,6 +128,11 @@ export interface SpeakQueueDeps extends ChunkSynthDeps {
    *  growing gap lets transient throttling / a rate window clear.
    *  Waits are sliced into 250ms steps so a stop still lands fast. */
   extendedRetryDelaysMs?: number[];
+  /** Fail-fast (2026-10-26): when the caller knows the chunk's legs
+   *  are dead for this reply (quota/throttle, not a transient blip),
+   *  extended retry only burns minutes — skip it and count the drop
+   *  at once. Returns true only for a classified persistent failure. */
+  shouldSkipExtendedRetry?: () => boolean;
   /** Called when a chunk enters extended retry (caller shows a
    *  "voice is being rebuilt, please wait" notice, never silence). */
   onChunkWaiting?: (text: string) => void;
@@ -206,6 +211,10 @@ export async function speakChunksInOrder(
       if (deps.isStale()) return { spokeAny, stopped: true, dropped };
       if (ok) {
         spokeAny = true;
+      } else if (deps.shouldSkipExtendedRetry?.()) {
+        // Persistent dead legs — extended retry would only add
+        // minutes of silence to a chunk that cannot recover.
+        dropped += 1;
       } else {
         const passes = deps.extendedRetryPasses ?? 2;
         const delays = deps.extendedRetryDelaysMs ?? [3000, 10000];
