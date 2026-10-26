@@ -20,7 +20,7 @@ import {
   TTS_PLAYBACK_RATE,
 } from '@/lib/api';
 import { synthesizeSalmanClientSide, synthesizeUniqaClientSide } from '@/lib/edge-tts';
-import { speakChunksInOrder, synthesizeChunkResilient } from '@/lib/tts-chunks';
+import { speakChunksInOrder } from '@/lib/tts-chunks';
 import {
   type Persona,
   type ToneMode,
@@ -2386,11 +2386,8 @@ export default function ChatPage() {
           }
         }
         if (rc.trim()) restChunks.push(rc.trim());
-        const chunkDeps = {
-          synthesize: (c: string) => synthesizeWithTimeout(c, 12000, female),
-          isStale: speechStale,
-        };
         let restSpokeAny = false;
+        let headDropped = false;
         if (hasEagerAudio && pf.playPromise) {
           // First chunk already playing via eager playback — wait for it to finish.
           await pf.playPromise.catch(() => {});
@@ -2404,16 +2401,21 @@ export default function ChatPage() {
             await playAudioChunk(first.audioBase64, first.mimeType, ticket);
           } else {
             // The prefetched FIRST chunk's synthesis failed: rescue the
-            // head of the reply per-chunk (retry, then browser voice)
-            // instead of silently starting the reply from chunk two.
-            const head = await synthesizeChunkResilient(pf.text, chunkDeps);
-            if (speechStale() || head.kind === 'stale') return;
-            if (head.kind === 'audio') {
-              restSpokeAny = true;
-              await playAudioChunk(head.audio.audioBase64, head.audio.mimeType, ticket);
-            } else if (await speakChunkWithBrowserVoice(pf.text, female, ticket)) {
-              restSpokeAny = true;
-            }
+            // head through the SAME queue as the rest (retry, browser
+            // voice, then the 2026-10-26 no-drop extended retry) —
+            // never silently starting the reply from chunk two, and
+            // never counting a head loss the rest path cannot see.
+            const headQueue = await speakChunksInOrder([pf.text], {
+              synthesize: (c) => synthesizeWithTimeout(c, 12000, female),
+              isStale: speechStale,
+              playAudio: (a) => playAudioChunk(a.audioBase64, a.mimeType, ticket),
+              speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
+              onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
+              onChunkWaitingEnd: () => setSpeechNotice(''),
+            });
+            if (headQueue.stopped || speechStale()) return;
+            if (headQueue.spokeAny) restSpokeAny = true;
+            if (headQueue.dropped > 0) headDropped = true;
           }
         }
         if (speechStale()) return; // barged in / stopped — the rest is never spoken
@@ -2433,6 +2435,8 @@ export default function ChatPage() {
           isStale: speechStale,
           playAudio: (a) => playAudioChunk(a.audioBase64, a.mimeType, ticket),
           speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
+          onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
+          onChunkWaitingEnd: () => setSpeechNotice(''),
         });
         if (restQueue.stopped || speechStale()) return; // interrupted — no notice, the user stopped it
         if (restQueue.spokeAny) restSpokeAny = true;
@@ -2444,7 +2448,7 @@ export default function ChatPage() {
           // synthesis succeeded — fall back to the browser voice so the
           // reply is still heard instead of going silent.
           speakWithBrowser(text, ticket, female);
-        } else if (restSpokeAny && restQueue.dropped > 0) {
+        } else if (restSpokeAny && (restQueue.dropped > 0 || headDropped)) {
           // Part of this reply could not be spoken in either voice
           // form — say so visibly instead of ending after the first
           // line in silence. The full text stays on screen to read.
@@ -2480,6 +2484,8 @@ export default function ChatPage() {
         isStale: speechStale,
         playAudio: (a) => playAudioChunk(a.audioBase64, a.mimeType, ticket),
         speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
+        onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
+        onChunkWaitingEnd: () => setSpeechNotice(''),
       });
       const spokeAny = queue.spokeAny;
       if (queue.stopped || speechStale()) return;

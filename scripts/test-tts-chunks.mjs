@@ -22,6 +22,15 @@
  *     is never played, its text never browser-spoken;
  *  6. STOP during synthesis / during the retry wait silences the
  *     queue at once (no retry fires after a stop).
+ *  8. NO-DROP EXTENDED RETRY (2026-10-26): a chunk whose browser
+ *     rescue cannot speak (no qualifying voice on the device) is
+ *     NOT dropped — the server chain re-runs with growing waits and
+ *     the browser is re-tried, in order, and the chunk plays;
+ *  9. only after every extended pass fails is the chunk counted as
+ *     dropped — later chunks still play, and the waiting notice is
+ *     cleared before the next chunk;
+ *  10. STOP during an extended-retry wait silences the queue at once
+ *     — the stopped chunk is NOT counted as dropped.
  *
  * Run: node scripts/test-tts-chunks.mjs   (from the repo root)
  */
@@ -234,6 +243,69 @@ console.log('\n── 7) synthesizeChunkResilient units ────────
     synthesize: async () => null, isStale: () => true, wait: instantWait,
   });
   check('already stale after first failure → stale, no wait burned', staleFirst.kind, 'stale');
+}
+
+console.log('\n── 8) No-drop extended retry: browser unavailable, server recovers ──');
+{
+  // 2026-10-26 live case: first line heard, a middle chunk's server
+  // chain failed transiently, browser rescue unavailable on the
+  // device — the old code dropped the chunk and showed the banner.
+  const chain = stubChain({ A: [true], B: [false, false, false, true], C: [true] });
+  const player = stubPlayer();
+  let waiting = 0;
+  let waitingEnd = 0;
+  const res = await speakChunksInOrder(['A', 'B', 'C'], {
+    synthesize: chain.synthesize, isStale: () => false, wait: instantWait,
+    playAudio: player.playAudio,
+    speakBrowserChunk: async () => false, // no qualifying voice on device
+    onChunkWaiting: () => { waiting++; },
+    onChunkWaitingEnd: () => { waitingEnd++; },
+  });
+  check('recovered chunk played via server voice, in order', player.played, ['b64:A', 'b64:B', 'b64:C']);
+  check('nothing counted as dropped', res.dropped, 0);
+  check('waiting notice shown and cleared', [waiting > 0, waitingEnd > 0], [true, true]);
+  check('queue completed, spoke', [res.stopped, res.spokeAny], [false, true]);
+}
+
+console.log('\n── 9) Extended retry exhausted → dropped, later chunks still play ──');
+{
+  const chain = stubChain({ A: [true], B: [false], C: [true] });
+  const player = stubPlayer();
+  let waiting = 0;
+  let waitingEnd = 0;
+  const res = await speakChunksInOrder(['A', 'B', 'C'], {
+    synthesize: chain.synthesize, isStale: () => false, wait: instantWait,
+    playAudio: player.playAudio,
+    speakBrowserChunk: async () => false,
+    onChunkWaiting: () => { waiting++; },
+    onChunkWaitingEnd: () => { waitingEnd++; },
+  });
+  check('healthy chunks still played', player.played, ['b64:A', 'b64:C']);
+  check('only the unrecoverable chunk counted as dropped', res.dropped, 1);
+  check('waiting notice shown and cleared', [waiting > 0, waitingEnd > 0], [true, true]);
+  check('queue completed (not stopped), spoke', [res.stopped, res.spokeAny], [false, true]);
+}
+
+console.log('\n── 10) Stop during extended-retry wait → stopped, NOT dropped ──');
+{
+  let stale = false;
+  let waitCalls = 0;
+  const wait = async (ms) => {
+    waitCalls++;
+    // Resilient waits are 650/2000ms; extended waits are sliced to
+    // 250ms — only a slice may carry the stop into the queue.
+    if (waitCalls > 2 && ms === 250) stale = true;
+  };
+  const chain = stubChain({ A: [true], B: [false] });
+  const player = stubPlayer();
+  const res = await speakChunksInOrder(['A', 'B'], {
+    synthesize: chain.synthesize, isStale: () => stale, wait,
+    playAudio: player.playAudio,
+    speakBrowserChunk: async () => false,
+  });
+  check('only the already-playing chunk sounded', player.played, ['b64:A']);
+  check('stopped chunk is NOT counted as dropped', res.dropped, 0);
+  check('queue reports the stop', res.stopped, true);
 }
 
 console.log(`\n${failed === 0 ? '✅ ALL PASS' : '❌ FAILURES'} — ${passed} passed, ${failed} failed`);
