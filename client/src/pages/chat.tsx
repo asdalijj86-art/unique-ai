@@ -20,7 +20,12 @@ import {
   TTS_PLAYBACK_RATE,
 } from '@/lib/api';
 import { synthesizeSalmanClientSide, synthesizeUniqaClientSide } from '@/lib/edge-tts';
-import { speakChunksInOrder } from '@/lib/tts-chunks';
+import {
+  runVoiceReply,
+  isDuplicateHeard,
+  failureReasonText,
+  type VoiceOutcome,
+} from '@/lib/voice-player';
 import {
   type Persona,
   type ToneMode,
@@ -226,6 +231,11 @@ export default function ChatPage() {
   // next send and by its own dismiss button. Never set for a reply
   // the user stopped before it spoke, and never for a fresh send.
   const [speechNotice, setSpeechNotice] = useState('');
+  // Text offered for replay when a reply ends `failed`/`partial`
+  // (2026-10-26 voice rebuild: a failed reply must never end in
+  // silence with no way back — the banner carries a Replay button
+  // for exactly this text; cleared on the next send / success / stop).
+  const [speechReplayText, setSpeechReplayText] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -450,7 +460,7 @@ export default function ChatPage() {
   // entry carries the persona that OWNED this reply, so the eager
   // first chunk can never be synthesized in a different gender than
   // the rest of the reply if the user switches persona mid-stream.
-  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string } | null>; eagerPlayed: boolean; playPromise: Promise<void> | null; ticket: number; female: boolean } | null>(null);
+  const ttsPrefetchRef = useRef<{ text: string; promise: Promise<{ audioBase64: string; mimeType: string } | null>; eagerPlayed: boolean; playPromise: Promise<{ heard: boolean; blocked: boolean }> | null; ticket: number; female: boolean } | null>(null);
   // TTS health counters (2026-10-25 NEVER-DOWN fix): these are
   // DIAGNOSTIC ONLY now. They used to mute the Gemini leg for the
   // whole session after a quota/auth answer or 3 soft failures — one
@@ -475,6 +485,12 @@ export default function ChatPage() {
   // voice, chain order, or picker changes — only dead legs are
   // skipped, and only for this reply.
   const replyCircuitRef = useRef<{ ticket: number; geminiDead: boolean; edgeDeadUntil: number }>({ ticket: -1, geminiDead: false, edgeDeadUntil: 0 });
+  // Last classified leg failure for THIS reply ('quota' | 'auth' |
+  // 'network' | 'edge' | ''), recorded by synthesizeWithTimeout on
+  // total chain failure so the voice engine's terminal banner can
+  // state the reason in plain words instead of a silent drop.
+  // Diagnostic only — it never gates a leg (see NEVER-DOWN above).
+  const lastVoiceFailureRef = useRef('');
   // UNIQA voice health (2026-10-24 fix, user-approved): her server-Edge
   // leg (Uzma) carries NO session lockout any more. The old 2-strike
   // rule muted that leg for the whole session after 2 transient
@@ -1190,6 +1206,7 @@ export default function ChatPage() {
     }
     setError('');
     setSpeechNotice('');
+    setSpeechReplayText(null);
     let conversation = activeConversation;
     if (!conversation) {
       conversation = {
@@ -1296,7 +1313,7 @@ export default function ChatPage() {
                   // Owner snapshot, NOT the live persona (role-swap fix).
                   promise: synthesizeWithTimeout(firstSentence, 12000, sendFemale),
                   eagerPlayed: false,
-                  playPromise: null as Promise<void> | null,
+                  playPromise: null as Promise<{ heard: boolean; blocked: boolean }> | null,
                   ticket: speechTicket,
                   female: sendFemale,
                 };
@@ -1741,89 +1758,6 @@ export default function ChatPage() {
     return pickUrduFemaleVoiceFrom(window.speechSynthesis.getVoices());
   }
 
-  async function speakNow(text: string, ticket?: number, female = false) {
-    if (!appSettings.voiceEnabled) { ttsActiveRef.current = false; return; }
-    if (!('speechSynthesis' in window)) {
-      ttsActiveRef.current = false;
-      setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
-      return;
-    }
-    // A stopped reply must stay stopped: synth.cancel() (from a stop)
-    // fires the current utterance's error/end event, and the old chain
-    // treated that as "next sentence" — the voice resurrected after the
-    // user stopped it. Every advance now checks the speech ticket.
-    const stale = () => ticket !== undefined && ticket !== speechTicketRef.current;
-    const synth = window.speechSynthesis;
-    // Chrome bug workarounds:
-    // 1. cancel() then immediate speak() often fails silently — wait after cancel.
-    // 2. speechSynthesis can get stuck in "paused" state — resume it.
-    synth.cancel();
-    try { synth.resume(); } catch { /* ignore */ }
-    await new Promise((r) => setTimeout(r, 150));
-    if (stale()) return; // interrupted during the cancel settle — stay silent
-    setIsSpeaking(false);
-    setIsPreparingVoice(false);
-
-    // Split into sentences — Chrome cuts off very long utterances.
-    const cleanText = text.slice(0, 4000).trim();
-    const sentences = cleanText.match(/[^۔.!?\n]+[۔.!?\n]*/g)?.map((s) => s.trim()).filter(Boolean) || [cleanText];
-    const voice = female ? pickUrduFemaleVoice() : pickUrduMaleVoice();
-    // STRICT (both personas): if no voice of THIS persona's gender
-    // exists, do NOT speak — the other gender's voice is worse than
-    // silence. Tell the user to fix their Gemini key.
-    if (!voice) {
-      setIsSpeaking(false);
-      setIsPreparingVoice(false);
-      setError(female
-        ? 'اس ڈیوائس میں یونیکا کے لیے کوئی لڑکی کی آواز نہیں ملی۔ Settings میں اپنی Gemini key چیک کریں — وہی اس کی اصل آواز دیتی ہے۔'
-        : 'اس ڈیوائس میں کوئی مردانہ آواز نہیں ملی۔ Settings میں اپنی Gemini key دوبارہ چیک کرو — وہی اصل مردانہ آواز دیتی ہے۔');
-      resumeContinuousAfterTts();
-      return;
-    }
-    let spokenAny = false;
-    let failedAll = true;
-
-    const speakSentence = (index: number) => {
-      if (stale()) { setIsSpeaking(false); return; } // stopped — never advance
-      if (index >= sentences.length) {
-        setIsSpeaking(false);
-        resumeContinuousAfterTts();
-        if (!spokenAny && failedAll) {
-          const n = synth.getVoices().length;
-          setError(`آواز نہیں چل سکی (آوازیں: ${n})۔ فون کی Settings میں Text-to-Speech میں اردو آواز انسٹال کریں۔`);
-        }
-        return;
-      }
-      const utterance = new SpeechSynthesisUtterance(sentences[index]);
-      utterance.lang = voice ? voice.lang : 'ur-PK';
-      utterance.rate = 1.25;
-      utterance.volume = 1;
-      utterance.pitch = female ? 1.0 : 0.9; // his: slightly deeper (masculine); hers: natural
-      if (voice) utterance.voice = voice;
-      utterance.onend = () => {
-        if (stale()) { setIsSpeaking(false); return; }
-        spokenAny = true;
-        failedAll = false;
-        speakSentence(index + 1);
-      };
-      utterance.onerror = () => {
-        // 'interrupted'/'canceled' arrive here when the user stops the
-        // voice — that is a STOP, not a failure: never advance the chain.
-        if (stale()) { setIsSpeaking(false); return; }
-        // Try next sentence — don't give up on one failure.
-        speakSentence(index + 1);
-      };
-      try { synth.resume(); } catch { /* ignore */ }
-      synth.speak(utterance);
-    };
-
-    setIsSpeaking(true);
-    // The browser voice has no onplaying hook — wake the barge-in
-    // listener here so live mode can still hear the user over it.
-    startBargeInListener();
-    speakSentence(0);
-  }
-
   function stopSpeaking() {
     if (serverAudioRef.current) {
       serverAudioRef.current.pause();
@@ -1868,54 +1802,94 @@ export default function ChatPage() {
     stopSpeaking();
     ttsActiveRef.current = false;
     currentSpeechTextRef.current = '';
+    setSpeechReplayText(null); // a stop is not a failure — no stale replay offer
     lastSpokenRef.current = null; // the interrupted reply may be replayed fresh later
     if (reason && wasAudible) setSpeechNotice(interruptReasonText(reason));
     if (continuousIntendedRef.current) scheduleLiveMicReopen(500);
   }
 
-  function speakWithBrowser(text: string, ticket?: number, female = false) {
-    if (ticket !== undefined && ticket !== speechTicketRef.current) return; // stopped before it began
+  // Whole-reply browser voice (2026-10-26 voice rebuild): the
+  // SINGLE awaited browser-voice path, replacing the old
+  // speakNow/speakWithBrowser pair (which were fire-and-forget and
+  // reported failure only via the tiny-X setError channel). Resolves
+  // `{ heard: true }` only when a sentence actually started sounding
+  // (utterance onstart); `{ heard: false }` with a plain reason when
+  // no qualifying voice of THIS persona's gender exists on the
+  // device, or every sentence failed. The strict pickers are
+  // unchanged — the other gender's voice is never used, and the
+  // caller (the voice engine) turns a failure into a readable
+  // banner + Replay offer, never into silence.
+  async function speakBrowserWhole(text: string, ticket?: number, female = false): Promise<{ heard: boolean; reason: string }> {
+    if (!appSettings.voiceEnabled) { ttsActiveRef.current = false; return { heard: false, reason: 'voice-off' }; }
     if (!('speechSynthesis' in window)) {
       ttsActiveRef.current = false;
-      setError('اس براؤزر میں آواز کی سہولت دستیاب نہیں۔');
-      return;
+      return { heard: false, reason: 'no-speech-synthesis' };
     }
-    // Don't play garbage: only use browser TTS when a voice of THIS
-    // persona's gender explicitly exists (the same strict pickers
-    // speakNow uses — male for Unique, female for Uniqa). If voices are
-    // loaded and none qualifies, show the reason and stay silent — the
-    // device default voice must never speak for the wrong persona.
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0 && !(female ? pickUrduFemaleVoice() : pickUrduMaleVoice())) {
-      // Nothing will speak: close the speech span so the live mic's
-      // recovery path can reopen instead of waiting on a span that
-      // never ends.
+    const stale = () => ticket !== undefined && ticket !== speechTicketRef.current;
+    if (stale()) return { heard: false, reason: 'stopped' };
+    const synth = window.speechSynthesis;
+    // Chrome loads voices asynchronously; wait (once, bounded) for
+    // the list instead of speaking into silence.
+    let voices = synth.getVoices();
+    if (voices.length === 0) {
+      voices = await new Promise<SpeechSynthesisVoice[]>((resolve) => {
+        let settled = false;
+        const go = () => {
+          if (settled) return;
+          settled = true;
+          synth.removeEventListener('voiceschanged', go);
+          resolve(synth.getVoices());
+        };
+        synth.addEventListener('voiceschanged', go);
+        setTimeout(go, 1500);
+      });
+    }
+    if (stale()) return { heard: false, reason: 'stopped' };
+    const voice = female ? pickUrduFemaleVoice() : pickUrduMaleVoice();
+    if (!voice) {
       ttsActiveRef.current = false;
-      setError(female
-        ? 'یونیکا کی آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اس کے لیے اردو آواز انسٹال نہیں۔ Settings میں key چیک کریں۔'
-        : 'مردانہ آواز تیار نہیں ہو سکی (Gemini key چیک کریں) اور اس ڈیوائس میں اردو آواز انسٹال نہیں۔ Settings میں key دوبارہ چیک کریں۔');
       setIsPreparingVoice(false);
       setIsSpeaking(false);
-      return;
+      return { heard: false, reason: 'no-browser-voice' };
     }
-    // Chrome loads voices asynchronously; the list is often empty on the
-    // first call. Wait for it (once) instead of speaking into silence.
-    if (window.speechSynthesis.getVoices().length === 0) {
-      let settled = false;
-      const go = () => {
-        if (settled) return;
-        settled = true;
-        window.speechSynthesis.removeEventListener('voiceschanged', go);
-        // The wait can outlive the reply (a stop within it must not
-        // resurrect the voice when the voices finally load).
-        if (ticket !== undefined && ticket !== speechTicketRef.current) return;
-        speakNow(text, ticket, female);
-      };
-      window.speechSynthesis.addEventListener('voiceschanged', go);
-      setTimeout(go, 1500);
-    } else {
-      speakNow(text, ticket, female);
+    // Chrome bug workarounds (kept from speakNow): cancel() then
+    // immediate speak() often fails silently, and synthesis can get
+    // stuck paused — settle, then resume.
+    synth.cancel();
+    try { synth.resume(); } catch { /* ignore */ }
+    await new Promise((r) => setTimeout(r, 150));
+    if (stale()) return { heard: false, reason: 'stopped' };
+    setIsPreparingVoice(false);
+    const cleanText = text.slice(0, 4000).trim();
+    const sentences = cleanText.match(/[^۔.!?\n]+[۔.!?\n]*/g)?.map((s) => s.trim()).filter(Boolean) || [cleanText];
+    let heard = false;
+    startBargeInListener();
+    for (const sentence of sentences) {
+      if (stale()) break;
+      const started: boolean = await new Promise((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(sentence);
+        utterance.lang = voice.lang || 'ur-PK';
+        utterance.rate = 1.25;
+        utterance.volume = 1;
+        utterance.pitch = female ? 1.0 : 0.9;
+        utterance.voice = voice;
+        let sentenceHeard = false;
+        utterance.onstart = () => { sentenceHeard = true; setIsSpeaking(true); };
+        utterance.onend = () => { setIsSpeaking(false); resolve(sentenceHeard); };
+        utterance.onerror = () => {
+          // A stop cancels synthesis: that is the ticket dying,
+          // not a per-sentence failure — the loop's stale check
+          // above stops it there.
+          setIsSpeaking(false);
+          resolve(sentenceHeard);
+        };
+        try { synth.resume(); } catch { /* ignore */ }
+        synth.speak(utterance);
+      });
+      if (started) heard = true;
     }
+    setIsSpeaking(false);
+    return { heard, reason: heard ? '' : 'browser-failed' };
   }
 
   // Per-CHUNK browser-voice rescue (dropout hardening, 2026-10-23):
@@ -1923,11 +1897,11 @@ export default function ChatPage() {
   // chunk alone is spoken by the browser voice of the SAME persona —
   // the reply never loses the chunk's words and later chunks still get
   // their server voice. Promise-based (unlike the whole-reply
-  // speakWithBrowser) so the caller's chunk queue waits for the chunk
+  // speakBrowserWhole) so the caller's chunk queue waits for the chunk
   // to finish before moving on. Resolves false when no qualifying
   // voice exists on this device (the standing notice below explains
   // why) or when the speech ticket died mid-chunk. The picker is the
-  // same STRICT one speakNow uses — the other gender never speaks.
+  // same STRICT one speakBrowserWhole uses — the other gender never speaks.
   function speakChunkWithBrowserVoice(text: string, female: boolean, ticket: number): Promise<boolean> {
     return new Promise((resolve) => {
       if (ticket !== speechTicketRef.current) { resolve(false); return; }
@@ -1956,9 +1930,12 @@ export default function ChatPage() {
           utterance.lang = voice.lang || 'ur-PK';
           utterance.rate = 1.25;
           utterance.volume = 1;
-          utterance.pitch = female ? 1.0 : 0.9; // same settings as speakNow
+          utterance.pitch = female ? 1.0 : 0.9;
           utterance.voice = voice;
-          utterance.onend = () => { spoke = true; next(); };
+          // Playback-verified (2026-10-26 rebuild): onstart, not
+          // onend, proves the chunk actually started sounding.
+          utterance.onstart = () => { spoke = true; };
+          utterance.onend = () => { next(); };
           utterance.onerror = () => {
             // A stop cancels synthesis (interruptSpeech → cancel()):
             // that is the ticket dying, not a per-sentence failure.
@@ -1969,12 +1946,12 @@ export default function ChatPage() {
           synth.speak(utterance);
         };
         // Live mode must hear the user over a browser-voice chunk
-        // exactly as over the server voice (same hook as speakNow).
+        // exactly as over the server voice (same hook as speakBrowserWhole).
         startBargeInListener();
         next();
       };
       // Chrome loads voices asynchronously; the list is often empty on
-      // the first call — wait for it once, like speakWithBrowser does.
+      // the first call — wait for it once, like speakBrowserWhole does.
       if (synth.getVoices().length === 0) {
         let settled = false;
         const onVoices = () => {
@@ -2005,10 +1982,15 @@ export default function ChatPage() {
   // When a speech ticket is supplied, a chunk whose ticket went stale
   // (interrupted / superseded) NEVER starts — and if the ticket dies
   // mid-play the chunk aborts at once instead of playing out.
-  function playAudioChunk(audioBase64: string, mimeType: string, ticket?: number): Promise<void> {
+  // PLAYBACK-VERIFIED (2026-10-26 voice rebuild): resolves
+  // `{ heard: true }` ONLY when audio actually started playing
+  // (onplaying fired); a play() rejection or a pre-play error
+  // resolves `{ heard: false, blocked: true }` — synthesis alone
+  // never counts as heard any more.
+  function playAudioChunk(audioBase64: string, mimeType: string, ticket?: number): Promise<{ heard: boolean; blocked: boolean }> {
     return new Promise((resolve) => {
       if (ticket !== undefined && ticket !== speechTicketRef.current) {
-        resolve();
+        resolve({ heard: false, blocked: false });
         return;
       }
       try {
@@ -2035,6 +2017,7 @@ export default function ChatPage() {
         audio.preservesPitch = true;
         audio.playbackRate = TTS_PLAYBACK_RATE;
         serverAudioRef.current = audio;
+        let startedPlaying = false;
         audio.onplaying = () => {
           if (ticket !== undefined && ticket !== speechTicketRef.current) {
             // Interrupted in the instant playback began — abort.
@@ -2042,6 +2025,7 @@ export default function ChatPage() {
             done();
             return;
           }
+          startedPlaying = true;
           playbackStartedRef.current = true;
           // A server-leg voice is really playing: the chain is warm
           // for the rest of this session (see the warm-up refs).
@@ -2058,22 +2042,33 @@ export default function ChatPage() {
           setIsSpeaking(false);
           URL.revokeObjectURL(url);
           if (serverAudioRef.current === audio) serverAudioRef.current = null;
-          resolve();
+          resolve({ heard: startedPlaying, blocked: false });
         };
         audio.onended = done;
         audio.onerror = () => {
           URL.revokeObjectURL(url);
           if (serverAudioRef.current === audio) serverAudioRef.current = null;
-          done();
+          // An error before onplaying means nothing was heard; an
+          // error after playing started still counts as heard.
+          resolve({ heard: startedPlaying, blocked: false });
+          setIsPreparingVoice(false);
+          setIsSpeaking(false);
+          if (serverAudioRef.current === audio) serverAudioRef.current = null;
         };
         audio.play().catch(() => {
-          // Blocked (autoplay policy) or failed before starting — record it
-          // so the caller can fall back to the browser voice on phones.
+          // Blocked (autoplay policy) or failed before starting —
+          // record it so the engine falls back to the browser voice
+          // on desktop exactly as on phones (old code gated this
+          // check to mobile only).
           playbackBlockedRef.current = true;
-          done();
+          URL.revokeObjectURL(url);
+          if (serverAudioRef.current === audio) serverAudioRef.current = null;
+          setIsPreparingVoice(false);
+          setIsSpeaking(false);
+          resolve({ heard: false, blocked: true });
         });
       } catch {
-        resolve();
+        resolve({ heard: false, blocked: false });
       }
     });
   }
@@ -2196,6 +2191,7 @@ export default function ChatPage() {
           const r = await synthesizeUniqaClientSide(text, timeoutMs);
           if (r) return r;
         } catch { /* fall through to browser fallback */ }
+        lastVoiceFailureRef.current = circuit.geminiDead ? 'quota' : 'edge';
         setError('⚠️ یونیکا کی آواز وقتی طور پر نہیں بن سکی — Settings میں Gemini key چیک کریں یا تھوڑی دیر بعد پھر کوشش کریں۔');
         return null;
       };
@@ -2316,6 +2312,7 @@ export default function ChatPage() {
               ? '⚠️ نیٹ سست ہے — مردانہ آواز بنانے میں دیر ہو رہی ہے۔ دوبارہ کوشش کرو۔'
               : '⚠️ مردانہ آواز وقتی طور پر بند ہے — دوبارہ کوشش کرو۔';
       // Show the reason (stays visible so the user knows what to fix).
+      lastVoiceFailureRef.current = errorType;
       setError(reasonMsg);
       // Diagnostic counter only (2026-10-25): soft failures are counted
       // but NEVER mute a later chunk — return null and let the caller
@@ -2335,6 +2332,7 @@ export default function ChatPage() {
 
   async function playAssistantMessage(text: string, ticket: number = ++speechTicketRef.current, femaleOverride?: boolean) {
     setError('');
+    setSpeechReplayText(null);
     if (!appSettings.voiceEnabled) {
       setIsPreparingVoice(false);
       return;
@@ -2375,14 +2373,12 @@ export default function ChatPage() {
       await voiceWarmupPromiseRef.current.catch(() => {});
       if (speechStale()) return;
     }
-    // Guard against double-speak: skip if the exact same text was already
-    // spoken within the last few seconds (e.g. mic echo or double trigger).
-    const now = Date.now();
-    const last = lastSpokenRef.current;
-    if (last && last.text === text && now - last.at < 8000) {
-      return;
-    }
-    lastSpokenRef.current = { text, at: now };
+    // Duplicate suppression lives in the voice engine (only a HEARD
+    // text suppresses a repeat — a failed text stays replayable).
+    // This entry point records NOTHING as heard before playback:
+    // lastSpokenRef is updated only from a heard terminal outcome
+    // below, so the message "سنیں" button always works after a failure.
+    lastVoiceFailureRef.current = '';
     playbackBlockedRef.current = false;
     playbackStartedRef.current = false;
     // Check for eager prefetch BEFORE stopping — don't kill our own eager audio
@@ -2408,161 +2404,98 @@ export default function ChatPage() {
     // the user starting to speak over the reply (it also (re)starts on
     // the first chunk's onplaying and for the browser-voice path).
     startBargeInListener();
-    // Primary: server-side masculine Urdu voice (Gemini TTS) — same voice on every device.
     // Show "preparing" while the audio is fetched; isSpeaking flips on only
     // when playback actually begins (audio.onplaying below).
     if (!hasEagerAudio) {
       setIsPreparingVoice(true);
     }
-    try {
-      // Fast path: use prefetched first-sentence audio if it matches this reply.
-      if (prefetchMatches && prefetch) {
-        const pf = prefetch; // non-null here (prefetchMatches implies it)
-        // Speak the FULL rest — chunk into sentence groups, no 600-char cutoff.
-        const restFull = text.slice(pf.text.length).trim();
-        const restSentences = restFull.match(/[^۔.!?\n]+[۔.!?\n]*/g) || (restFull ? [restFull] : []);
-        const restChunks: string[] = [];
-        let rc = '';
-        for (const s of restSentences) {
-          if ((rc + s).length > 700 && rc) {
-            restChunks.push(rc.trim());
-            rc = s;
-          } else {
-            rc += s;
-          }
-        }
-        if (rc.trim()) restChunks.push(rc.trim());
-        let restSpokeAny = false;
-        let headDropped = false;
-        if (hasEagerAudio && pf.playPromise) {
-          // First chunk already playing via eager playback — wait for it to finish.
-          await pf.playPromise.catch(() => {});
-          restSpokeAny = true;
-        } else {
-          // Eager didn't trigger (audio wasn't ready in time) — play first chunk now.
-          const first = await pf.promise.catch(() => null);
-          if (speechStale()) return; // barged in / stopped — nothing more is spoken
-          if (first) {
-            restSpokeAny = true;
-            await playAudioChunk(first.audioBase64, first.mimeType, ticket);
-          } else {
-            // The prefetched FIRST chunk's synthesis failed: rescue the
-            // head through the SAME queue as the rest (retry, browser
-            // voice, then the 2026-10-26 no-drop extended retry) —
-            // never silently starting the reply from chunk two, and
-            // never counting a head loss the rest path cannot see.
-            const headQueue = await speakChunksInOrder([pf.text], {
-              synthesize: (c) => synthesizeWithTimeout(c, 12000, female),
-              isStale: speechStale,
-              playAudio: (a) => playAudioChunk(a.audioBase64, a.mimeType, ticket),
-              speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
-              onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
-              onChunkWaitingEnd: () => setSpeechNotice(''),
-              // Fail-fast (2026-10-26): both legs dead for this
-              // reply — extended retry would only add minutes.
-              shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
-            });
-            if (headQueue.stopped || speechStale()) return;
-            if (headQueue.spokeAny) restSpokeAny = true;
-            if (headQueue.dropped > 0) headDropped = true;
-          }
-        }
-        if (speechStale()) return; // barged in / stopped — the rest is never spoken
-        // UNIQA TRUNCATION HARDENING (2026-10-25, local only — device
-        // cause still unproven, see report): the old code fired ALL
-        // rest chunks concurrently (Promise.all) and, when a chunk's
-        // server chain failed AND its browser rescue had no qualifying
-        // voice on the device, simply skipped it while restSpokeAny
-        // was already true from the eager first chunk — so the user
-        // heard only the first line with no reason given. The rest
-        // now uses the same serialized queue as the fallback path
-        // (current chunk + next prefetch only, no concurrent chain
-        // contention), and any chunk that sounds in neither form is
-        // counted and surfaced with a visible notice below.
-        const restQueue = await speakChunksInOrder(restChunks, {
-          synthesize: (c) => synthesizeWithTimeout(c, 12000, female),
-          isStale: speechStale,
-          playAudio: (a) => playAudioChunk(a.audioBase64, a.mimeType, ticket),
-          speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
-          onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
-          onChunkWaitingEnd: () => setSpeechNotice(''),
-          // Fail-fast (2026-10-26): both legs dead for this
-          // reply — extended retry would only add minutes.
-          shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
-        });
-        if (restQueue.stopped || speechStale()) return; // interrupted — no notice, the user stopped it
-        if (restQueue.spokeAny) restSpokeAny = true;
-        if (speechStale()) return;
-        if (!restSpokeAny && restChunks.length > 0 && !hasEagerAudio) {
-          speakWithBrowser(text, ticket, female);
-        } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
-          // The phone blocked audio playback (autoplay policy) even though
-          // synthesis succeeded — fall back to the browser voice so the
-          // reply is still heard instead of going silent.
-          speakWithBrowser(text, ticket, female);
-        } else if (restSpokeAny && (restQueue.dropped > 0 || headDropped)) {
-          // Part of this reply could not be spoken in either voice
-          // form — say so visibly instead of ending after the first
-          // line in silence. The full text stays on screen to read.
-          // Never use the other persona's voice as a rescue.
-          setSpeechNotice('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
-        }
+    // ONE terminal outcome per reply (2026-10-26 voice rebuild):
+    // the engine computes spoken / partial / failed / stopped from
+    // the WHOLE reply — no restChunks.length gate, no dependence on
+    // "something already spoke" to show a failure. A failed or
+    // partial reply ALWAYS lands in the readable banner channel
+    // (speechNotice) with a Replay offer; setError (tiny X) is
+    // never the sole record of a voice failure any more.
+    const finish = (outcome: VoiceOutcome) => {
+      setIsPreparingVoice(false);
+      if (outcome.terminal === 'stopped') {
+        // The user (or a newer reply) stopped it. interruptSpeech
+        // already set a labelled banner if audio had actually
+        // started — never overwrite it with a failure banner, and
+        // never offer replay for a deliberate stop.
+        setSpeechReplayText(null);
+        return;
+      }
+      if (outcome.terminal === 'duplicate-heard' || outcome.terminal === 'voice-off') {
+        ttsActiveRef.current = false;
         resumeContinuousAfterTts();
         return;
       }
-      // Fallback: synthesize the FULL reply in chunks (no more 800-char cutoff).
-      // Split into sentence groups of ~700 chars so long replies are fully spoken.
-      const chunks: string[] = [];
-      const sentences = text.match(/[^۔.!?\n]+[۔.!?\n]*/g) || [text];
-      let current = '';
-      for (const s of sentences) {
-        if ((current + s).length > 700 && current) {
-          chunks.push(current.trim());
-          current = s;
-        } else {
-          current += s;
-        }
+      // Only a HEARD reply is recorded — a failed reply stays
+      // replayable within (and beyond) the 8s duplicate window.
+      if (outcome.heard) {
+        lastSpokenRef.current = { text, at: Date.now() };
       }
-      if (current.trim()) chunks.push(current.trim());
-      // Per-chunk resilience (dropout hardening, lib/tts-chunks): each
-      // chunk retries its chain once, then falls to the browser voice
-      // for THAT chunk alone — a failed chunk never ends the reply
-      // early or swallows its words (the old loop BROKE on the first
-      // failure and every remaining chunk was lost), and the next
-      // chunk synthesizes while the current one plays (no gaps). A
-      // stop orphans the queue AND its prefetched audio at once.
-      const queue = await speakChunksInOrder(chunks, {
-        synthesize: (c) => synthesizeWithTimeout(c, 12000, female),
-        isStale: speechStale,
-        playAudio: (a) => playAudioChunk(a.audioBase64, a.mimeType, ticket),
-        speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
-        onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
-        onChunkWaitingEnd: () => setSpeechNotice(''),
-        // Fail-fast (2026-10-26): both legs dead for this
-        // reply — extended retry would only add minutes.
-        shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
-      });
-      const spokeAny = queue.spokeAny;
-      if (queue.stopped || speechStale()) return;
-      if (!spokeAny) {
-        speakWithBrowser(text, ticket, female);
-      } else if (isMobileTurnMode() && playbackBlockedRef.current && !playbackStartedRef.current) {
-        // Same autoplay-block fallback as the prefetch path above.
-        speakWithBrowser(text, ticket, female);
-      } else if (queue.dropped > 0) {
-        // Same visible-notice rule as the prefetch path: a partial
-        // reply must never end in silence for its dropped chunks.
+      if (outcome.terminal === 'spoken') {
+        setSpeechReplayText(null);
+      } else if (outcome.terminal === 'partial') {
         setSpeechNotice('⚠️ جواب کا کچھ حصہ آواز میں نہیں سنایا جا سکا — باقی حصہ اسکرین پر موجود ہے، اسے پڑھ لیں۔');
+        setSpeechReplayText(text);
+      } else if (outcome.terminal === 'failed') {
+        setSpeechNotice(`⚠️ یہ جواب آواز میں نہیں سنایا جا سکا — ${outcome.failureReason} باقی حصہ اسکرین پر موجود ہے۔`);
+        setSpeechReplayText(text);
       }
       resumeContinuousAfterTts();
+    };
+    try {
+      const outcome = await runVoiceReply(
+        {
+          text,
+          config: { persona: female ? 'uniqa' : 'unique', female },
+          prefetch: prefetchMatches && prefetch
+            ? {
+                text: prefetch.text,
+                promise: prefetch.promise,
+                eagerPlayed: prefetch.eagerPlayed,
+                playPromise: prefetch.playPromise,
+              }
+            : null,
+          lastHeard: lastSpokenRef.current,
+          now: Date.now(),
+          voiceEnabled: appSettings.voiceEnabled,
+        },
+        {
+          synthesize: (c) => synthesizeWithTimeout(c, 12000, female),
+          playAudio: async (a) => (await playAudioChunk(a.audioBase64, a.mimeType, ticket)).heard,
+          speakBrowserChunk: (c) => speakChunkWithBrowserVoice(c, female, ticket),
+          speakBrowserWhole: async (t) => (await speakBrowserWhole(t, ticket, female)).heard,
+          isStale: speechStale,
+          shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
+          wasPlaybackBlocked: () => playbackBlockedRef.current,
+          failureDetail: () => lastVoiceFailureRef.current,
+          onChunkWaiting: () => setSpeechNotice('⏳ جواب کا ایک حصہ آواز میں دوبارہ بنایا جا رہا ہے — تھوڑا انتظار کریں، جواب بیچ میں نہیں رکے گا۔'),
+          onChunkWaitingEnd: () => setSpeechNotice(''),
+        },
+      );
+      finish(outcome);
       return;
     } catch {
-      // Server voice unavailable — fall back to the browser voice.
+      // The engine never rejects by design; if a dependency throws
+      // anyway, fall back to the awaited whole browser voice once,
+      // then to the same single terminal failure banner — never to
+      // a fire-and-forget call and never to silence.
       setIsPreparingVoice(false);
+      if (speechStale()) return;
+      const whole = await speakBrowserWhole(text, ticket, female).catch(() => ({ heard: false, reason: 'browser-failed' }));
+      if (speechStale()) return;
+      if (whole.heard) {
+        finish({ terminal: 'spoken', heard: true, dropped: 0, totalChunks: 0, failureReason: '' });
+      } else {
+        finish({ terminal: 'failed', heard: false, dropped: 0, totalChunks: 0, failureReason: failureReasonText(lastVoiceFailureRef.current) });
+      }
     }
-    if (speechStale()) return;
-    speakWithBrowser(text, ticket, female);
   }
+
 
   // ------------------------------------------------------------------
   // Live mic (hands-free conversation): one tap turns it on, the user
@@ -3799,7 +3732,12 @@ export default function ChatPage() {
           fontSize: 13.5, lineHeight: 1.8,
         }}>
           <span style={{ flex: 1, minWidth: 220 }}>{speechNotice}</span>
-          <button type="button" onClick={() => setSpeechNotice('')} aria-label="یہ اطلاع بند کریں" style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid transparent', background: 'transparent', color: '#fde68a', cursor: 'pointer' }}>
+          {speechReplayText && (
+            <button type="button" onClick={() => { const replay = speechReplayText; setSpeechNotice(''); setSpeechReplayText(null); void playAssistantMessage(replay); }} style={{ padding: '6px 14px', borderRadius: 999, border: '1px solid rgba(251,191,36,0.6)', background: 'rgba(251,191,36,0.25)', color: '#fef3c7', fontWeight: 700, cursor: 'pointer' }}>
+              دوبارہ سنیں
+            </button>
+          )}
+          <button type="button" onClick={() => { setSpeechNotice(''); setSpeechReplayText(null); }} aria-label="یہ اطلاع بند کریں" style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid transparent', background: 'transparent', color: '#fde68a', cursor: 'pointer' }}>
             ✕
           </button>
         </div>

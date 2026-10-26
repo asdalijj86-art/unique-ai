@@ -112,8 +112,14 @@ export async function synthesizeChunkResilient(
 export interface SpeakQueueDeps extends ChunkSynthDeps {
   /** Play one synthesized chunk; resolves when playback ends/fails.
    *  The implementation must refuse to START when the speech ticket
-   *  is stale (chat.tsx's playAudioChunk already does). */
-  playAudio: (audio: TtsAudio) => Promise<void>;
+   *  is stale (chat.tsx's playAudioChunk already does).
+   *  PLAYBACK-VERIFIED (2026-10-26 rebuild): resolves `true` only
+   *  when audio actually started playing (onplaying fired); `false`
+   *  when play() was rejected or the audio errored before playing.
+   *  A legacy `void` return keeps the old assumed-heard behaviour
+   *  for stubs/tests that cannot report playback — the real
+   *  chat.tsx player always returns a boolean. */
+  playAudio: (audio: TtsAudio) => Promise<boolean | void>;
   /** Speak ONE chunk with the persona-locked browser voice; resolves
    *  true if any of it sounded, false when no qualifying voice exists
    *  on the device (the implementation surfaces the notice) or the
@@ -146,8 +152,10 @@ export interface SpeakQueueDeps extends ChunkSynthDeps {
  * Speak every chunk in order, with next-chunk prefetch. Returns
  * `stopped: true` when a stop/barge-in cut the queue short — in that
  * case the prefetched chunk (if any) was NEVER played or spoken.
- * `spokeAny` tells the caller whether the reply sounded at all (it
- * drives the standing whole-reply browser fallback + mic resumes).
+ * `spokeAny` tells the caller whether the reply was actually HEARD
+ * at all (playback-verified, 2026-10-26 rebuild — synthesis alone
+ * never counts; it drives the standing whole-reply browser fallback
+ * + mic resumes).
  * `dropped` counts chunks that sounded in NEITHER form AFTER the
  * extended retry: server chain failed every pass and the browser
  * rescue could not speak them. A stopped queue never counts its
@@ -191,10 +199,20 @@ export async function speakChunksInOrder(
     }
     // While chunk i plays, chunk i+1 must already be synthesizing.
     startOutcome(i + 1);
+    // PLAYBACK-VERIFIED (2026-10-26 rebuild): synthesis succeeding
+    // is NOT "spoken" — only audio that actually started playing
+    // counts. A play() rejection / pre-play error falls through to
+    // the browser rescue below, exactly like a synthesis failure.
+    let playFailed = false;
     if (outcome.kind === 'audio') {
-      spokeAny = true;
-      await deps.playAudio(outcome.audio);
-    } else {
+      const heard = await deps.playAudio(outcome.audio);
+      if (heard === false) {
+        playFailed = true;
+      } else {
+        spokeAny = true;
+      }
+    }
+    if (playFailed || outcome.kind === 'browser') {
       // kind === 'browser': rescue THIS chunk with the browser voice;
       // the queue then moves on — later chunks are never sacrificed
       // for one chunk's failure. If the rescue cannot speak, that is
@@ -230,10 +248,23 @@ export async function speakChunksInOrder(
             return { spokeAny, stopped: true, dropped };
           }
           if (retry.kind === 'audio') {
-            spokeAny = true;
-            recovered = true;
-            deps.onChunkWaitingEnd?.();
-            await deps.playAudio(retry.audio);
+            // Playback-verified: a rejected retry play is not a
+            // recovery — fall through to the browser attempt below
+            // in this same pass by leaving `recovered` false.
+            const heard = await deps.playAudio(retry.audio);
+            if (heard !== false) {
+              spokeAny = true;
+              recovered = true;
+              deps.onChunkWaitingEnd?.();
+            } else {
+              const okRetry = await deps.speakBrowserChunk(chunks[i]);
+              if (deps.isStale()) { deps.onChunkWaitingEnd?.(); return { spokeAny, stopped: true, dropped }; }
+              if (okRetry) {
+                spokeAny = true;
+                recovered = true;
+                deps.onChunkWaitingEnd?.();
+              }
+            }
           } else {
             const okRetry = await deps.speakBrowserChunk(chunks[i]);
             if (deps.isStale()) { deps.onChunkWaitingEnd?.(); return { spokeAny, stopped: true, dropped }; }
