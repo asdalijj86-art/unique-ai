@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import { ttsAudioCache, deadKeyTracker, deadKeyId, makeTtsCacheKey } from './tts-cache';
 
 type ChatMessageInput = { role: string; content: string; image?: string };
 
@@ -229,17 +230,21 @@ export function getActiveGeminiKey(): string | undefined {
  * rotation to the next key when one hits quota.
  * Sends the user's selected voice (Charon/Fenrir) from settings.
  */
-// NEVER-DOWN VOICE (2026-10-25 fix): there is NO session dead-key
-// memory any more. The old version remembered a quota/auth key as dead
-// for the rest of the session (cleared only when the key list changed),
-// and chat.tsx additionally muted the whole Gemini leg — so ONE dead
-// key silenced BOTH personas for the session even though other saved
-// keys (or the Edge legs) could still speak. Every call now tries the
-// full key rotation fresh: a key that failed on the last chunk gets a
-// new chance on the next chunk (quota/auth answers come back fast, so
-// re-asking a dead key costs little, while skipping it forever cost
-// the whole reply). Within one call each key is still tried at most
-// once, in rotation order starting from the active key.
+// NEVER-DOWN VOICE (2026-10-25 fix, softened 2026-10-27 cache
+// fix ONLY for speech): there is no session-long dead-key memory,
+// but a quota/auth-dead user key IS skipped for ~10 minutes (see
+// lib/tts-cache DeadKeyTracker), then probed once when its window
+// expires. The old session-forever mute is gone — one dead key no
+// longer silences both personas — but re-asking every dead key on
+// every reply burned up to 4 fetches per reply after exhaustion
+// with zero audio. Within one call each live key is still tried at
+// most once, in rotation order starting from the active key, and
+// the per-reply fail-fast circuit in chat.tsx is unchanged. The
+// chat-generation rotation above is NOT affected by this tracker:
+// chat uses a different model and may have different quota.
+// Separately, successful Gemini audio is cached in-memory keyed by
+// exact text + resolved voice + female flag (lib/tts-cache), so
+// Replay / "سنیں" / repeated lines cost zero new Gemini calls.
 
 /** Uniqa's Gemini voice (Phase 2): a warm FEMALE prebuilt voice. Used
  *  ONLY for her turns — Unique's turns never carry it, and hers never
@@ -268,10 +273,32 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
   if (!female && voiceName === UNIQA_GEMINI_VOICE) {
     throw { data: { errorType: 'network', error: 'آواز تیار نہیں ہو سکی۔' } };
   }
+  // CACHE (2026-10-27): exact text + resolved voice + female flag.
+  // A hit costs zero Gemini calls — this is what makes Replay,
+  // "سنیں" and repeated lines free. The guard above runs first, so
+  // a cached female voice can never leak into a male turn.
+  const cacheKey = makeTtsCacheKey(text, voiceName, !!female);
+  const cached = ttsAudioCache.get(cacheKey);
+  if (cached) return cached;
   const keys = getGeminiKeys();
-  const attempts = keys.length > 0 ? keys : [undefined];
   let lastErr: any = null;
   const startIdx = keys.length > 0 ? getActiveKeyIndex() % keys.length : 0;
+  // DEAD-KEY SKIP (2026-10-27): candidates are the saved keys in
+  // rotation order EXCLUDING keys inside their ~10-min skip window
+  // (expired entries re-probe — see tts-cache). If every saved key
+  // is skipped, this call makes ZERO fetches (not even the env
+  // fallback): the caller falls through to Edge/browser at once,
+  // and the next probe happens only after a window expires.
+  const orderedKeyIndices = keys.length > 0
+    ? Array.from({ length: keys.length }, (_, a) => (startIdx + a) % keys.length)
+    : [0];
+  const candidateKeyIndices = orderedKeyIndices.filter((keyIdx) =>
+    keys.length === 0 || !deadKeyTracker.isSkipped(deadKeyId(keyIdx, keys[keyIdx])),
+  );
+  const allUserKeysSkipped = keys.length > 0 && candidateKeyIndices.length === 0;
+  if (allUserKeysSkipped) {
+    throw { data: { errorType: 'quota', error: 'تمہاری key کی آج کی حد ختم ہو گئی ہے — نئی key لگاؤ یا کل انتظار کرو۔' } };
+  }
   // TOTAL Gemini deadline (2026-10-27 ruk-ruk fix): the old 15s cap
   // was PER KEY, so with 3 saved keys a stalled Gemini leg burned
   // up to 45s on this leg alone before Edge ever ran — and the
@@ -284,9 +311,10 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
   // ~1s); only stalls are cut short. The night-backup env-key
   // attempt below keeps its own 15s cap, as the last resort.
   const geminiDeadline = Date.now() + 20000;
-  for (let a = 0; a < attempts.length; a++) {
-    const keyIdx = keys.length > 0 ? (startIdx + a) % keys.length : 0;
+  for (let a = 0; a < candidateKeyIndices.length; a++) {
+    const keyIdx = candidateKeyIndices[a];
     const userApiKey = keys.length > 0 ? keys[keyIdx] : undefined;
+    const keyId = keys.length > 0 ? deadKeyId(keyIdx, keys[keyIdx]) : '';
     if (Date.now() >= geminiDeadline) {
       lastErr = { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
       break;
@@ -312,7 +340,7 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
         // A stalled key must NOT kill the chunk: rotate to the next
         // saved key (never-down rule). Only the last key's stall
         // surfaces as a timeout for the caller to fall through to Edge.
-        if (a < attempts.length - 1) {
+        if (a < candidateKeyIndices.length - 1) {
           lastErr = { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
           continue;
         }
@@ -326,15 +354,18 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       const t = errData?.errorType;
-      // Rotate to the next key ONLY on quota/auth. No session memory:
-      // the next chunk retries this key fresh (see header comment).
-      // When user keys exist, a quota/auth answer NEVER throws here:
-      // the loop records it and moves on, so the server-key fallback
-      // below gets its one chance after every user key has failed.
-      // (With no user keys, this attempt already WAS the server key,
-      // so there is nothing further to fall back to — throw at once.)
+      // Rotate to the next key ONLY on quota/auth. The failed key
+      // enters its ~10-min skip window (see header comment) — the
+      // next reply does not re-burn a fetch on it until the window
+      // expires. When user keys exist, a quota/auth answer NEVER
+      // throws here: the loop records it and moves on, so the
+      // server-key fallback below gets its one chance after every
+      // live user key has failed. (With no user keys, this attempt
+      // already WAS the server key, so there is nothing further to
+      // fall back to — throw at once.)
       if (t === 'quota' || t === 'auth') {
         if (keys.length > 0) {
+          deadKeyTracker.markDead(keyId);
           if (keys.length > 1) setActiveKeyIndex(keyIdx);
           lastErr = { data: errData };
           continue;
@@ -342,9 +373,16 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
       }
       throw { data: errData };
     }
-    // Success — remember this key as the active one.
-    if (keys.length > 0) setActiveKeyIndex(keyIdx);
-    return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+    // Success — remember this key as the active one, clear its
+    // dead mark (it recovered), and cache the audio so an
+    // identical Replay / "سنیں" costs zero Gemini calls.
+    if (keys.length > 0) {
+      setActiveKeyIndex(keyIdx);
+      deadKeyTracker.clear(keyId);
+    }
+    const audio = await res.json() as { audioBase64: string; mimeType: string };
+    ttsAudioCache.set(cacheKey, audio);
+    return audio;
   }
   // NIGHT BACKUP (2026-10-27, user-approved): after ALL saved user
   // keys returned quota/auth for this call, make EXACTLY ONE final
@@ -381,7 +419,9 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
       const errData = await res.json().catch(() => ({}));
       throw { data: errData };
     }
-    return res.json() as Promise<{ audioBase64: string; mimeType: string }>;
+    const fallbackAudio = await res.json() as { audioBase64: string; mimeType: string };
+    ttsAudioCache.set(cacheKey, fallbackAudio);
+    return fallbackAudio;
   }
   throw lastErr || { data: { errorType: 'quota' } };
 }

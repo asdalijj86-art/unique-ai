@@ -72,6 +72,13 @@ const okAudio = () => ({ ok: true, json: async () => ({ audioBase64: 'b64:env', 
 const errRes = (errorType) => ({ ok: false, json: async () => ({ errorType, error: 'stub' }) });
 
 // --- 1) Server-key fallback (real lib/api.ts) ---
+// NOTE (2026-10-27 cache fix): every case below uses a DISTINCT
+// text AND distinct fake key values. The audio cache is keyed by
+// exact text + voice (so reusing 'سلام' would return case 1a's
+// cached audio with zero fetches), and the dead-key tracker is a
+// session singleton (so reusing a key value would skip it for
+// ~10 min instead of exercising the fallback). Distinct values
+// keep each case an independent proof of the fallback logic.
 console.log('\n── 1) Server-key fallback in synthesizeMairaSpeech ────────');
 {
   const apiBundle = bundle(
@@ -93,11 +100,11 @@ console.log('\n── 1) Server-key fallback in synthesizeMairaSpeech ───�
 
   // 1b. User key quota -> env quota -> throws quota, exactly 2 calls.
   store.clear();
-  store.set('unique-ai-gemini-key', 'AIzaTESTKEY123456');
+  store.set('unique-ai-gemini-key', 'AIzaTESTKEY222222');
   store.set('unique-ai-gemini-key-index', '0');
   fetchCalls = []; fetchScript = [errRes('quota'), errRes('quota')];
   let thrown = null;
-  try { await synthesizeMairaSpeech({ text: 'سلام', female: true }); }
+  try { await synthesizeMairaSpeech({ text: 'سلام دوبارہ', female: true }); }
   catch (e) { thrown = e; }
   check('env quota -> throws quota', thrown?.data?.errorType, 'quota');
   check('no infinite retry: exactly 2 calls', fetchCalls.length, 2);
@@ -105,17 +112,17 @@ console.log('\n── 1) Server-key fallback in synthesizeMairaSpeech ───�
   // 1c. No user keys -> exactly ONE call (env itself, never duplicated).
   store.clear();
   fetchCalls = []; fetchScript = [okAudio()];
-  const r3 = await synthesizeMairaSpeech({ text: 'سلام', female: true });
+  const r3 = await synthesizeMairaSpeech({ text: 'سلام تیسرا', female: true });
   check('no user keys -> audio returned', r3.audioBase64, 'b64:env');
   check('no duplicate env attempt: exactly 1 call', fetchCalls.length, 1);
   check('that call carried NO userApiKey', 'userApiKey' in fetchCalls[0], false);
 
   // 1d. Two user keys quota -> env success on 3rd call, after ALL keys.
   store.clear();
-  store.set('unique-ai-gemini-key', 'AIzaTESTKEY111111\nAIzaTESTKEY222222');
+  store.set('unique-ai-gemini-key', 'AIzaTESTKEY333333\nAIzaTESTKEY444444');
   store.set('unique-ai-gemini-key-index', '0');
   fetchCalls = []; fetchScript = [errRes('quota'), errRes('quota'), okAudio()];
-  const r4 = await synthesizeMairaSpeech({ text: 'سلام', female: true });
+  const r4 = await synthesizeMairaSpeech({ text: 'سلام چوتھا', female: true });
   check('two keys quota -> env audio returned', r4.audioBase64, 'b64:env');
   check('env was 3rd call, after all user keys', fetchCalls.length, 3);
   check('first two calls carried user keys', [!!fetchCalls[0].userApiKey, !!fetchCalls[1].userApiKey], [true, true]);
