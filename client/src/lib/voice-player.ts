@@ -159,6 +159,12 @@ export interface VoicePlayerDeps {
   /** Fail-fast: true when the caller knows the legs are dead for
    *  this reply (per-reply circuit) — skips extended retry. */
   shouldSkipExtendedRetry?: () => boolean;
+  /** Fail-fast per chunk (2026-10-27 ruk-ruk fix): forwarded to the
+   *  chunk queue — when true, a chunk that fails once does not burn
+   *  two more chain passes on dead legs. Same condition as
+   *  shouldSkipExtendedRetry; kept separate so the chunk layer can
+   *  stop early instead of only skipping the extended passes. */
+  failFast?: () => boolean;
   /** True when a play() was rejected (autoplay) — checked on
    *  desktop AND mobile alike, never mobile-only. */
   wasPlaybackBlocked?: () => boolean;
@@ -263,6 +269,7 @@ export async function runVoiceReply(
     playAudio: deps.playAudio,
     speakBrowserChunk: deps.speakBrowserChunk,
     shouldSkipExtendedRetry: deps.shouldSkipExtendedRetry,
+    failFast: deps.failFast,
     onChunkWaiting: deps.onChunkWaiting
       ? () => deps.onChunkWaiting?.()
       : undefined,

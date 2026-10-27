@@ -246,6 +246,26 @@ console.log('\n── 7) synthesizeChunkResilient units ────────
     synthesize: async () => null, isStale: () => true, wait: instantWait,
   });
   check('already stale after first failure → stale, no wait burned', staleFirst.kind, 'stale');
+
+  // RUK-RUK FIX (2026-10-27): failFast legs — one failed pass is the
+  // verdict, no 650/2000ms waits, no 2nd/3rd passes on dead legs.
+  calls = 0;
+  let waitCalls = 0;
+  const ff = await synthesizeChunkResilient('X', {
+    synthesize: async () => { calls++; return null; },
+    isStale: () => false,
+    wait: async () => { waitCalls++; },
+    failFast: () => true,
+  });
+  check('failFast → browser verdict after exactly one attempt', [ff.kind, calls, waitCalls], ['browser', 1, 0]);
+
+  // failFast false (live legs) keeps the old 3-attempt behaviour.
+  calls = 0;
+  const noFf = await synthesizeChunkResilient('X', {
+    synthesize: async () => null, isStale: () => false, wait: instantWait,
+    failFast: () => false,
+  });
+  check('failFast false → browser verdict after three attempts', noFf.kind, 'browser');
 }
 
 console.log('\n── 8) No-drop extended retry: browser unavailable, server recovers ──');

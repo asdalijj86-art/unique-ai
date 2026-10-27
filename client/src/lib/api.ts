@@ -259,17 +259,41 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
       return stored === 'Fenrir' ? 'Fenrir' : 'Charon';
     } catch { return 'Charon'; }
   })();
+  // FAIL-CLOSED GUARD (2026-10-27): the voice name is the ONLY place
+  // a female Gemini voice could enter a Unique turn, and it is fully
+  // determined by the female flag above (false → Charon/Fenrir only,
+  // true → Sulafat only). If that mapping ever breaks, refuse the
+  // Gemini leg outright — Edge/browser fallbacks, or silence with a
+  // banner, are both better than Unique speaking a female voice.
+  if (!female && voiceName === UNIQA_GEMINI_VOICE) {
+    throw { data: { errorType: 'network', error: 'آواز تیار نہیں ہو سکی۔' } };
+  }
   const keys = getGeminiKeys();
   const attempts = keys.length > 0 ? keys : [undefined];
   let lastErr: any = null;
   const startIdx = keys.length > 0 ? getActiveKeyIndex() % keys.length : 0;
+  // TOTAL Gemini deadline (2026-10-27 ruk-ruk fix): the old 15s cap
+  // was PER KEY, so with 3 saved keys a stalled Gemini leg burned
+  // up to 45s on this leg alone before Edge ever ran — and the
+  // chunk queue then re-ran that chain 3x (plus extended passes).
+  // Rotation is unchanged (still sequential, still quota/auth-only),
+  // but the whole user-key rotation now shares ONE 20s budget: a
+  // stalled key must not eat the budget of the keys after it, and
+  // a stalled leg must hand over to Edge instead of stalling the
+  // reply. Fast quota/auth answers are unaffected (they return in
+  // ~1s); only stalls are cut short. The night-backup env-key
+  // attempt below keeps its own 15s cap, as the last resort.
+  const geminiDeadline = Date.now() + 20000;
   for (let a = 0; a < attempts.length; a++) {
     const keyIdx = keys.length > 0 ? (startIdx + a) % keys.length : 0;
     const userApiKey = keys.length > 0 ? keys[keyIdx] : undefined;
-    // Hard 15s cap per key attempt: a stalled speech request must fail as
-    // a classifiable timeout, never hang the voice pipeline.
+    if (Date.now() >= geminiDeadline) {
+      lastErr = { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
+      break;
+    }
+    // Hard cap per key attempt, bounded by the shared deadline.
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const timer = setTimeout(() => ctrl.abort(), Math.max(1, Math.min(15000, geminiDeadline - Date.now())));
     let res: Response;
     try {
       res = await fetch('/api/openai/speech', {

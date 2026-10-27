@@ -68,6 +68,15 @@ export interface ChunkSynthDeps {
    *  null when every leg failed (the chain itself has already surfaced
    *  the classified on-screen reason, as it always did). */
   synthesize: (text: string) => Promise<TtsAudio | null>;
+  /** FAIL-FAST (2026-10-27, ruk-ruk fix): true when the caller knows
+   *  this reply's legs are already proven dead (e.g. Gemini quota/auth
+   *  + Edge dead for this reply). When true, a chunk that fails once
+   *  goes straight to the browser verdict — re-running the same dead
+   *  chain 3x per chunk (plus extended passes) is what stacked into
+   *  60–90s of silence between lines on 2026-10-27 morning. A live
+   *  leg is never fail-fasted: this only fires after a full chain
+   *  pass has already failed for this reply. */
+  failFast?: () => boolean;
   /** True once the speech that owns these chunks has been interrupted
    *  or superseded — nothing further may be synthesized or played. */
   isStale: () => boolean;
@@ -96,13 +105,20 @@ export async function synthesizeChunkResilient(
   const first = await deps.synthesize(text).catch(() => null);
   if (first) return { kind: 'audio', audio: first };
   if (deps.isStale()) return { kind: 'stale' };
+  // Dead legs proven for this reply: one failed pass is the verdict.
+  // Burning two more passes (plus extended passes in the caller) on
+  // the same dead legs only buys silence between lines.
+  if (deps.failFast?.()) return { kind: 'browser' };
   await wait(deps.retryDelayMs ?? 650);
   if (deps.isStale()) return { kind: 'stale' };
+  if (deps.failFast?.()) return { kind: 'browser' };
   const second = await deps.synthesize(text).catch(() => null);
   if (second) return { kind: 'audio', audio: second };
   if (deps.isStale()) return { kind: 'stale' };
+  if (deps.failFast?.()) return { kind: 'browser' };
   await wait(deps.secondRetryDelayMs ?? 2000);
   if (deps.isStale()) return { kind: 'stale' };
+  if (deps.failFast?.()) return { kind: 'browser' };
   const third = await deps.synthesize(text).catch(() => null);
   if (third) return { kind: 'audio', audio: third };
   if (deps.isStale()) return { kind: 'stale' };

@@ -171,9 +171,18 @@ export type PersonaSummon = { target: Persona; rest: string; pure: boolean };
 // یونیکا BEFORE یونیک: "یونیکا" contains "یونیک" as a prefix — checking
 // the female name first (and requiring یونیک NOT be followed by ا)
 // keeps the two names unambiguous.
-const UNIQA_NAME_RE = /(یونیکا|uniqa|unica|unika|yunika|younika|uniquea)/i;
-const UNIQUE_NAME_RE = /(یونیک(?![اa-z])|unique(?![a-z])|uniq(?!a))/i;
-const SUMMON_VERB_RE = /(کو بلاؤ|کو بلا لو|کو بلانا|سے بات کرو|سے بات کراؤ|بلاؤ|بلا لو|بات کرو|بات کراؤ|talk to|call|summon)/i;
+const UNIQA_NAME_RE = /(یونیکا|uniqa|unica|unika|yunika|younika|uniquea|यूनिका)/i;
+// Devanagari guard mirrors the Urdu one: «यूनिका» contains «यूनिक»
+// as a prefix, so Unique must not match when followed by ा.
+const UNIQUE_NAME_RE = /(یونیک(?![اa-z])|unique(?![a-z])|uniq(?!a)|यूनिक(?!ा))/i;
+// Roman-Hindi summon verbs (2026-10-27): the user speaks/types in
+// Hindi as well as Urdu — «unique ko bulaya» previously failed the
+// pure-call residue test (neither «bulaya» nor Latin «ko» was a
+// recognised verb/particle), so a call to Unique could silently
+// stay on Uniqa's female chain while the user believed Unique had
+// come. These additions only widen summon DETECTION; no voice,
+// chain, or picker changes with them.
+const SUMMON_VERB_RE = /(کو بلاؤ|کو بلا لو|کو بلانا|سے بات کرو|سے بات کراؤ|بلاؤ|بلا لو|بات کرو|بات کراؤ|talk to|call|summon|bulaya|bulao|bulalo)/i;
 
 // A spoken call opens with a particle — «اے یونیکا!» / «ارے یونیکا» /
 // «hello Uniqa» — and speech engines return Arabic codepoints (ي/ك)
@@ -222,6 +231,7 @@ export function detectPersonaSummon(rawText: string, current: Persona): PersonaS
       .replace(nameRe, ' ')
       .replace(SUMMON_VERB_RE, ' ')
       .replace(/(کو|سے|جی|please)/gi, ' ')
+      .replace(/\b(ko|se)\b/gi, ' ')
       .replace(/[،,۔.!?؟\s]+/g, ' ')
       .trim();
     if (!residue) return { target, rest: '', pure: true };

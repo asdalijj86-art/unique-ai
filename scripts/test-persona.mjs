@@ -120,6 +120,11 @@ check('«ارے یونیکا» → Uniqa, pure', S('ارے یونیکا', 'uniqu
 const prefOpener = S('ارے یونیکا، مجھے ایک کہانی سناؤ', 'unique');
 checkTrue('opener + prefix request switches to Uniqa and forwards rest', prefOpener?.target === 'uniqa' && prefOpener?.pure === false && prefOpener.rest.includes('کہانی'), JSON.stringify(prefOpener));
 check('Roman ASR variant "unika" → Uniqa, pure', S('unika', 'unique'), { target: 'uniqa', pure: true, rest: '' });
+check('Devanagari "यूनिक" from Uniqa → Unique, pure', S('यूनिक', 'uniqa'), { target: 'unique', pure: true, rest: '' });
+check('Devanagari "यूनिका" from Unique → Uniqa, pure', S('यूनिका', 'unique'), { target: 'uniqa', pure: true, rest: '' });
+check('Devanagari "यूनिका" must not match Unique (prefix guard)', S('यूनिका', 'unique')?.target, 'uniqa');
+check('Roman Hindi "unique ko bulaya" from Uniqa → Unique, pure', S('unique ko bulaya', 'uniqa'), { target: 'unique', pure: true, rest: '' });
+check('Roman Hindi "uniqa ko bulaya" from Unique → Uniqa, pure', S('uniqa ko bulaya', 'unique'), { target: 'uniqa', pure: true, rest: '' });
 check('Roman ASR variant "yunika" → Uniqa, pure', S('yunika', 'unique'), { target: 'uniqa', pure: true, rest: '' });
 check('Arabic-codepoint «يونيكا» → Uniqa, pure', S('يونيكا', 'unique'), { target: 'uniqa', pure: true, rest: '' });
 check('«اے یونیک» while Unique present → null (already Unique)', S('اے یونیک', 'unique'), null);

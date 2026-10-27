@@ -2496,6 +2496,15 @@ export default function ChatPage() {
           },
           isStale: speechStale,
           shouldSkipExtendedRetry: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
+          // RUK-RUK FIX (2026-10-27): same dead-legs verdict, applied
+          // per chunk — once this reply has proven Gemini dead AND
+          // Edge dead, later chunks must not re-burn 3 chain passes
+          // on those legs. The first failed chunk still tries its
+          // full chain (that is what proves the legs dead); every
+          // chunk after it costs one pass, then moves on — silence
+          // between lines, not minutes of it. Live legs are never
+          // fail-fasted, and a new ticket resets the circuit.
+          failFast: () => replyCircuitRef.current.ticket === speechTicketRef.current && replyCircuitRef.current.geminiDead && Date.now() < replyCircuitRef.current.edgeDeadUntil,
           wasPlaybackBlocked: () => playbackBlockedRef.current,
           failureDetail: () => lastVoiceFailureRef.current,
           legDiagnostic: () => legDiagnosticText(lastLegFailuresRef.current),
