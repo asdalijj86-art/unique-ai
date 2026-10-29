@@ -5,7 +5,7 @@ import {
   parseDialogue, speakingCharacters, computeEnvelope, mouthOpen, wrapLines,
   upsertCharacterLock, loadCharacterLocks, ensureCharacterLocks,
   saveVideoMakerJob, loadVideoMakerJob, videoMakerStatusText,
-  isVideoMakerStatusQuery, shouldInterceptVideoMakerStatus,
+  isVideoMakerStatusQuery, shouldInterceptVideoMakerStatus, sceneMotion,
   autoVoiceFor, autoSpeciesFor, autoHueFor,
   VIDEO_SCENE_SECONDS,
 } from '/home/hatch/workspace/unique-ai-clean/client/src/lib/video-maker.ts';
@@ -95,6 +95,16 @@ check('status: app question + done video job does NOT intercept', shouldIntercep
 check('status: game question + done video job does NOT intercept', shouldInterceptVideoMakerStatus('میری گیم بن گئی؟', doneJob) === false);
 check('status: no job never intercepts', shouldInterceptVideoMakerStatus('میرا کام کہاں تک پہنچا؟', null) === false);
 check('status: ordinary chat never intercepts', shouldInterceptVideoMakerStatus('چائے بن گئی؟', doneJob) === false);
+
+// 11. CapCut/Flow-STYLE motion (2026-10-29): zoom grows, pan alternates,
+// intro ramps in — still pictures never sit static.
+const m0 = sceneMotion(0, 0, 10);
+const m0end = sceneMotion(0, 10, 10);
+const m1end = sceneMotion(1, 10, 10);
+check('motion: zoom grows over scene', m0end.zoom > m0.zoom);
+check('motion: intro ramps 0→1', m0.intro < 1 && sceneMotion(0, 0.8, 10).intro === 1);
+check('motion: pan alternates per scene', Math.sign(m0end.panX) === 1 && Math.sign(m1end.panX) === -1);
+check('motion: pan is small, not a jump', Math.abs(m0end.panX) <= 0.05 && Math.abs(m0end.panY) <= 0.03);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

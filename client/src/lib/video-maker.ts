@@ -378,6 +378,30 @@ export function mouthOpen(envelopeValue: number): number {
   return Math.min(1, (envelopeValue - 0.08) * 1.8);
 }
 
+/**
+ * CapCut/Flow-STYLE motion, in-browser and free (2026-10-29 addition).
+ * No proprietary CapCut or Google Flow/Veo engine is embedded — those
+ * are paid, closed engines and cannot run in this app. What IS added
+ * is their style, computed from the scene index and time:
+ * - Ken Burns zoom + pan: every scene slowly zooms in (0.94× → 1.12×
+ *   over its 10s) and pans sideways, alternating direction per scene,
+ *   so a still picture never sits static like a slideshow.
+ * - Scene-intro motion: the first 0.8s of every scene scales in from
+ *   0.94×, so each scene arrives with movement, not a hard cut.
+ * Pure and headlessly testable, so the motion math is pinned by tests.
+ */
+export function sceneMotion(sceneIdx: number, tInScene: number, sceneSeconds: number): {
+  zoom: number; panX: number; panY: number; intro: number;
+} {
+  const t = Math.max(0, Math.min(sceneSeconds, tInScene));
+  const intro = Math.min(1, t / 0.8);
+  const progress = sceneSeconds > 0 ? t / sceneSeconds : 0;
+  const zoom = (1.0 + progress * 0.12) * (0.94 + 0.06 * intro);
+  const panX = (sceneIdx % 2 === 0 ? 1 : -1) * progress * 0.04;
+  const panY = ((sceneIdx % 3) - 1) * progress * 0.02;
+  return { zoom, panX, panY, intro };
+}
+
 /** Word-wrap for canvas subtitles (measured in characters, not pixels). */
 export function wrapLines(text: string, maxChars: number): string[] {
   const words = String(text || '').split(/\s+/).filter(Boolean);

@@ -49,6 +49,7 @@ import {
   mouthOpen,
   parseDialogue,
   saveVideoMakerJob,
+  sceneMotion,
   speakingCharacters,
   upsertCharacterLock,
   videoMakerStatusText,
@@ -58,7 +59,12 @@ import {
 const CANVAS_W = 540;
 const CANVAS_H = 960;
 const FPS = 30;
-const PLAYBACK_RATE = 1.1; // slightly fast but clear, like chat speech
+const PLAYBACK_RATE = 1.1; // FAST-BUT-CLEAR LOCK (2026-10-29): speech is
+// slightly fast so dialogue fits its scene and never feels late, but
+// never sped to unintelligibility and never shortened — every word
+// spoken, exactly as written. MediaRecorder itself is real-time, so
+// recording a 60s video still takes ~60s; everything around it
+// (audio, setup, UI, export) is kept snappy with no slow fades.
 
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -314,6 +320,9 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
     setError('');
     setVideoUrl(null);
     setBusy(true);
+    // FAST START: progress shows at once, before any audio call, so
+    // the user never stares at a stuck panel while TTS works.
+    setProgress('شروع ہو رہا ہے — پہلی آواز بن رہی ہے…');
     const title = prompt.trim().slice(0, 40);
     const jobBase = {
       id: `${Date.now()}`,
@@ -419,25 +428,32 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
         grad.addColorStop(1, `hsl(${(hue + 40) % 360}, 50%, 8%)`);
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        // CapCut/Flow-STYLE motion (in-browser, free — no proprietary
+        // CapCut or Veo engine is embedded): per-scene Ken Burns
+        // zoom + pan, scene-intro scale-in, and a speaking bob, so
+        // still pictures never sit static. Voice matching: the
+        // scene's audio starts exactly at the scene start (src.start
+        // at i × 10s above), never late, and the jaw below is driven
+        // by that finished audio's envelope, not by imagined speech.
+        const motion = sceneMotion(sceneIdx, tInScene, VIDEO_SCENE_SECONDS);
+        const envIdx = Math.min(rs.envelope.length - 1, Math.floor(tInScene * FPS * PLAYBACK_RATE * 2));
+        const mouth = mouthOpen(rs.envelope[envIdx] || 0);
         // Character area (upper 2/3)
         const cy = CANVAS_H * 0.38;
         if (rs.image) {
-          // Ken Burns: slow zoom so a still photo feels like footage.
-          const zoom = 1.0 + (tInScene / VIDEO_SCENE_SECONDS) * 0.08;
           const iw = rs.image.width;
           const ih = rs.image.height;
-          const scale = Math.max((CANVAS_W * zoom) / iw, (CANVAS_H * 0.72 * zoom) / ih);
+          const scale = Math.max((CANVAS_W * motion.zoom) / iw, (CANVAS_H * 0.72 * motion.zoom) / ih);
           const dw = iw * scale;
           const dh = ih * scale;
-          ctx.drawImage(rs.image, (CANVAS_W - dw) / 2, cy - dh / 2 + CANVAS_H * 0.05, dw, dh);
+          const sway = !scene.isNarrator && mouth > 0 ? Math.sin(absTime * 6) * 4 : 0;
+          ctx.drawImage(rs.image, (CANVAS_W - dw) / 2 + motion.panX * CANVAS_W, cy - dh / 2 + CANVAS_H * 0.05 + motion.panY * CANVAS_H + sway, dw, dh);
           // Visible speaking jaw over the photo's lower face: the
           // envelope-driven mouth, big enough to see on a phone.
-          const envIdx = Math.min(rs.envelope.length - 1, Math.floor(tInScene * FPS * PLAYBACK_RATE * 2));
-          const m = mouthOpen(rs.envelope[envIdx] || 0);
-          if (!scene.isNarrator && m > 0) {
+          if (!scene.isNarrator && mouth > 0) {
             ctx.fillStyle = 'rgba(40, 8, 14, 0.9)';
             ctx.beginPath();
-            ctx.ellipse(CANVAS_W / 2, cy + CANVAS_H * 0.14, 52, 8 + m * 34, 0, 0, Math.PI * 2);
+            ctx.ellipse(CANVAS_W / 2 + motion.panX * CANVAS_W, cy + CANVAS_H * 0.14 + sway, 52, 8 + mouth * 34, 0, 0, Math.PI * 2);
             ctx.fill();
           }
         } else if (scene.isNarrator) {
@@ -454,47 +470,73 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
           ctx.fillText('🎙️ راوی', CANVAS_W / 2, cy + 110);
         } else {
           // Speaking character, no photo: the deterministic cartoon
-          // face is LARGE and centred (r=165 on a 540-wide canvas, so
+          // face is LARGE and centred (r≈165 on a 540-wide canvas, so
           // it fills the frame, not a small waveform) with a head bob
           // while speaking — this is the part the live test never saw,
           // because the speaking scene had been merged away by the
           // parser. Mouth is envelope-driven only, never phoneme-matched.
-          const envIdx = Math.min(rs.envelope.length - 1, Math.floor(tInScene * FPS * PLAYBACK_RATE * 2));
-          const m = mouthOpen(rs.envelope[envIdx] || 0);
           const blink = (absTime % 3.7) < 0.15;
-          const bob = m > 0 ? Math.sin(absTime * 6) * 5 : 0;
-          drawAutoFace(ctx, scene.speaker, m, blink, CANVAS_W / 2, cy + bob, 165);
+          const bob = mouth > 0 ? Math.sin(absTime * 6) * 5 : 0;
+          const faceR = 155 * motion.zoom;
+          drawAutoFace(ctx, scene.speaker, mouth, blink, CANVAS_W / 2 + motion.panX * CANVAS_W, cy + bob, faceR);
           ctx.fillStyle = '#fff';
           ctx.font = 'bold 34px sans-serif';
           ctx.textAlign = 'center';
           ctx.direction = 'rtl';
-          ctx.fillText(scene.speaker, CANVAS_W / 2, cy + 215);
+          ctx.fillText(scene.speaker, CANVAS_W / 2, cy + faceR + 50);
         }
-        // Subtitles: the EXACT dialogue, wrapped, high contrast.
-        const lines = wrapLines(scene.text, 26);
-        ctx.font = 'bold 30px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.direction = 'rtl';
-        const lineH = 42;
-        const boxH = lines.length * lineH + 24;
-        const boxY = CANVAS_H - boxH - 30;
-        ctx.fillStyle = 'rgba(0,0,0,0.65)';
-        ctx.beginPath();
-        ctx.roundRect(24, boxY, CANVAS_W - 48, boxH, 14);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        lines.forEach((line, li) => {
-          ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-          ctx.lineWidth = 4;
-          ctx.strokeText(line, CANVAS_W / 2, boxY + 34 + li * lineH);
-          ctx.fillText(line, CANVAS_W / 2, boxY + 34 + li * lineH);
-        });
-        // Title card on the first scene's first 2 seconds.
+        // Subtitles: the EXACT dialogue, wrapped, high contrast, and
+        // TIMED to the dialogue itself — visible while the scene's
+        // audio plays (audio starts at the scene start, at 1.1×), then
+        // a quick 0.5s fade, not for the whole 10s scene. No words
+        // are dropped or rewritten to fit.
+        const audioSeconds = rs.audio.duration / PLAYBACK_RATE;
+        const subAlpha = tInScene < audioSeconds ? 1 : tInScene < audioSeconds + 0.5 ? (audioSeconds + 0.5 - tInScene) / 0.5 : 0;
+        if (subAlpha > 0) {
+          ctx.save();
+          ctx.globalAlpha = subAlpha;
+          const lines = wrapLines(scene.text, 26);
+          ctx.font = 'bold 30px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.direction = 'rtl';
+          const lineH = 42;
+          const boxH = lines.length * lineH + 24;
+          const boxY = CANVAS_H - boxH - 30;
+          ctx.fillStyle = 'rgba(0,0,0,0.65)';
+          ctx.beginPath();
+          ctx.roundRect(24, boxY, CANVAS_W - 48, boxH, 14);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          lines.forEach((line, li) => {
+            ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+            ctx.lineWidth = 4;
+            ctx.strokeText(line, CANVAS_W / 2, boxY + 34 + li * lineH);
+            ctx.fillText(line, CANVAS_W / 2, boxY + 34 + li * lineH);
+          });
+          ctx.restore();
+        }
+        // Title card on the first scene's first 2 seconds (snappy
+        // 0.5s in, 0.5s out — no slow fade).
         if (sceneIdx === 0 && tInScene < 2) {
           ctx.globalAlpha = Math.min(1, tInScene / 0.5) * (tInScene > 1.5 ? (2 - tInScene) / 0.5 : 1);
           ctx.fillStyle = '#fff';
           ctx.font = 'bold 36px sans-serif';
+          ctx.textAlign = 'center';
           ctx.fillText(title, CANVAS_W / 2, 90);
+          ctx.globalAlpha = 1;
+        }
+        // End card: last scene's last 2 seconds, fading in fast.
+        if (sceneIdx === rendered.length - 1 && tInScene > VIDEO_SCENE_SECONDS - 2) {
+          const a = Math.min(1, (tInScene - (VIDEO_SCENE_SECONDS - 2)) / 0.5) * 0.85;
+          ctx.fillStyle = `rgba(0,0,0,${a})`;
+          ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+          ctx.globalAlpha = Math.min(1, (tInScene - (VIDEO_SCENE_SECONDS - 2)) / 0.5);
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 38px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('شکریہ!', CANVAS_W / 2, CANVAS_H / 2 - 10);
+          ctx.font = 'bold 28px sans-serif';
+          ctx.fillText('سبسکرائب کریں', CANVAS_W / 2, CANVAS_H / 2 + 40);
           ctx.globalAlpha = 1;
         }
       };
@@ -589,7 +631,14 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
       <div className="tool-small-note" style={{ textAlign: 'right' }}>
         ⚠️ <b>سچائی:</b> ہونٹ آڈیو کی طاقت سے ہلتے ہیں (منہ کھلتا/بند ہوتا ہے) — یہ ہر حرف کی شکل والا
         فونیم لپ سنک <b>نہیں</b> ہے، اور کوئی مفت ٹول اس وقت اردو جانوروں کے لیے وہ نہیں دیتا۔ ایکسپورٹ WebM
-        ہے، MP4 نہیں۔ فائل صرف اس سیشن میں رہتی ہے — بنتے ہی ڈاؤن لوڈ کر لیں۔
+        ہے، MP4 نہیں۔ فائل صرف اس سیشن میں رہتی ہے — بنتے ہی ڈاؤن لوڈ کر لیں۔ رفتار: آواز تھوڑی تیز مگر
+        صاف ہے، اور ریکارڈنگ خود ریئل ٹائم ہے — 60 سیکنڈ کی ویڈیو ریکارڈ ہونے میں تقریباً 60 سیکنڈ لگیں گے۔
+      </div>
+      <div className="tool-small-note" style={{ textAlign: 'right' }}>
+        🎬 <b>ایڈیٹنگ (CapCut/Flow انداز، مفت، اسی ایپ میں):</b> ہر سین میں زوم + پین، سین کی شروعاتی حرکت،
+        بولتے کردار کا ہلنا، 0.6 سیکنڈ کراس فیڈ، ٹائٹل کارڈ، اینڈ کارڈ، مکالمے سے ملے ہوئے سب ٹائٹل، اور
+        مکالمے کے نیچے ہلکی بیک گراؤنڈ آواز۔ اصل CapCut یا Google Flow/Veo انجن اس میں نہیں ہے — وہ
+        بند، پیسے والے انجن ہیں — یہ ان کے انداز کی مفت، براؤزر میں چلنے والی ایڈیٹنگ ہے۔
       </div>
 
       <div className="tool-label">پرامپٹ / کہانی / مکالمہ (ہر لائن: «نام: مکالمہ» — بغیر نام کی لائن راوی بن جاتی ہے):</div>
