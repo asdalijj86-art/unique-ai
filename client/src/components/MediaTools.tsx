@@ -1586,16 +1586,24 @@ function ImageToolsHub({ initialSection, onBrainTool }: {
 }
 
 // --- hub: ALL video tools in one ---------------------------------------------------
-function VideoToolsHub({ initialSection }: { initialSection?: string }) {
+function VideoToolsHub({ initialSection, initialVideoPrompt }: {
+  initialSection?: string;
+  initialVideoPrompt?: { prompt: string; autoStart: boolean; signal: number } | null;
+}) {
   const [section, setSection] = useState<VideoSection>(
     (VIDEO_SECTIONS as string[]).includes(initialSection || '')
       ? (initialSection as VideoSection)
       : 'video_upload',
   );
+  // A chat-routed order while the hub is already open still lands
+  // on the maker section (the hub's section state otherwise sticks).
+  useEffect(() => {
+    if (initialVideoPrompt?.signal) setSection('video_maker');
+  }, [initialVideoPrompt?.signal]);
   return (
     <div>
       <SectionTabs sections={VIDEO_SECTIONS} titles={VIDEO_SECTION_TITLES} active={section} onChange={setSection} />
-      {section === 'video_maker' && <VideoMaker embedded onClose={() => { /* hub header closes */ }} />}
+      {section === 'video_maker' && <VideoMaker embedded onClose={() => { /* hub header closes */ }} initialPrompt={initialVideoPrompt?.prompt} autoStart={initialVideoPrompt?.autoStart} autoStartSignal={initialVideoPrompt?.signal} />}
       {section === 'video_upload' && <VideoUpload />}
       {section === 'video_creator' && <VideoCreator embedded onClose={() => { /* hub header closes */ }} />}
     </div>
@@ -1603,11 +1611,12 @@ function VideoToolsHub({ initialSection }: { initialSection?: string }) {
 }
 
 // --- main -------------------------------------------------------------------------------
-export default function MediaTools({ tool, onClose, initialPhone, initialSection, onBrainTool }: {
+export default function MediaTools({ tool, onClose, initialPhone, initialSection, initialVideoPrompt, onBrainTool }: {
   tool: MediaToolName;
   onClose: () => void;
   initialPhone?: string;
   initialSection?: string;
+  initialVideoPrompt?: { prompt: string; autoStart: boolean; signal: number } | null;
   onBrainTool?: (example: string) => void;
 }) {
   // Defensive: a legacy/unknown id (e.g. from the server's open_tool action
@@ -1640,7 +1649,7 @@ export default function MediaTools({ tool, onClose, initialPhone, initialSection
       </div>
       <div className="tool-results-body">
         {activeTool === 'image_tools' && <ImageToolsHub initialSection={section} onBrainTool={onBrainTool} />}
-        {activeTool === 'video_tools' && <VideoToolsHub initialSection={section} />}
+        {activeTool === 'video_tools' && <VideoToolsHub initialSection={section} initialVideoPrompt={initialVideoPrompt} />}
         {activeTool === 'pdf' && <PdfTools />}
         {activeTool === 'audio_to_text' && <AudioToText />}
         {activeTool === 'email' && <EmailHelper />}

@@ -378,6 +378,40 @@ export function isCommandShaped(text, limit = COMMAND_WORD_LIMIT) {
   return n > 0 && n <= limit;
 }
 
+// --- video-maker order (DENIAL FIX, 2026-10-29) ---------------------------
+// Mirror of the client matcher in lib/video-maker.ts (same semantics,
+// kept in sync by tests on both sides). A video order is an EXPLICIT
+// order, not a mere mention, so it bypasses the command-shape gate:
+// the 2026-10-29 live denial was a 17-word order («ابھی جو کچھ کہ
+// میں نے بھیجا ہے نا ٹھیک ہے یہ ویڈیو بنا کے دو مجھے») that the
+// 12-word gate rejected into plain chat, where the model invented
+// "no video maker engine". This runs for ANY persona — classifyIntent
+// takes no persona argument, so Uniqa and Unique route identically.
+// Package / upload / app-build orders and "how is a video made"
+// questions are excluded here, exactly as on the client.
+export function isVideoMakerOrder(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  // CHAT-ONLY FLOW (2026-10-29, user acceptance): a story prompt
+  // pasted straight into chat — two or more speaker-labelled lines
+  // — IS itself the video order, even with no «ویڈیو بناؤ» words.
+  const speakerLines = t.split('\n').filter((line) => {
+    const m = /^([^:\n]{1,30}):\s*\S/.exec(line.trim());
+    return Boolean(m) && !/(ویڈیو|video|بناؤ|بنا|make|create)/i.test(m[1]);
+  });
+  if (speakerLines.length >= 2
+    && !/(اسکرپٹ لکھو|script likho|ٹائٹل بتاؤ|title batao|ہیش ٹیگ|hashtag|ویڈیو کا پلان|video ka plan|ویڈیو پیکج|video package|پیکج بناؤ|package banao|پیکج بنا دو)/i.test(t)) return true;
+  if (!/(ویڈیو|video)/i.test(t)) return false;
+  if (/(اسکرپٹ لکھو|script likho|ٹائٹل بتاؤ|title batao|ہیش ٹیگ|hashtag|ویڈیو کا پلان|video ka plan|ویڈیو پیکج|video package|پیکج بناؤ|package banao|پیکج بنا دو)/i.test(t)) return false;
+  if (/(اپلوڈ|upload|لگاؤ|lagao)/i.test(t)) return false;
+  if (/(ایپ|گیم|سافٹ ویئر|ویب سائٹ|app|game|software|website)/i.test(t)) return false;
+  if (/(کیسے|طریقہ|how to|طریقہ کار)/i.test(t)) return false;
+  if (/(بن رہی|بن گئی|بن گیا|کہاں تک|کتنا ہو)/i.test(t)) return false;
+  if (/(بناؤ|بنا|بنائیں|بنائیے|banao|bana|banado|make|create|میکر|maker)/i.test(t)) return true;
+  if (/(جو.*بھیجا|جو کچھ|اس کی|اسی کی|یہ والی|jo bheja|is ki)/i.test(t)) return true;
+  return false;
+}
+
 // --- Quran command detection -------------------------------------------------
 // An explicit Quran reference (the word قرآن / سورت / تلاوت …) OR a surah
 // NAME matched as a whole TOKEN — never as a substring of a longer word
@@ -493,6 +527,19 @@ export function classifyIntent(text) {
   const website = parseWebsiteCommand(message);
   if (website) {
     return { intent: 'open_website', website };
+  }
+
+  // Video-maker orders win over the command-shape gate below (DENIAL
+  // FIX, 2026-10-29): an explicit video order at ANY length, from
+  // ANY persona, opens the in-app Video Maker — it must never fall
+  // through to the chat model, which invented "no video maker
+  // engine" for a 17-word order the gate had rejected. The client
+  // intercepts these orders locally too (and prefills / auto-starts
+  // the maker from the previous message when the order refers to
+  // it); this server pre-gate is the second layer for any path that
+  // reaches /api/openai/chat directly.
+  if (isVideoMakerOrder(message)) {
+    return { intent: 'media_tool', tool: 'video_maker' };
   }
 
   // CLASS GATE (router-hijack fix): everything below is a canned

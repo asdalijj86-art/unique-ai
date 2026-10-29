@@ -118,5 +118,29 @@ check('motion: intro ramps 0→1', m0.intro < 1 && sceneMotion(0, 0.8, 10).intro
 check('motion: pan alternates per scene', Math.sign(m0end.panX) === 1 && Math.sign(m1end.panX) === -1);
 check('motion: pan is small, not a jump', Math.abs(m0end.panX) <= 0.05 && Math.abs(m0end.panY) <= 0.03);
 
+// 13. DENIAL FIX (2026-10-29) + CHAT-ONLY FLOW: a video order in
+// chat — any length, either persona (the matcher takes NO persona
+// argument, so Uniqa and Unique route identically) — must reach
+// the maker, never the chat model that invented "no video maker".
+import { isVideoMakerOrder, extractVideoMakerPrompt } from '/home/hatch/workspace/unique-ai-clean/client/src/lib/video-maker.ts';
+const SCREENSHOT = 'ابھی جو کچھ کہ میں نے بھیجا ہے نا ٹھیک ہے یہ ویڈیو بنا کے دو مجھے';
+check('denial: screenshot order is 17 words (over the old 12-word gate)', SCREENSHOT.trim().split(/\s+/).length === 17);
+check('denial: screenshot order routes to maker', isVideoMakerOrder(SCREENSHOT) === true);
+check('denial: short order routes', isVideoMakerOrder('یہ ویڈیو بنا کے دو') === true);
+check('denial: referential order routes', isVideoMakerOrder('جو بھیجا ہے اس کی ویڈیو بناؤ') === true);
+check('denial: roman order routes', isVideoMakerOrder('video bana do') === true);
+check('denial: story prompt pasted in chat routes (2 speaker lines)', isVideoMakerOrder('شاہ: یاد رکھو! اس جنگل میں میری اجازت کے بغیر کوئی فیصلہ نہیں ہوگا!\nزال: بادشاہ سلامت! آپ کی حکومت کا سورج اب ڈوبنے والا ہے!') === true);
+check('denial: single quoted line stays chat', isVideoMakerOrder('شاہ: یاد رکھو!') === false);
+check('denial: package order stays package', isVideoMakerOrder('ویڈیو کا پلان بتاؤ') === false);
+check('denial: upload order stays upload', isVideoMakerOrder('ویڈیو اپلوڈ کرو') === false);
+check('denial: how-to question stays chat', isVideoMakerOrder('ویڈیو کیسے بنتی ہے؟') === false);
+check('denial: status question is NOT a new order', isVideoMakerOrder('میری ویڈیو بن رہی ہے؟') === false);
+check('denial: app build is NOT a video order', isVideoMakerOrder('ویڈیو ایپ بناؤ') === false);
+const DAY1 = 'راوی: اس جنگل میں شیر شاہ کی حکومت تھی!\nشاہ: یاد رکھو! اس جنگل میں میری اجازت کے بغیر کوئی فیصلہ نہیں ہوگا!';
+check('denial: referential order reuses previous message as prompt', extractVideoMakerPrompt(SCREENSHOT, DAY1) === DAY1);
+check('denial: bare order reuses contentful previous message', extractVideoMakerPrompt('ویڈیو بناؤ', DAY1) === DAY1);
+check('denial: bare order with no previous content gives blank (honest, no fake job)', extractVideoMakerPrompt('یہ ویڈیو بنا کے دو مجھے', null) === '');
+check('denial: dialogue inside the order itself is used', extractVideoMakerPrompt('ویڈیو بناؤ:\nشاہ: یاد رکھو!', null).startsWith('شاہ: یاد رکھو!'));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

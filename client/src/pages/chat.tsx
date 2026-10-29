@@ -57,7 +57,7 @@ import {
   formatLearningsList,
 } from '@/lib/learnings';
 import { loadLastDocument } from '@/lib/doc-pdf';
-import { isVideoMakerStatusQuery, loadVideoMakerJob, shouldInterceptVideoMakerStatus, videoMakerStatusText } from '@/lib/video-maker';
+import { extractVideoMakerPrompt, isVideoMakerOrder, isVideoMakerStatusQuery, loadVideoMakerJob, shouldInterceptVideoMakerStatus, videoMakerStatusText } from '@/lib/video-maker';
 import VideoJobIndicator from '@/components/VideoJobIndicator';
 import { parseSurahReference, surahDisplayName } from '@/lib/surah-names';
 import {
@@ -350,6 +350,9 @@ export default function ChatPage() {
     setQuranAutoplayReq({ signal: quranSignalRef.current, surah, speak: speakRecitation });
   }
   const [toolPrefill, setToolPrefill] = useState<{ phone?: string } | null>(null);
+  // Chat-routed video order: the prompt the maker opens with, and
+  // whether it auto-starts. Cleared when the panel closes.
+  const [videoMakerPrefill, setVideoMakerPrefill] = useState<{ prompt: string; autoStart: boolean; signal: number } | null>(null);
   // Continuous voice mode (hands-free): listen -> auto-send on silence -> auto-speak reply.
   const [continuousVoice, setContinuousVoice] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState('');
@@ -1212,6 +1215,11 @@ export default function ChatPage() {
     // job exists, unless the question clearly names an app/game;
     // otherwise the server's builder-status path runs untouched.
     if (!attachedImage && handleVideoMakerStatusQuery(text)) return;
+    // Chat-only video flow: a video order never reaches the chat
+    // model (see handleVideoMakerOrder) — it opens + auto-starts
+    // the maker in front of the user. Status questions above take
+    // precedence so "بن رہی ہے؟" is answered, not re-ordered.
+    if (!attachedImage && handleVideoMakerOrder(text)) return;
     // Learning memory (Round 5): every message that reaches the brain
     // is also quietly mined for durable facts about this person
     // (name / likes / facts — lib/learnings). Fully silent: no card,
@@ -1575,6 +1583,60 @@ export default function ChatPage() {
         { id: createId(), role: 'assistant' as const, content: reply, createdAt: now },
       ],
     }));
+    setMediaTool('video_tools');
+    setToolSection('video_maker');
+    void playAssistantMessage(reply);
+    return true;
+  }
+
+  // CHAT-ONLY VIDEO FLOW (2026-10-29, DENIAL FIX + user acceptance):
+  // a video order in chat — at ANY length, from EITHER persona
+  // (this runs after persona handling, so Uniqa and Unique both
+  // reach it), a referential order ("جو بھیجا ہے اس کی ویڈیو
+  // بناؤ"), or a story prompt pasted straight into chat — must
+  // NEVER go to the chat model (which invented "no video maker
+  // engine" for the 17-word screenshot order) and must NEVER end
+  // with "go open the maker tab yourself". Instead, locally: the
+  // maker panel opens IN FRONT of the user, prefilled with the
+  // ordered prompt (or the previous message it referred to), and
+  // auto-starts a REAL job when there is a prompt to build from.
+  // The maker tab remains only a fallback for a blank order. No
+  // permission is asked: video orders are fully permitted inside
+  // the app by standing user order. If there is genuinely no
+  // prompt to build from, the maker opens blank and the reply
+  // says so plainly — no fake job, no fake link.
+  function handleVideoMakerOrder(textValue: string): boolean {
+    const text = textValue.trim();
+    if (!text || !isVideoMakerOrder(text)) return false;
+    const prevUser = [...(activeConversation?.messages ?? [])]
+      .reverse().find((m) => m.role === 'user')?.content ?? null;
+    const prompt = extractVideoMakerPrompt(text, prevUser);
+    const reply = prompt
+      ? 'ویڈیو میکر اسی ایپ میں موجود ہے — میں نے اسے کھول دیا ہے اور آپ کا پرامپٹ اس میں ڈال دیا ہے، ویڈیو بننا شروع ہو گئی ہے۔ اوپر والا نشان اس کی حالت دکھائے گا، اور بنتے ہی ڈاؤن لوڈ بٹن وہیں ہوگا۔'
+      : 'ویڈیو میکر اسی ایپ میں موجود ہے — میں نے اسے کھول دیا ہے۔ اس میں اپنا پرامپٹ یا مکالمہ ڈالیں اور «ویڈیو بنائیں» دبائیں، باقی سب خود ہوگا۔';
+    let conversation = activeConversation;
+    if (!conversation) {
+      conversation = {
+        id: createId(),
+        title: text.length > 42 ? `${text.slice(0, 42).trim()}…` : text,
+        updatedAt: new Date().toISOString(),
+        messages: [],
+      };
+      setConversations((current) => [conversation!, ...current]);
+      setActiveId(conversation.id);
+    }
+    const id = conversation.id;
+    const now = new Date().toISOString();
+    updateConversation(id, (item) => ({
+      ...item,
+      updatedAt: now,
+      messages: [
+        ...item.messages,
+        { id: createId(), role: 'user' as const, content: text, createdAt: now },
+        { id: createId(), role: 'assistant' as const, content: reply, createdAt: now },
+      ],
+    }));
+    setVideoMakerPrefill({ prompt, autoStart: Boolean(prompt), signal: Date.now() });
     setMediaTool('video_tools');
     setToolSection('video_maker');
     void playAssistantMessage(reply);
@@ -4228,8 +4290,9 @@ export default function ChatPage() {
           tool={mediaTool}
           initialSection={toolSection}
           initialPhone={toolPrefill?.phone}
-          onBrainTool={(example) => { setMediaTool(null); setToolPrefill(null); setToolSection(undefined); setDraft(example); textareaRef.current?.focus(); }}
-          onClose={() => { setMediaTool(null); setToolPrefill(null); setToolSection(undefined); }}
+          initialVideoPrompt={videoMakerPrefill}
+          onBrainTool={(example) => { setMediaTool(null); setToolPrefill(null); setVideoMakerPrefill(null); setToolSection(undefined); setDraft(example); textareaRef.current?.focus(); }}
+          onClose={() => { setMediaTool(null); setToolPrefill(null); setVideoMakerPrefill(null); setToolSection(undefined); }}
         />
       )}
       {/* Device pairing: stays mounted while linked so incoming

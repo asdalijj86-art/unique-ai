@@ -202,8 +202,28 @@ type RenderScene = {
   image: HTMLImageElement | null;
 };
 
-export default function VideoMaker({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
-  const [prompt, setPrompt] = useState('');
+export default function VideoMaker({ onClose, embedded = false, initialPrompt, autoStart, autoStartSignal }: {
+  onClose: () => void;
+  embedded?: boolean;
+  // Chat-routed video order (DENIAL FIX, 2026-10-29): the prompt the
+  // user ordered (or the previous message it referred to), prefilled
+  // so the maker opens ready — and, when autoStart is set, the build
+  // starts by itself, so a chat order becomes a REAL job, never a
+  // chat promise. autoStartSignal re-triggers on repeat orders
+  // while the panel is already open.
+  initialPrompt?: string;
+  autoStart?: boolean;
+  autoStartSignal?: number;
+}) {
+  const [prompt, setPrompt] = useState(initialPrompt || '');
+  const [pendingAutoStart, setPendingAutoStart] = useState(
+    Boolean(autoStart && initialPrompt && initialPrompt.trim()),
+  );
+  useEffect(() => {
+    if (initialPrompt === undefined) return;
+    setPrompt(initialPrompt);
+    if (autoStart && initialPrompt.trim()) setPendingAutoStart(true);
+  }, [initialPrompt, autoStart, autoStartSignal]);
   const [locks, setLocks] = useState<CharacterLock[]>(() => {
     try {
       return loadCharacterLocks(window.localStorage);
@@ -396,6 +416,11 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('canvas-unavailable');
       const audioCtx = new AudioContext();
+      // Chat-routed auto-start runs from an effect, not directly in
+      // the click handler, so resume explicitly while the send
+      // click's transient activation is still alive — otherwise a
+      // suspended context would record a silent audio track.
+      try { await audioCtx.resume(); } catch { /* recorder still runs; visuals unaffected */ }
       const dest = audioCtx.createMediaStreamDestination();
       // Continuous brown-noise bed under dialogue: no silent gaps.
       const bedLen = audioCtx.sampleRate * 2;
@@ -626,6 +651,17 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
       setBusy(false);
     }
   }
+
+  // Chat-routed auto-start: once the prefilled prompt is in state,
+  // start the real build (job written to the store in build's first
+  // tick) — a chat video order must become a job, not a promise.
+  useEffect(() => {
+    if (pendingAutoStart && !busy && prompt.trim()) {
+      setPendingAutoStart(false);
+      void build();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutoStart, prompt, busy]);
 
   const content = (
     <>

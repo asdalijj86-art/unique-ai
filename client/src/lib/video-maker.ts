@@ -273,6 +273,109 @@ export function shouldInterceptVideoMakerStatus(
   return true;
 }
 
+/**
+ * DENIAL FIX (2026-10-29): a video order must reach the Video Maker
+ * from ANY persona (Unique AND Uniqa) and at ANY length. Root cause
+ * of the 2026-10-29 live denial: the server's command-shape gate
+ * (12 words) rejected the user's 17-word order
+ * «ابھی جو کچھ کہ میں نے بھیجا ہے نا ٹھیک ہے یہ ویڈیو بنا کے دو
+ * مجھے», so it fell through to the chat model, which — with no
+ * knowledge of the maker in its prompt — invented "no video maker
+ * engine". There is NO persona text in this codebase that denies
+ * the maker (verified by search); the denial was a model
+ * hallucination on a misrouted order. This matcher is therefore
+ * length-independent, persona-independent (it takes no persona
+ * argument at all), and is checked by the client BEFORE any server
+ * chat call and by the server BEFORE its command-shape gate.
+ * Exclusions keep other tools intact: package orders (script /
+ * title / hashtag / plan / package) still go to the package tool,
+ * uploads still go to video_upload, app/game/software builds still
+ * go to the builder, and "how is a video made" questions stay chat.
+ */
+const VIDEO_MAKER_PACKAGE_RE =
+  /(اسکرپٹ لکھو|script likho|ٹائٹل بتاؤ|title batao|ہیش ٹیگ|hashtag|ویڈیو کا پلان|video ka plan|ویڈیو پیکج|video package|پیکج بناؤ|package banao|پیکج بنا دو)/i;
+const VIDEO_MAKER_MAKE_VERB_RE =
+  /(بناؤ|بنا|بنائیں|بنائیے|banao|bana|banado|make|create|میکر|maker)/i;
+const VIDEO_MAKER_REFERENTIAL_RE =
+  /(جو.*بھیجا|جو کچھ|اس کی|اسی کی|یہ والی|jo bheja|is ki)/i;
+
+function countSpeakerLines(text: string): number {
+  return String(text || '').split('\n').filter((line) => {
+    const m = /^([^:\n]{1,30}):\s*\S/.exec(line.trim());
+    return Boolean(m) && !/(ویڈیو|video|بناؤ|بنا|make|create)/i.test(m[1]);
+  }).length;
+}
+
+export function isVideoMakerOrder(text: string): boolean {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  // CHAT-ONLY FLOW (2026-10-29, user acceptance): a story prompt
+  // pasted straight into chat — two or more speaker-labelled lines
+  // («شاہ: …» / «راوی: …») — IS itself the video order, even with
+  // no «ویڈیو بناؤ» words. A single labelled line stays chat (it
+  // may be a quote or a question about one line).
+  if (countSpeakerLines(t) >= 2 && !VIDEO_MAKER_PACKAGE_RE.test(t)) return true;
+  if (!/(ویڈیو|video)/i.test(t)) return false;
+  if (VIDEO_MAKER_PACKAGE_RE.test(t)) return false;
+  if (/(اپلوڈ|upload|لگاؤ|lagao)/i.test(t)) return false;
+  if (/(ایپ|گیم|سافٹ ویئر|ویب سائٹ|app|game|software|website)/i.test(t)) return false;
+  if (/(کیسے|طریقہ|how to|طریقہ کار)/i.test(t)) return false;
+  // Status questions («بن رہی ہے؟», «کہاں تک پہنچا؟») are answered
+  // by the status interceptor, never routed here as new orders.
+  if (/(بن رہی|بن گئی|بن گیا|کہاں تک|کتنا ہو)/i.test(t)) return false;
+  if (VIDEO_MAKER_MAKE_VERB_RE.test(t)) return true;
+  // Referential order with no make verb: "جو بھیجا ہے، اس کی ویڈیو".
+  if (VIDEO_MAKER_REFERENTIAL_RE.test(t)) return true;
+  return false;
+}
+
+function isReferentialVideoOrder(text: string): boolean {
+  return VIDEO_MAKER_REFERENTIAL_RE.test(String(text || ''));
+}
+
+function looksLikeContent(text: string): boolean {
+  const t = String(text || '').trim();
+  if (t.length >= 30) return true;
+  if (/[^\n:]+:/.test(t)) return true; // speaker-labelled dialogue
+  return t.split(/[۔.!؟?]/).filter((s) => s.trim()).length >= 2;
+}
+
+/**
+ * The prompt the maker should open with. Referential orders ("جو
+ * بھیجا ہے اس کی ویڈیو بناؤ") and bare orders with no new prompt
+ * reuse the previous user message when it looks like content;
+ * otherwise the order's own dialogue is used, with a leading order
+ * clause stripped so it does not become a narrator scene. Returns
+ * '' when there is genuinely nothing to build from — the maker
+ * then opens blank and the reply says so plainly (no fake job).
+ */
+export function extractVideoMakerPrompt(text: string, previousUserText: string | null): string {
+  const t = String(text || '').trim();
+  const prev = String(previousUserText || '').trim();
+  // A previous message that IS itself a dialogue prompt is content
+  // to reuse; a previous bare order ("ویڈیو بناؤ") is not.
+  const prevUsable = prev && prev !== t && looksLikeContent(prev)
+    && (!isVideoMakerOrder(prev) || countSpeakerLines(prev) >= 2);
+  if (isReferentialVideoOrder(t) && prevUsable) return prev;
+  // Speaker-labelled dialogue inside the order itself wins: find
+  // the first line whose label is a name (not the order clause
+  // itself, e.g. "ویڈیو بناؤ:") and return from that line on.
+  const lines = t.split('\n');
+  let offset = 0;
+  for (const line of lines) {
+    const m = /^([^:\n]{1,30}):\s*\S/.exec(line);
+    if (m && !/(ویڈیو|video|بناؤ|بنا|make|create)/i.test(m[1])) return t.slice(offset).trim();
+    offset += line.length + 1;
+  }
+  // Bare order: reuse previous content if there is any.
+  if (prevUsable) return prev;
+  // Strip a leading order clause ("ویڈیو بناؤ: ..." / "یہ ویڈیو بنا کے دو").
+  // NOTE: no \b after the Urdu verb — \b is ASCII-only, so it
+  // never matches between an Urdu letter and a space.
+  const stripped = t.replace(/^\s*(یہ\s+)?(ویڈیو|video)[^:\n]{0,60}?(بناؤ|بنا|بنائیں|make|create)[^:\n]*:?\s*/i, '').trim();
+  return stripped && stripped !== t ? stripped : (stripped || '');
+}
+
 // ---------------------------------------------------------------------------
 // Automatic mode — no per-scene questions, no permission re-asks.
 // A prompt alone must produce a video: characters the user has never
