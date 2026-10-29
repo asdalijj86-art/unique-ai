@@ -32,6 +32,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { synthesizeMairaSpeech, synthesizeEdgeSpeech } from '@/lib/api';
+import { synthesizeSalmanClientSide, synthesizeUniqaClientSide } from '@/lib/edge-tts';
 import {
   type CharacterLock,
   type VideoJobState,
@@ -51,6 +52,7 @@ import {
   saveVideoMakerJob,
   sceneMotion,
   speakingCharacters,
+  synthesizeSceneVoice,
   upsertCharacterLock,
   videoMakerStatusText,
   wrapLines,
@@ -300,34 +302,23 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
   const characters = speakingCharacters(parsed);
 
   async function synthesizeScene(text: string, female: boolean): Promise<AudioBuffer> {
-    // Leg 1: the app's existing Gemini speech path (Settings keys, untouched).
-    // Leg 2: free Edge Salman/Uzma via the server — no key, no quota.
+    // VOICE RESILIENCE (2026-10-29): all free legs, in order, each
+    // retried once on transient errors (see lib/video-maker.ts).
     // A scene whose every leg fails FAILS the whole build plainly;
-    // it is never replaced by silence or a fake link.
-    let lastErr: unknown = null;
+    // it is never replaced by silence, a partial video, or a fake link.
+    const { audioBase64, leg } = await synthesizeSceneVoice(text, [
+      { name: 'Gemini', synth: (t) => synthesizeMairaSpeech({ text: t, female }) },
+      { name: 'سرور Edge', synth: (t) => synthesizeEdgeSpeech({ text: t, voice: female ? 'uniqa' : undefined }) },
+      { name: 'براؤزر Edge', synth: (t) => (female ? synthesizeUniqaClientSide(t) : synthesizeSalmanClientSide(t)) },
+    ]);
+    const ctx = new AudioContext();
     try {
-      const r = await synthesizeMairaSpeech({ text, female });
-      if (r?.audioBase64) {
-        const ctx = new AudioContext();
-        const buf = await ctx.decodeAudioData(base64ToBytes(r.audioBase64).buffer as ArrayBuffer);
-        await ctx.close();
-        if (buf.duration > 0.3) return buf;
-      }
-    } catch (e) {
-      lastErr = e;
+      const buf = await ctx.decodeAudioData(base64ToBytes(audioBase64).buffer as ArrayBuffer);
+      if (buf.duration > 0.3) return buf;
+      throw new Error(`آواز ناکام — ${leg} سے بہت چھوٹی آواز ملی، باقی راستے بھی آزمائے جا چکے ہیں۔`);
+    } finally {
+      await ctx.close();
     }
-    try {
-      const r = await synthesizeEdgeSpeech({ text, voice: female ? 'uniqa' : undefined });
-      if (r?.audioBase64) {
-        const ctx = new AudioContext();
-        const buf = await ctx.decodeAudioData(base64ToBytes(r.audioBase64).buffer as ArrayBuffer);
-        await ctx.close();
-        if (buf.duration > 0.3) return buf;
-      }
-    } catch (e) {
-      lastErr = e;
-    }
-    throw lastErr || new Error('tts-failed');
   }
 
   async function build() {
@@ -376,7 +367,18 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
         setProgress(`آڈیو بن رہی ہے — سین ${i + 1}/${scenes.length} (${scene.speaker})…`);
         const lock = lockByName.get(scene.speaker);
         const female = lock?.voice === 'female';
-        const audio = await synthesizeScene(scene.text, female);
+        let audio: AudioBuffer;
+        try {
+          audio = await synthesizeScene(scene.text, female);
+        } catch (e) {
+          // HONEST STOP (partial-scene policy): say exactly which
+          // scene failed and how many had already succeeded — the
+          // build then fails whole, never silently drops this scene.
+          const detail = e instanceof Error ? e.message : 'آواز نہیں بن سکی';
+          throw new Error(
+            `سین ${i + 1}/${scenes.length} (${scene.speaker}) پر رکا — اس سے پہلے ${rendered.length} سین کی آواز بن چکی تھی۔ ${detail} — خاموش ویڈیو نہیں بنائی جا رہی۔`,
+          );
+        }
         const effective = audio.duration / PLAYBACK_RATE;
         if (effective > VIDEO_SCENE_SECONDS) {
           throw new Error(
@@ -674,6 +676,9 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
         فونیم لپ سنک <b>نہیں</b> ہے، اور کوئی مفت ٹول اس وقت اردو جانوروں کے لیے وہ نہیں دیتا۔ ایکسپورٹ WebM
         ہے، MP4 نہیں۔ فائل صرف اس سیشن میں رہتی ہے — بنتے ہی ڈاؤن لوڈ کر لیں۔ رفتار: آواز تھوڑی تیز مگر
         صاف ہے، اور ریکارڈنگ خود ریئل ٹائم ہے — 60 سیکنڈ کی ویڈیو ریکارڈ ہونے میں تقریباً 60 سیکنڈ لگیں گے۔
+        آواز کے راستے: Gemini، پھر سرور Edge، پھر براؤزر Edge — ہر راستہ عارضی خرابی پر ایک بار دوبارہ آزمایا
+        جاتا ہے۔ اگر کسی سین کی آواز کسی راستے سے نہ بنے تو پوری ویڈیو ناکام ہوگی اور وجہ صاف لکھی جائے گی —
+        خاموش یا آدھی ویڈیو کبھی نہیں بنے گی۔
       </div>
       <div className="tool-small-note" style={{ textAlign: 'right' }}>
         🎬 <b>ایڈیٹنگ (CapCut/Flow انداز، مفت، اسی ایپ میں):</b> ہر سین میں زوم + پین، سین کی شروعاتی حرکت،

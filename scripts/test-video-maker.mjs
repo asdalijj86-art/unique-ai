@@ -142,5 +142,46 @@ check('denial: bare order reuses contentful previous message', extractVideoMaker
 check('denial: bare order with no previous content gives blank (honest, no fake job)', extractVideoMakerPrompt('یہ ویڈیو بنا کے دو مجھے', null) === '');
 check('denial: dialogue inside the order itself is used', extractVideoMakerPrompt('ویڈیو بناؤ:\nشاہ: یاد رکھو!', null).startsWith('شاہ: یاد رکھو!'));
 
+// 14. VOICE RESILIENCE (2026-10-29 live failure: banner "voice could
+// not be prepared"). Legs tried in order, transient leg retried once,
+// persistent leg NOT retried, every failure named in the error.
+import { synthesizeSceneVoice, classifyVoiceError } from '/home/hatch/workspace/unique-ai-clean/client/src/lib/video-maker.ts';
+const noWait = async () => {};
+let calls = [];
+const leg = (name, fn) => ({ name, synth: async (t) => { calls.push(name); return fn(t); } });
+{
+  calls = [];
+  const r = await synthesizeSceneVoice('hello', [
+    leg('Gemini', async () => { throw { data: { errorType: 'quota' } }; }),
+    leg('سرور Edge', async () => { throw { data: { errorType: 'network' } }; }),
+    leg('براؤزر Edge', async () => ({ audioBase64: 'AAA' })),
+  ], { wait: noWait });
+  check('voice: falls through to third leg', r.leg === 'براؤزر Edge' && r.audioBase64 === 'AAA', JSON.stringify(calls));
+  check('voice: quota leg NOT retried, transient leg retried once', calls.filter((c) => c === 'Gemini').length === 1 && calls.filter((c) => c === 'سرور Edge').length === 2, JSON.stringify(calls));
+}
+{
+  calls = [];
+  let err = null;
+  try {
+    await synthesizeSceneVoice('hello', [
+      leg('Gemini', async () => { throw { data: { errorType: 'quota' } }; }),
+      leg('سرور Edge', async () => { throw { data: { errorType: 'network' } }; }),
+    ], { wait: noWait });
+  } catch (e) { err = e; }
+  check('voice: all legs failed throws detailed error naming each leg', !!err && err.message.includes('Gemini') && err.message.includes('سرور Edge') && err.message.includes('quota') && !err.message.includes('tts-failed'), err?.message);
+  check('voice: first leg success wins, later legs never called', await (async () => {
+    calls = [];
+    const r = await synthesizeSceneVoice('hi', [leg('Gemini', async () => ({ audioBase64: 'X' })), leg('سرور Edge', async () => ({ audioBase64: 'Y' }))], { wait: noWait });
+    return r.leg === 'Gemini' && calls.length === 1;
+  })());
+  check('voice: empty audio counts as failure, not success', await (async () => {
+    try { await synthesizeSceneVoice('hi', [leg('Gemini', async () => ({ audioBase64: '' }))], { wait: noWait }); return false; }
+    catch (e) { return e.message.includes('خالی'); }
+  })());
+}
+check('voice: classify quota not transient', classifyVoiceError({ data: { errorType: 'quota' } }).transient === false);
+check('voice: classify network transient', classifyVoiceError({ data: { errorType: 'network' } }).transient === true);
+check('voice: classify timeout transient', classifyVoiceError({ data: { errorType: 'timeout' } }).transient === true);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

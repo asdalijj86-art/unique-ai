@@ -510,6 +510,96 @@ export function sceneMotion(sceneIdx: number, tInScene: number, sceneSeconds: nu
   return { zoom, panX, panY, intro };
 }
 
+/**
+ * VOICE RESILIENCE (2026-10-29, user's live test failed at voice):
+ * the old maker tried Gemini once, then server Edge once, and reported
+ * only "voice service problem" — hiding WHICH leg died and whether the
+ * failure was transient (Edge 502/throttle, network stall) or
+ * persistent (Gemini quota/auth exhaustion, the standing state).
+ * A transient leg deserves a retry; a persistent leg does not — it
+ * just wastes the user's time before the next leg runs.
+ *
+ * Leg order (all free, no new keys, no paid voices):
+ *   1. Gemini (app's existing path — itself rotates saved keys)
+ *   2. Server Edge (Render → Microsoft; server already retries 3x)
+ *   3. Browser Edge (user's device → Microsoft directly; helps when
+ *      the datacenter IP is throttled, fails fast in Chrome after the
+ *      first handshake memo — see lib/edge-tts)
+ * Every leg is retried ONCE after a short delay ONLY on transient
+ * (network/timeout) errors. Quota/auth errors move straight on.
+ * If every leg fails, the caller gets a detailed error naming each
+ * leg — never a generic "voice service problem".
+ *
+ * PARTIAL-SCENE POLICY (honest, documented): if one scene's voice
+ * fails, the WHOLE build fails. A silent scene or a build with only
+ * the successful scenes would drop script words and break the
+ * dialogue-first lock — and a silent video would be a lie about
+ * what was delivered. The failure message says how many scenes had
+ * already succeeded, so the user knows exactly where it stopped.
+ */
+export interface VoiceLeg {
+  name: string;
+  synth: (text: string) => Promise<{ audioBase64: string } | null | undefined>;
+}
+export interface VoiceLegFailure { leg: string; detail: string; transient: boolean }
+
+export function classifyVoiceError(e: unknown): { detail: string; transient: boolean } {
+  const raw: unknown =
+    (e as { data?: unknown } | null)?.data ??
+    (e as { error?: unknown } | null)?.error ??
+    e;
+  const type = String(
+    (raw as { errorType?: unknown } | null)?.errorType ??
+    (raw as { type?: unknown } | null)?.type ?? '',
+  ).toLowerCase();
+  const msg = String(
+    (raw as { error?: unknown } | null)?.error ??
+    (raw as { message?: unknown } | null)?.message ??
+    (typeof e === 'string' ? e : '') ??
+    '',
+  );
+  if (type === 'quota') return { detail: 'Gemini key کی حد ختم (quota)', transient: false };
+  if (type === 'auth') return { detail: 'key کی تصدیق ناکام (auth)', transient: false };
+  if (type === 'timeout' || (e as { name?: string } | null)?.name === 'AbortError')
+    return { detail: 'وقت ختم (timeout)', transient: true };
+  if (type === 'network') return { detail: 'نیٹ ورک/سرور مسئلہ', transient: true };
+  if (/quota|429/i.test(msg)) return { detail: 'حد ختم (quota)', transient: false };
+  if (/auth|401|403/i.test(msg)) return { detail: 'تصدیق ناکام (auth)', transient: false };
+  if (/timeout|timed out|abort/i.test(msg)) return { detail: 'وقت ختم (timeout)', transient: true };
+  if (msg && msg !== 'tts-failed') return { detail: msg.slice(0, 80), transient: true };
+  return { detail: 'نامعلوم خرابی', transient: true };
+}
+
+export async function synthesizeSceneVoice(
+  text: string,
+  legs: VoiceLeg[],
+  opts?: { wait?: (ms: number) => Promise<void>; retryDelayMs?: number },
+): Promise<{ audioBase64: string; leg: string }> {
+  const wait = opts?.wait ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const retryDelayMs = opts?.retryDelayMs ?? 1000;
+  const failures: VoiceLegFailure[] = [];
+  for (const leg of legs) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await leg.synth(text);
+        if (r?.audioBase64) return { audioBase64: r.audioBase64, leg: leg.name };
+        failures.push({ leg: leg.name, detail: 'خالی آواز ملی', transient: true });
+        break; // an empty reply is not fixed by an immediate retry
+      } catch (e) {
+        const c = classifyVoiceError(e);
+        if (attempt === 0 && c.transient) {
+          await wait(retryDelayMs);
+          continue;
+        }
+        failures.push({ leg: leg.name, detail: c.detail, transient: c.transient });
+        break;
+      }
+    }
+  }
+  const detail = failures.map((f) => `${f.leg}: ${f.detail}`).join('؛ ');
+  throw new Error(`آواز ناکام — کوشش کی گئی: ${detail || 'کوئی راستہ دستیاب نہیں'}`);
+}
+
 /** Word-wrap for canvas subtitles (measured in characters, not pixels). */
 export function wrapLines(text: string, maxChars: number): string[] {
   const words = String(text || '').split(/\s+/).filter(Boolean);
