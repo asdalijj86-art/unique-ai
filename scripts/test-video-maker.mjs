@@ -93,10 +93,22 @@ check('status: generic question + done job intercepts', shouldInterceptVideoMake
 check('status: video question + done job intercepts', shouldInterceptVideoMakerStatus('میری ویڈیو بن گئی؟', doneJob) === true);
 check('status: app question + done video job does NOT intercept', shouldInterceptVideoMakerStatus('میری ایپ کہاں تک پہنچی؟', doneJob) === false);
 check('status: game question + done video job does NOT intercept', shouldInterceptVideoMakerStatus('میری گیم بن گئی؟', doneJob) === false);
-check('status: no job never intercepts', shouldInterceptVideoMakerStatus('میرا کام کہاں تک پہنچا؟', null) === false);
+check('status: no job + generic question answers plainly (truth rule)', shouldInterceptVideoMakerStatus('میرا کام کہاں تک پہنچا؟', null) === true);
+check('status: no job + video question answers plainly', shouldInterceptVideoMakerStatus('میری ویڈیو بن گئی؟', null) === true);
+check('status: no job + app question goes to server', shouldInterceptVideoMakerStatus('میری ایپ کہاں تک پہنچی؟', null) === false);
+check('status: no-job text says no video job running', videoMakerStatusText(null).includes('کوئی ویڈیو جاب نہیں چل رہی'));
 check('status: ordinary chat never intercepts', shouldInterceptVideoMakerStatus('چائے بن گئی؟', doneJob) === false);
 
-// 11. CapCut/Flow-STYLE motion (2026-10-29): zoom grows, pan alternates,
+// 11. Always-visible indicator (2026-10-29): it reads ONLY this store,
+// so these round-trips are what it displays — building with scene
+// numbers, then done/failed. No store entry = idle, never "working".
+const s3 = store();
+saveVideoMakerJob(s3, { id: '2', title: 'ٹیسٹ ویڈیو', status: 'building', sceneIndex: 1, sceneTotal: 2, stage: 'آڈیو بن رہی ہے', error: '', format: 'video/webm', updatedAt: '' });
+const indJob = loadVideoMakerJob(s3);
+check('indicator: building job has scene numbers', indJob?.status === 'building' && indJob.sceneIndex === 1 && indJob.sceneTotal === 2);
+check('indicator: no job in store means idle', loadVideoMakerJob(store()) === null);
+
+// 12. CapCut/Flow-STYLE motion (2026-10-29): zoom grows, pan alternates,
 // intro ramps in — still pictures never sit static.
 const m0 = sceneMotion(0, 0, 10);
 const m0end = sceneMotion(0, 10, 10);

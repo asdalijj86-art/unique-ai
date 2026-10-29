@@ -220,7 +220,7 @@ export function saveVideoMakerJob(storage: StorageLike, job: VideoJobState): voi
 
 /** Plain-words status from the REAL job — never a chat-only promise. */
 export function videoMakerStatusText(job: VideoJobState | null): string {
-  if (!job) return 'ویڈیو میکر میں ابھی کوئی کام شروع نہیں ہوا ہے۔';
+  if (!job) return 'کوئی ویڈیو جاب نہیں چل رہی — ویڈیو میکر میں ابھی کوئی کام شروع نہیں ہوا ہے، اس لیے کوئی لنک بھی نہیں دیا جا رہا۔';
   if (job.status === 'building') {
     return `آپ کی ویڈیو ابھی بن رہی ہے — ${job.stage} (سین ${job.sceneIndex + 1} از ${job.sceneTotal})۔ یہ چیٹ کا وعدہ نہیں، ویڈیو میکر کی اصل حالت ہے۔`;
   }
@@ -260,11 +260,16 @@ export function shouldInterceptVideoMakerStatus(
   text: string,
   job: VideoJobState | null,
 ): boolean {
-  if (!job) return false;
+  // TRUTH RULE (2026-10-29, absolute): a status answer must come
+  // ONLY from the real job store. If the question names a video or
+  // is a generic work-status question and it does NOT clearly name
+  // an app/game, intercept even when there is NO video job — the
+  // reply is then videoMakerStatusText(null): plainly "no video job
+  // is running", never an invented "just a moment, link coming".
+  // App/game-named questions still go to the server builder path.
   if (!isVideoMakerStatusQuery(text)) return false;
   const t = String(text || '');
-  if (/(ویڈیو|video)/i.test(t)) return true;
-  if (/(ایپ|گیم|سافٹ ویئر|ویب سائٹ|app|game|software|website)/i.test(t)) return false;
+  if (/(ایپ|گیم|سافٹ ویئر|ویب سائٹ|app|game|software|website)/i.test(t) && !/(ویڈیو|video)/i.test(t)) return false;
   return true;
 }
 

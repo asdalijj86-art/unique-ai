@@ -711,7 +711,21 @@ export function classifyIntent(text) {
   // audio-driven animation). The old text-only package tool is NOT
   // removed: it stays in the ویڈیو ٹولز hub and is reached by explicit
   // package orders (script / title / hashtag / plan) below.
-  if (/(video banao|ویڈیو بناؤ|video maker|ویڈیو میکر|بولنے والی ویڈیو|بولتی ہوئی ویڈیو|speaking video|video bana do|ویڈیو بنا دو)/i.test(message)) {
+  // FULL PERMISSION (2026-10-29, user order): a video order must
+  // NEVER be refused with a permission excuse. Any phrasing that
+  // pairs a video word with a make/create verb («مجھے یہ ویڈیو بنا
+  // کے دو», «video bana do», «make me a video») routes here, as
+  // long as it is not an explicit package order (script/title/
+  // hashtag/plan/package) — those still go to video_creator below.
+  // If the maker itself cannot do a specific thing (phoneme
+  // lip-sync, MP4 export, a realistic face without an uploaded
+  // photo), it says that exact technical limit plainly in its own
+  // panel and still builds the best video it can — never a
+  // permission refusal.
+  const isPackageOrder = /(پیکج|package|ٹائٹل|title|ہیش ٹیگ|hashtag|اسکرپٹ|script|پلان|plan)/i.test(message);
+  const isVideoOrder = /(video|ویڈیو)/i.test(message)
+    && /(بناؤ|بنا|بنائیں|banao|bana|make|create|maker|میکر|بولنے والی|بولتی ہوئی|speaking)/i.test(message);
+  if (!isPackageOrder && isVideoOrder) {
     return { intent: 'media_tool', tool: 'video_maker' };
   }
 

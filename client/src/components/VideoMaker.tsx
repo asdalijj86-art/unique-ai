@@ -322,7 +322,10 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
     setBusy(true);
     // FAST START: progress shows at once, before any audio call, so
     // the user never stares at a stuck panel while TTS works.
-    setProgress('شروع ہو رہا ہے — پہلی آواز بن رہی ہے…');
+    // TRUTH RULE (2026-10-29, absolute): the job is written to the
+    // store FIRST, in the same tick as the first progress text, so
+    // no "video is being made" message can ever exist without a real
+    // building job behind it. No chat reassurance without a job.
     const title = prompt.trim().slice(0, 40);
     const jobBase = {
       id: `${Date.now()}`,
@@ -331,6 +334,8 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
       format: 'video/webm',
       updatedAt: new Date().toISOString(),
     };
+    updateJob({ ...jobBase, status: 'building', sceneIndex: 0, stage: 'شروع ہو رہا ہے', error: '' });
+    setProgress('شروع ہو رہا ہے — پہلی آواز بن رہی ہے…');
     // AUTOMATIC locks: every character gets a lock without asking.
     let allLocks: CharacterLock[];
     try {

@@ -58,6 +58,7 @@ import {
 } from '@/lib/learnings';
 import { loadLastDocument } from '@/lib/doc-pdf';
 import { isVideoMakerStatusQuery, loadVideoMakerJob, shouldInterceptVideoMakerStatus, videoMakerStatusText } from '@/lib/video-maker';
+import VideoJobIndicator from '@/components/VideoJobIndicator';
 import { parseSurahReference, surahDisplayName } from '@/lib/surah-names';
 import {
   loadBoardEntries,
@@ -3820,6 +3821,13 @@ export default function ChatPage() {
           )}
         </div>
       </header>
+
+      {/* ALWAYS-VISIBLE work indicator (2026-10-29): driven only by
+          the Video Maker's real job store, updated every second. It
+          shows building/rendering with scene X/Y, done/failed
+          honestly, and "no job running" when idle — never a fake
+          working sign, and never a chat reply's guess. */}
+      <VideoJobIndicator />
 
       {speechNotice && (
         <div dir="rtl" data-testid="banner-speech-notice" style={{
