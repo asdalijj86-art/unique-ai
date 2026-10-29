@@ -36,7 +36,7 @@ export type ChatAction =
   | { type: 'page_summary'; url: string; title: string; summary: string }
   // The server still names the legacy image/video tools here; the client
   // normalizes them onto the تصویر ٹولز / ویڈیو ٹولز hubs (resolveToolOpen).
-  | { type: 'open_tool'; tool: 'background_remover' | 'ocr' | 'upscaler' | 'resize' | 'image_compress' | 'text_on_image' | 'video_upload' | 'video_creator' | 'pdf' | 'audio_to_text' | 'email' | 'password_gen' | 'emi_calc' | 'resume_builder' | 'invoice_gen' | 'assignment_maker' | 'phone_lookup' | 'whatsapp_send' | 'quran'; phone?: string };
+  | { type: 'open_tool'; tool: 'background_remover' | 'ocr' | 'upscaler' | 'resize' | 'image_compress' | 'text_on_image' | 'video_upload' | 'video_creator' | 'video_maker' | 'pdf' | 'audio_to_text' | 'email' | 'password_gen' | 'emi_calc' | 'resume_builder' | 'invoice_gen' | 'assignment_maker' | 'phone_lookup' | 'whatsapp_send' | 'quran'; phone?: string };
 
 export type ChatResponse = {
   text: string;

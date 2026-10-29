@@ -16,6 +16,7 @@ import { Loader2 } from 'lucide-react';
 import { saveLastDocument, downloadDocumentPdf } from '../lib/doc-pdf';
 import VideoUpload from './VideoUpload';
 import VideoCreator from './VideoCreator';
+import VideoMaker from './VideoMaker';
 import WhatsAppSender from './WhatsAppSender';
 import QuranReader from './QuranReader';
 
@@ -65,14 +66,15 @@ export const IMAGE_SECTIONS: ImageSection[] = [
 ];
 
 // Sections inside the ویڈیو ٹولز hub — same consolidation as the image hub.
-export type VideoSection = 'video_upload' | 'video_creator';
+export type VideoSection = 'video_upload' | 'video_creator' | 'video_maker';
 
 export const VIDEO_SECTION_TITLES: Record<VideoSection, string> = {
   video_upload: '🎬 ویڈیو اپلوڈ اور وائرل تیاری',
   video_creator: '🎬 ویڈیو پیکج بنائیں',
+  video_maker: '🎬 ویڈیو میکر — بولتی ہوئی ویڈیو بنائیں',
 };
 
-export const VIDEO_SECTIONS: VideoSection[] = ['video_upload', 'video_creator'];
+export const VIDEO_SECTIONS: VideoSection[] = ['video_maker', 'video_upload', 'video_creator'];
 
 export type HubSection = ImageSection | VideoSection;
 
@@ -1593,6 +1595,7 @@ function VideoToolsHub({ initialSection }: { initialSection?: string }) {
   return (
     <div>
       <SectionTabs sections={VIDEO_SECTIONS} titles={VIDEO_SECTION_TITLES} active={section} onChange={setSection} />
+      {section === 'video_maker' && <VideoMaker embedded onClose={() => { /* hub header closes */ }} />}
       {section === 'video_upload' && <VideoUpload />}
       {section === 'video_creator' && <VideoCreator embedded onClose={() => { /* hub header closes */ }} />}
     </div>

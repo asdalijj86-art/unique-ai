@@ -57,6 +57,7 @@ import {
   formatLearningsList,
 } from '@/lib/learnings';
 import { loadLastDocument } from '@/lib/doc-pdf';
+import { isVideoMakerStatusQuery, loadVideoMakerJob, videoMakerStatusText } from '@/lib/video-maker';
 import { parseSurahReference, surahDisplayName } from '@/lib/surah-names';
 import {
   loadBoardEntries,
@@ -1202,6 +1203,14 @@ export default function ChatPage() {
     // «PDF ڈاؤن لوڈ دو» for a document a tool just generated: served
     // locally with a real download card (see handleDocumentDownloadRequest).
     if (!attachedImage && handleDocumentDownloadRequest(text)) return;
+    // Video Maker status («میرا کام کہاں تک پہنچا؟» while a video job
+    // exists): answered LOCALLY from the maker's real job store, never
+    // from a chat-only promise. This is the fix for Uniqa's empty
+    // "just a moment, link coming" replies — a chat reply cannot know
+    // a job's state, but this store can. Only intercepts when a video
+    // job is actively running, or when the question names a video;
+    // otherwise the server's builder-status path runs untouched.
+    if (!attachedImage && handleVideoMakerStatusQuery(text)) return;
     // Learning memory (Round 5): every message that reaches the brain
     // is also quietly mined for durable facts about this person
     // (name / likes / facts — lib/learnings). Fully silent: no card,
@@ -1517,6 +1526,58 @@ export default function ChatPage() {
     appendWebsiteCommandExchange(text, reply);
     setToolAction({ type: 'doc_download', title: doc.title, filename: doc.filename, html: doc.html });
     playAssistantMessage(reply);
+    return true;
+  }
+
+  // Video Maker status: «میرا کام کہاں تک پہنچا؟» / «میری ویڈیو بن گئی؟»
+  // answered from the maker's REAL job state in localStorage. A video
+  // job that is actively building/rendering always intercepts (it is
+  // the live job, and a generic chat reply would only guess). A
+  // terminal (done/failed) job intercepts only when the question
+  // names a video, so builder-status questions for apps/games still
+  // reach the server untouched. The reply opens the Video Maker panel
+  // so a finished video's download button is one tap away — and a
+  // "done" answer never invents a link: the file lives only in the
+  // session that rendered it, which the reply says plainly.
+  function handleVideoMakerStatusQuery(textValue: string): boolean {
+    const text = textValue.trim();
+    if (!text || !isVideoMakerStatusQuery(text)) return false;
+    let job = null as ReturnType<typeof loadVideoMakerJob>;
+    try {
+      job = loadVideoMakerJob(window.localStorage);
+    } catch {
+      return false;
+    }
+    if (!job) return false;
+    const mentionsVideo = /(ویڈیو|video)/i.test(text);
+    const active = job.status === 'building' || job.status === 'rendering';
+    if (!active && !mentionsVideo) return false;
+    const reply = videoMakerStatusText(job);
+    let conversation = activeConversation;
+    if (!conversation) {
+      conversation = {
+        id: createId(),
+        title: text.length > 42 ? `${text.slice(0, 42).trim()}…` : text,
+        updatedAt: new Date().toISOString(),
+        messages: [],
+      };
+      setConversations((current) => [conversation!, ...current]);
+      setActiveId(conversation.id);
+    }
+    const id = conversation.id;
+    const now = new Date().toISOString();
+    updateConversation(id, (item) => ({
+      ...item,
+      updatedAt: now,
+      messages: [
+        ...item.messages,
+        { id: createId(), role: 'user' as const, content: text, createdAt: now },
+        { id: createId(), role: 'assistant' as const, content: reply, createdAt: now },
+      ],
+    }));
+    setMediaTool('video_tools');
+    setToolSection('video_maker');
+    void playAssistantMessage(reply);
     return true;
   }
 

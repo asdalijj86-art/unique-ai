@@ -705,8 +705,18 @@ export function classifyIntent(text) {
     return { intent: 'media_tool', tool: 'phone_lookup', phone: phoneMatch[1] };
   }
 
-  // --- video creator suite ---------------------------------------------------
-  if (/(video banao|ویڈیو بناؤ|script likho|اسکرپٹ لکھو|title batao|ٹائٹل بتاؤ|hashtag|ہیش ٹیگ|video ka plan|ویڈیو کا پلان|youtube video|یوٹیوب ویڈیو)/i.test(message)) {
+  // --- video MAKER (rendered speaking video, in-app) ----------------------
+  // «ویڈیو بناؤ» / a speaking-video order opens the Video Maker, which
+  // renders a real downloadable video in the browser (dialogue-first
+  // audio-driven animation). The old text-only package tool is NOT
+  // removed: it stays in the ویڈیو ٹولز hub and is reached by explicit
+  // package orders (script / title / hashtag / plan) below.
+  if (/(video banao|ویڈیو بناؤ|video maker|ویڈیو میکر|بولنے والی ویڈیو|بولتی ہوئی ویڈیو|speaking video|video bana do|ویڈیو بنا دو)/i.test(message)) {
+    return { intent: 'media_tool', tool: 'video_maker' };
+  }
+
+  // --- video creator suite (text package only, unchanged) -------------------
+  if (/(script likho|اسکرپٹ لکھو|title batao|ٹائٹل بتاؤ|hashtag|ہیش ٹیگ|video ka plan|ویڈیو کا پلان|youtube video|یوٹیوب ویڈیو|ویڈیو پیکج|video package)/i.test(message)) {
     return { intent: 'video_creator' };
   }
 
@@ -999,6 +1009,7 @@ const MEDIA_TOOL_NAMES = {
   email: { ur: 'ای میل مددگار', roman: 'Email helper', en: 'Email helper' },
   resize: { ur: 'تصویر ری سائز', roman: 'Image resize', en: 'Image resize' },
   video_upload: { ur: 'ویڈیو اپلوڈ', roman: 'Video upload', en: 'Video upload' },
+  video_maker: { ur: 'ویڈیو میکر', roman: 'Video maker', en: 'Video maker' },
   password_gen: { ur: 'پاس ورڈ بنانے والا', roman: 'Password generator', en: 'Password generator' },
   emi_calc: { ur: 'قسط کیلکولیٹر', roman: 'EMI calculator', en: 'EMI calculator' },
   image_compress: { ur: 'تصویر کمپریسر', roman: 'Image compressor', en: 'Image compressor' },
