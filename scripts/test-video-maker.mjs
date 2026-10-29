@@ -6,7 +6,7 @@ import {
   upsertCharacterLock, loadCharacterLocks, ensureCharacterLocks,
   saveVideoMakerJob, loadVideoMakerJob, videoMakerStatusText,
   isVideoMakerStatusQuery, shouldInterceptVideoMakerStatus, sceneMotion,
-  autoVoiceFor, autoSpeciesFor, autoHueFor,
+  autoVoiceFor, autoSpeciesFor, autoHueFor, sceneBackgroundKind, walkMotion,
   VIDEO_SCENE_SECONDS,
 } from '/home/hatch/workspace/unique-ai-clean/client/src/lib/video-maker.ts';
 
@@ -182,6 +182,15 @@ const leg = (name, fn) => ({ name, synth: async (t) => { calls.push(name); retur
 check('voice: classify quota not transient', classifyVoiceError({ data: { errorType: 'quota' } }).transient === false);
 check('voice: classify network transient', classifyVoiceError({ data: { errorType: 'network' } }).transient === true);
 check('voice: classify timeout transient', classifyVoiceError({ data: { errorType: 'timeout' } }).transient === true);
+
+// Jungle scene + walk-in-place (2026-10-29, user's live test: plain panel, no jungle).
+check('scene: Shah dialogue is jungle', sceneBackgroundKind({ speaker: 'شاہ', text: 'یاد رکھو!' }) === 'jungle');
+check('scene: narrator jungle text is jungle', sceneBackgroundKind({ speaker: 'راوی', text: 'اس جنگل میں شیر رہتا تھا۔' }) === 'jungle');
+check('scene: plain human dialogue stays gradient', sceneBackgroundKind({ speaker: 'احمد', text: 'سلام، کیسے ہو؟' }) === 'gradient');
+check('walk: bob starts at 0', walkMotion(0).bob === 0 && walkMotion(0).sway === 0);
+check('walk: sway bounded', Math.abs(walkMotion(1.3).sway) <= 7 && Math.abs(walkMotion(2.7).bob) <= 6);
+check('walk: ground scrolls forward then wraps', walkMotion(0).groundShift === 0 && walkMotion(1).groundShift === 18 && walkMotion(5).groundShift === 0);
+check('walk: bob is periodic (step rhythm)', Math.abs(walkMotion(2 * Math.PI / 7).bob) < 1e-9);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

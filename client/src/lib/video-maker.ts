@@ -498,6 +498,42 @@ export function mouthOpen(envelopeValue: number): number {
  *   0.94×, so each scene arrives with movement, not a hard cut.
  * Pure and headlessly testable, so the motion math is pinned by tests.
  */
+/**
+ * SCENE BACKGROUND (2026-10-29, user's live test: "only audio/face on
+ * top, where is the jungle?"). The old render put a plain hue gradient
+ * behind the face, so a jungle story looked like a plain panel. A
+ * jungle story must now READ as a jungle: this pure detector says
+ * whether a scene belongs to a jungle/animal story, and the canvas
+ * renderer (VideoMaker.tsx) draws a layered jungle behind it. The
+ * story-level rule lives in the renderer: if ANY scene is jungle, the
+ * whole story renders jungle, so the narrator scene does not flip
+ * back to a plain gradient mid-story.
+ */
+export type SceneBackgroundKind = 'jungle' | 'gradient';
+export function sceneBackgroundKind(scene: { speaker: string; text: string }): SceneBackgroundKind {
+  const hay = `${scene.speaker || ''} ${scene.text || ''}`;
+  if (autoSpeciesFor(scene.speaker) !== 'generic') return 'jungle';
+  return /(جنگل|jungle|forest|درخت|شیر|lion|لومڑی|fox|ہرن|deer|بھیڑیا|wolf|ہاتھی|elephant|شاہ|زال|لالی|چنّو|گج)/i.test(hay)
+    ? 'jungle'
+    : 'gradient';
+}
+
+/**
+ * WALK-IN-PLACE motion (drawn, not 3D): a step-rhythm vertical bob
+ * plus a sideways sway, and a ground scroll offset so the background
+ * drifts under the character as if it were walking. Pure and
+ * headlessly testable. Honest limit: the character is a drawn head
+ * bobbing/swaying in place — this is NOT a generated walking-lion
+ * video clip, and must never be described as one.
+ */
+export function walkMotion(absTime: number): { bob: number; sway: number; groundShift: number } {
+  return {
+    bob: Math.sin(absTime * 7) * 6,
+    sway: Math.sin(absTime * 3.5) * 7,
+    groundShift: ((absTime * 18) % 90 + 90) % 90,
+  };
+}
+
 export function sceneMotion(sceneIdx: number, tInScene: number, sceneSeconds: number): {
   zoom: number; panX: number; panY: number; intro: number;
 } {

@@ -50,9 +50,11 @@ import {
   mouthOpen,
   parseDialogue,
   saveVideoMakerJob,
+  sceneBackgroundKind,
   sceneMotion,
   speakingCharacters,
   synthesizeSceneVoice,
+  walkMotion,
   upsertCharacterLock,
   videoMakerStatusText,
   wrapLines,
@@ -195,6 +197,111 @@ function drawAutoFace(
   }
   ctx.restore();
   void dark;
+}
+
+// --- drawn jungle scene (2026-10-29, user's live test) ------------------
+// The old render was a plain hue gradient behind the face, so a jungle
+// story looked like a plain panel. This draws, in canvas only, a
+// layered jungle BEHIND the character: canopy sky, sun, drifting
+// clouds, two parallax tree rows, and a scrolling forest floor. It is
+// DRAWN animation, not AI-generated cinematic video (no generated
+// lion-walking footage exists inside this free in-browser maker), and
+// the panel says so plainly. Deterministic positions per scene, so
+// the scene never flickers between frames.
+function drawJungleScene(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  sceneIdx: number,
+  absTime: number,
+  groundShift: number,
+): void {
+  const rnd = (seed: number) => {
+    const x = Math.sin(seed * 127.1 + sceneIdx * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  const wrap = (x: number, span: number) => ((x % span) + span) % span;
+  // Canopy sky: dark leafy top (white titles/subtitles stay readable)
+  // fading to lighter jungle green towards the ground.
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#1d4d2b');
+  sky.addColorStop(0.45, '#3d7a3a');
+  sky.addColorStop(0.7, '#6aa84f');
+  sky.addColorStop(1, '#4a7c2f');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+  // Sun glow, top right.
+  ctx.fillStyle = 'rgba(255, 236, 160, 0.85)';
+  ctx.beginPath();
+  ctx.arc(W - 70, 90, 34, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 236, 160, 0.25)';
+  ctx.beginPath();
+  ctx.arc(W - 70, 90, 58, 0, Math.PI * 2);
+  ctx.fill();
+  // Drifting clouds (slow parallax).
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  for (let i = 0; i < 3; i++) {
+    const cx = wrap(i * 220 - absTime * 9, W + 240) - 120;
+    const cy = 130 + i * 70 + rnd(i) * 30;
+    for (const [dx, dy, r] of [[0, 0, 26], [28, -8, 20], [-28, -4, 18]] as const) {
+      ctx.beginPath();
+      ctx.ellipse(cx + dx, cy + dy, r, r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // Far tree row (slow parallax): trunks + canopy blobs.
+  for (let i = 0; i < 8; i++) {
+    const x = wrap(i * 95 - absTime * 8, W + 190) - 95;
+    const y = 500 + rnd(i + 10) * 50;
+    ctx.fillStyle = '#5b3a1e';
+    ctx.fillRect(x - 5, y, 10, 70);
+    ctx.fillStyle = '#1f5c2e';
+    for (const [dx, dy, r] of [[0, -30, 42], [-30, -5, 30], [30, -5, 30]] as const) {
+      ctx.beginPath();
+      ctx.arc(x + dx, y + dy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // Near tree row (faster parallax, bigger).
+  for (let i = 0; i < 5; i++) {
+    const x = wrap(i * 170 - absTime * 16, W + 340) - 170;
+    const y = 600 + rnd(i + 30) * 30;
+    ctx.fillStyle = '#4a2e15';
+    ctx.fillRect(x - 8, y, 16, 110);
+    ctx.fillStyle = '#2a6b35';
+    for (const [dx, dy, r] of [[0, -45, 62], [-45, -10, 44], [45, -10, 44], [0, -85, 40]] as const) {
+      ctx.beginPath();
+      ctx.arc(x + dx, y + dy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // Forest floor: darker ground band, scrolling grass + flowers so
+  // the character reads as walking through it, not pasted on a panel.
+  const ground = ctx.createLinearGradient(0, 640, 0, H);
+  ground.addColorStop(0, '#3f6b26');
+  ground.addColorStop(1, '#244d18');
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, 640, W, H - 640);
+  ctx.strokeStyle = '#7fb069';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 24; i++) {
+    const x = wrap(i * 47 - groundShift, W + 60) - 30;
+    const y = 680 + rnd(i + 50) * 240;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y);
+    ctx.lineTo(x, y - 18 - rnd(i + 70) * 14);
+    ctx.lineTo(x + 6, y);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 10; i++) {
+    const x = wrap(i * 83 - groundShift * 0.7, W + 60) - 30;
+    const y = 700 + rnd(i + 90) * 220;
+    ctx.fillStyle = i % 2 === 0 ? '#ffd166' : '#ff8fa3';
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 type RenderScene = {
@@ -453,13 +560,26 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
       const drawFrame = (sceneIdx: number, tInScene: number, absTime: number) => {
         const rs = rendered[sceneIdx];
         const scene = rs.scene;
-        // Background: per-scene hue so scenes read as different places.
-        const hue = (sceneIdx * 47 + 215) % 360;
-        const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-        grad.addColorStop(0, `hsl(${hue}, 45%, 16%)`);
-        grad.addColorStop(1, `hsl(${(hue + 40) % 360}, 50%, 8%)`);
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        // Background: a jungle story gets a DRAWN jungle scene (canopy,
+        // trees, scrolling forest floor) behind the character — never
+        // the old plain panel. Story-level rule: if ANY scene is a
+        // jungle scene, the whole story renders jungle, so the
+        // narrator scene does not flip back to plain mid-story.
+        // An uploaded photo still wins as the character image and is
+        // drawn ON TOP of this background, never hidden by it.
+        // Non-jungle stories keep the old per-scene hue gradient.
+        const walk = walkMotion(absTime);
+        const storyJungle = rendered.some((r) => sceneBackgroundKind(r.scene) === 'jungle');
+        if (storyJungle) {
+          drawJungleScene(ctx, CANVAS_W, CANVAS_H, sceneIdx, absTime, walk.groundShift);
+        } else {
+          const hue = (sceneIdx * 47 + 215) % 360;
+          const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+          grad.addColorStop(0, `hsl(${hue}, 45%, 16%)`);
+          grad.addColorStop(1, `hsl(${(hue + 40) % 360}, 50%, 8%)`);
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        }
         // CapCut/Flow-STYLE motion (in-browser, free — no proprietary
         // CapCut or Veo engine is embedded): per-scene Ken Burns
         // zoom + pan, scene-intro scale-in, and a speaking bob, so
@@ -478,14 +598,18 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
           const scale = Math.max((CANVAS_W * motion.zoom) / iw, (CANVAS_H * 0.72 * motion.zoom) / ih);
           const dw = iw * scale;
           const dh = ih * scale;
-          const sway = !scene.isNarrator && mouth > 0 ? Math.sin(absTime * 6) * 4 : 0;
-          ctx.drawImage(rs.image, (CANVAS_W - dw) / 2 + motion.panX * CANVAS_W, cy - dh / 2 + CANVAS_H * 0.05 + motion.panY * CANVAS_H + sway, dw, dh);
+          // Walk-in-place: the photo sways/bobs gently as if walking
+          // (speaking bob on top while it speaks), over the drifting
+          // jungle floor — the photo itself is never covered.
+          const sway = !scene.isNarrator ? walk.sway * 0.6 + (mouth > 0 ? Math.sin(absTime * 6) * 4 : 0) : 0;
+          const walkY = !scene.isNarrator ? walk.bob * 0.4 : 0;
+          ctx.drawImage(rs.image, (CANVAS_W - dw) / 2 + motion.panX * CANVAS_W + sway, cy - dh / 2 + CANVAS_H * 0.05 + motion.panY * CANVAS_H + walkY, dw, dh);
           // Visible speaking jaw over the photo's lower face: the
           // envelope-driven mouth, big enough to see on a phone.
           if (!scene.isNarrator && mouth > 0) {
             ctx.fillStyle = 'rgba(40, 8, 14, 0.9)';
             ctx.beginPath();
-            ctx.ellipse(CANVAS_W / 2 + motion.panX * CANVAS_W, cy + CANVAS_H * 0.14 + sway, 52, 8 + mouth * 34, 0, 0, Math.PI * 2);
+            ctx.ellipse(CANVAS_W / 2 + motion.panX * CANVAS_W + sway, cy + CANVAS_H * 0.14 + walkY, 52, 8 + mouth * 34, 0, 0, Math.PI * 2);
             ctx.fill();
           }
         } else if (scene.isNarrator) {
@@ -508,9 +632,19 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
           // because the speaking scene had been merged away by the
           // parser. Mouth is envelope-driven only, never phoneme-matched.
           const blink = (absTime % 3.7) < 0.15;
-          const bob = mouth > 0 ? Math.sin(absTime * 6) * 5 : 0;
+          // Walk-in-place + speaking bob combined: step-rhythm bob
+          // and sideways sway even in pauses, speaking bob on top
+          // while it speaks — drawn head motion, not 3D walking.
+          const bob = walk.bob + (mouth > 0 ? Math.sin(absTime * 6) * 5 : 0);
           const faceR = 155 * motion.zoom;
-          drawAutoFace(ctx, scene.speaker, mouth, blink, CANVAS_W / 2 + motion.panX * CANVAS_W, cy + bob, faceR);
+          const faceCx = CANVAS_W / 2 + motion.panX * CANVAS_W + walk.sway;
+          const faceCy = cy + bob;
+          // Ground shadow under the walking character.
+          ctx.fillStyle = 'rgba(0,0,0,0.28)';
+          ctx.beginPath();
+          ctx.ellipse(faceCx, faceCy + faceR + 16, faceR * 0.75, 14, 0, 0, Math.PI * 2);
+          ctx.fill();
+          drawAutoFace(ctx, scene.speaker, mouth, blink, faceCx, faceCy, faceR);
           ctx.fillStyle = '#fff';
           ctx.font = 'bold 34px sans-serif';
           ctx.textAlign = 'center';
@@ -683,8 +817,10 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
       <div className="tool-small-note" style={{ textAlign: 'right' }}>
         🎬 <b>ایڈیٹنگ (CapCut/Flow انداز، مفت، اسی ایپ میں):</b> ہر سین میں زوم + پین، سین کی شروعاتی حرکت،
         بولتے کردار کا ہلنا، 0.6 سیکنڈ کراس فیڈ، ٹائٹل کارڈ، اینڈ کارڈ، مکالمے سے ملے ہوئے سب ٹائٹل، اور
-        مکالمے کے نیچے ہلکی بیک گراؤنڈ آواز۔ اصل CapCut یا Google Flow/Veo انجن اس میں نہیں ہے — وہ
-        بند، پیسے والے انجن ہیں — یہ ان کے انداز کی مفت، براؤزر میں چلنے والی ایڈیٹنگ ہے۔
+        مکالمے کے نیچے ہلکی بیک گراؤنڈ آواز۔ جنگل کی کہانی میں کردار کے پیچھے جنگل کا بنا ہوا سین
+        (درخت، زمین، چلتی ہوئی گھاس) اور چلنے جیسی ہلکی حرکت بھی ہے — یہ براؤزر میں بنا ہوا ڈرائنگ
+        سین ہے، AI سے بنی ہوئی سینمائی 3D ویڈیو نہیں، اور شیر کا اصلی چلتا ہوا کلپ اس میں نہیں بنتا۔
+        اصل CapCut یا Google Flow/Veo انجن اس میں نہیں ہے — وہ بند، پیسے والے انجن ہیں۔
       </div>
 
       <div className="tool-label">پرامپٹ / کہانی / مکالمہ (ہر لائن: «نام: مکالمہ» — بغیر نام کی لائن راوی بن جاتی ہے):</div>
