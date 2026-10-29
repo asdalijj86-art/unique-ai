@@ -86,9 +86,17 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-// --- drawn cartoon face (automatic characters) ----------------------------
-// Deterministic per character: same species shape + hue every video.
-// The mouth IS the animated jaw: its height follows the audio envelope.
+// --- drawn ANIMAL faces (automatic characters) ---------------------------
+// USER CORRECTION (2026-10-29): "جنگل کا شیر ہوتا ہے، شاہ نہیں ہوتا" —
+// the jungle character must LOOK like its animal, not a human-like
+// face with a mane. So each species gets its own animal face: lion
+// muzzle + whiskers + full mane, wolf pointed ears + long snout,
+// fox pointed ears + pointed snout, deer antlers + spots, elephant
+// big ears + trunk + tusks. The name label (شاہ etc.) and the locked
+// voice stay, but the VISIBLE character is the animal. An uploaded
+// photo still wins over all of this; this face is only the no-photo
+// fallback. The mouth IS the animated jaw: its height follows the
+// audio envelope, shut in pauses.
 function drawAutoFace(
   ctx: CanvasRenderingContext2D,
   name: string,
@@ -100,103 +108,295 @@ function drawAutoFace(
 ): void {
   const species = autoSpeciesFor(name);
   const hue = autoHueFor(name);
-  const main = `hsl(${hue}, 55%, 55%)`;
-  const dark = `hsl(${hue}, 45%, 38%)`;
-  const light = `hsl(${hue}, 70%, 78%)`;
+  // Species-fixed palettes: a lion is golden, a wolf grey, etc. — the
+  // name hash must never turn a lion blue or a fox green.
+  const palette: Record<string, [string, string, string]> = {
+    lion: ['#d99a3d', '#8a5a1a', '#f2d5a0'],
+    wolf: ['#9aa3ad', '#5b6470', '#e5e7eb'],
+    fox: ['#e07b39', '#b45309', '#fff7ed'],
+    deer: ['#c08a5a', '#8a5a2b', '#f5e6d0'],
+    elephant: ['#9ca3af', '#6b7280', '#d1d5db'],
+  };
+  const [main, dark, light] = palette[species] || [
+    `hsl(${hue}, 55%, 55%)`,
+    `hsl(${hue}, 45%, 38%)`,
+    `hsl(${hue}, 70%, 78%)`,
+  ];
   ctx.save();
   ctx.translate(cx, cy);
-  // Ears / mane
-  if (species === 'lion') {
-    ctx.fillStyle = 'hsl(38, 75%, 42%)';
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 1.35, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (species === 'fox') {
-    ctx.fillStyle = main;
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(s * r * 0.45, -r * 0.75);
-      ctx.lineTo(s * r * 0.95, -r * 1.45);
-      ctx.lineTo(s * r * 1.0, -r * 0.6);
-      ctx.closePath();
-      ctx.fill();
-    }
-  } else if (species === 'elephant') {
-    ctx.fillStyle = main;
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.ellipse(s * r * 1.05, 0, r * 0.45, r * 0.7, s * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else {
-    ctx.fillStyle = main;
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.arc(s * r * 0.7, -r * 0.8, r * 0.38, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  // Head
-  ctx.fillStyle = main;
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fill();
-  if (species === 'deer') {
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    for (const [x, y] of [[-0.4, -0.5], [0.35, -0.6], [0.1, -0.35]] as const) {
-      ctx.beginPath();
-      ctx.arc(x * r, y * r, r * 0.09, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  // Eyes (blink = closed lids)
-  for (const s of [-1, 1]) {
+  const eye = (sx: number, ex: number, ey: number, er: number) => {
     if (blink) {
       ctx.strokeStyle = '#1a1a1a';
       ctx.lineWidth = Math.max(2, r * 0.04);
       ctx.beginPath();
-      ctx.moveTo(s * r * 0.55 - r * 0.14, -r * 0.25);
-      ctx.lineTo(s * r * 0.55 + r * 0.14, -r * 0.25);
+      ctx.moveTo(sx - r * 0.14, ey);
+      ctx.lineTo(sx + r * 0.14, ey);
       ctx.stroke();
     } else {
-      ctx.fillStyle = '#141414';
+      ctx.fillStyle = species === 'lion' ? '#7c2d12' : '#141414';
       ctx.beginPath();
-      ctx.arc(s * r * 0.4, -r * 0.25, r * 0.11, 0, Math.PI * 2);
+      ctx.arc(sx, ey, er, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(s * r * 0.4 + r * 0.04, -r * 0.29, r * 0.035, 0, Math.PI * 2);
+      ctx.arc(sx + er * 0.35, ey - er * 0.3, er * 0.32, 0, Math.PI * 2);
       ctx.fill();
     }
-  }
-  // Snout + nose
-  ctx.fillStyle = light;
-  ctx.beginPath();
-  ctx.ellipse(0, r * 0.35, r * 0.5, r * 0.38, 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (species === 'elephant') {
+    void ex;
+  };
+  const whiskers = (count: number, spread: number) => {
+    ctx.strokeStyle = 'rgba(30,20,10,0.75)';
+    ctx.lineWidth = Math.max(1.5, r * 0.025);
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < count; i++) {
+        const y = r * 0.35 + (i - (count - 1) / 2) * r * 0.14;
+        ctx.beginPath();
+        ctx.moveTo(s * r * 0.35, y);
+        ctx.lineTo(s * r * spread, y + (i - 1) * r * 0.06);
+        ctx.stroke();
+      }
+    }
+  };
+  if (species === 'lion') {
+    // Full mane: scalloped ring around the whole head, then the lion face.
+    ctx.fillStyle = '#7c4a12';
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * r * 1.12, Math.sin(a) * r * 1.12, r * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#a16207';
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.22, 0, Math.PI * 2);
+    ctx.fill();
+    // Ears peeking out of the mane.
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = main;
+      ctx.beginPath();
+      ctx.arc(s * r * 0.72, -r * 0.78, r * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f2d5a0';
+      ctx.beginPath();
+      ctx.arc(s * r * 0.72, -r * 0.78, r * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.fillStyle = main;
     ctx.beginPath();
-    ctx.ellipse(0, r * 0.7, r * 0.22, r * 0.55, 0, 0, Math.PI * 2);
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    eye(-r * 0.4, 0, -r * 0.25, r * 0.12);
+    eye(r * 0.4, 0, -r * 0.25, r * 0.12);
+    // Big lion muzzle + nose + whiskers: unmistakably a lion, not a man.
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.38, r * 0.62, r * 0.46, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#7c2d12';
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.2, r * 0.18);
+    ctx.lineTo(r * 0.2, r * 0.18);
+    ctx.lineTo(0, r * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    whiskers(3, 1.05);
+  } else if (species === 'wolf') {
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = main;
+      ctx.beginPath();
+      ctx.moveTo(s * r * 0.35, -r * 0.7);
+      ctx.lineTo(s * r * 0.75, -r * 1.5);
+      ctx.lineTo(s * r * 0.95, -r * 0.55);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = light;
+      ctx.beginPath();
+      ctx.moveTo(s * r * 0.5, -r * 0.75);
+      ctx.lineTo(s * r * 0.72, -r * 1.25);
+      ctx.lineTo(s * r * 0.85, -r * 0.65);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = main;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.95, r * 1.02, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Long wolf snout, darker back, amber eyes.
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.5, r * 0.48, r * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+    eye(-r * 0.38, 0, -r * 0.3, r * 0.11);
+    eye(r * 0.38, 0, -r * 0.3, r * 0.11);
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.22, r * 0.16, r * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    whiskers(2, 0.95);
+  } else if (species === 'fox') {
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = main;
+      ctx.beginPath();
+      ctx.moveTo(s * r * 0.4, -r * 0.65);
+      ctx.lineTo(s * r * 0.9, -r * 1.55);
+      ctx.lineTo(s * r * 1.0, -r * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.moveTo(s * r * 0.55, -r * 0.7);
+      ctx.lineTo(s * r * 0.85, -r * 1.3);
+      ctx.lineTo(s * r * 0.9, -r * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.moveTo(s * r * 0.82, -r * 1.5);
+      ctx.lineTo(s * r * 0.9, -r * 1.55);
+      ctx.lineTo(s * r * 1.0, -r * 0.5);
+      ctx.lineTo(s * r * 0.88, -r * 1.15);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = main;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    // White fox cheeks + pointed snout.
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.ellipse(s * r * 0.55, r * 0.35, r * 0.38, r * 0.3, s * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.45, r * 0.42, r * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+    eye(-r * 0.38, 0, -r * 0.28, r * 0.11);
+    eye(r * 0.38, 0, -r * 0.28, r * 0.11);
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.2, r * 0.13, r * 0.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    whiskers(2, 0.95);
+  } else if (species === 'deer') {
+    // Antlers: branching brown strokes.
+    ctx.strokeStyle = '#7c4a1e';
+    ctx.lineWidth = Math.max(3, r * 0.06);
+    ctx.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(s * r * 0.35, -r * 0.85);
+      ctx.lineTo(s * r * 0.55, -r * 1.55);
+      ctx.moveTo(s * r * 0.45, -r * 1.2);
+      ctx.lineTo(s * r * 0.85, -r * 1.35);
+      ctx.moveTo(s * r * 0.5, -r * 1.35);
+      ctx.lineTo(s * r * 0.25, -r * 1.5);
+      ctx.stroke();
+    }
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = main;
+      ctx.beginPath();
+      ctx.ellipse(s * r * 1.0, -r * 0.2, r * 0.32, r * 0.55, s * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = light;
+      ctx.beginPath();
+      ctx.ellipse(s * r * 1.0, -r * 0.2, r * 0.16, r * 0.3, s * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = main;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.9, r * 1.02, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // White forehead spots + big gentle deer eyes.
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    for (const [x, y] of [[-0.35, -0.55], [0.3, -0.62], [0.05, -0.4]] as const) {
+      ctx.beginPath();
+      ctx.arc(x * r, y * r, r * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    eye(-r * 0.38, 0, -r * 0.25, r * 0.14);
+    eye(r * 0.38, 0, -r * 0.25, r * 0.14);
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.5, r * 0.42, r * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#3a2415';
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.25, r * 0.15, r * 0.11, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (species === 'elephant') {
+    // Huge elephant ears first (behind the head).
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.ellipse(s * r * 1.05, 0, r * 0.55, r * 0.8, s * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = light;
+      ctx.beginPath();
+      ctx.ellipse(s * r * 1.05, 0, r * 0.35, r * 0.55, s * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = main;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    eye(-r * 0.38, 0, -r * 0.3, r * 0.1);
+    eye(r * 0.38, 0, -r * 0.3, r * 0.1);
+    // Tusks curving up from the muzzle sides.
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.ellipse(s * r * 0.45, r * 0.55, r * 0.1, r * 0.32, s * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Trunk: short enough that the envelope jaw below it stays visible.
+    ctx.fillStyle = main;
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.45, r * 0.24, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.88, r * 0.16, r * 0.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Generic (non-animal) characters only: the old plain cartoon face.
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = main;
+      ctx.beginPath();
+      ctx.arc(s * r * 0.7, -r * 0.8, r * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = main;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    eye(-r * 0.4, 0, -r * 0.25, r * 0.11);
+    eye(r * 0.4, 0, -r * 0.25, r * 0.11);
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.35, r * 0.5, r * 0.38, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.18, r * 0.14, r * 0.1, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-  ctx.fillStyle = '#1a1a1a';
-  ctx.beginPath();
-  ctx.ellipse(0, r * 0.18, r * 0.14, r * 0.1, 0, 0, Math.PI * 2);
-  ctx.fill();
   // THE JAW: height follows the finished audio's envelope, and only
   // while this character speaks. Closed (a line) in every pause.
-  const mouthH = Math.max(2, mouth * r * 0.55);
+  // Placed below the snout/trunk so it stays visible for every species.
+  const mouthY = species === 'elephant' ? r * 0.95 : r * 0.62;
+  const mouthH = Math.max(2, mouth * r * 0.5);
   ctx.fillStyle = '#3d0a12';
   ctx.beginPath();
-  ctx.ellipse(0, r * 0.55, r * 0.3, mouthH / 2 + 2, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, mouthY, r * 0.28, mouthH / 2 + 2, 0, 0, Math.PI * 2);
   ctx.fill();
   if (mouth > 0.25) {
     ctx.fillStyle = '#fff';
-    ctx.fillRect(-r * 0.22, r * 0.55 - mouthH / 2 + 1, r * 0.44, Math.max(2, mouthH * 0.25));
+    ctx.fillRect(-r * 0.2, mouthY - mouthH / 2 + 1, r * 0.4, Math.max(2, mouthH * 0.25));
   }
   ctx.restore();
-  void dark;
 }
 
 // --- drawn jungle scene (2026-10-29, user's live test) ------------------
@@ -871,7 +1071,7 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
                   />
                 </label>
                 {lock?.imageDataUrl && <span className="tool-small-note">✅ تصویر لاک ہے</span>}
-                {!lock?.imageDataUrl && <span className="tool-small-note">بغیر تصویر: خودکار کارٹون چہرہ بنے گا</span>}
+                {!lock?.imageDataUrl && <span className="tool-small-note">بغیر تصویر: جانور کی کہانی میں اس جانور کا چہرہ بنے گا (شاہ = شیر، زال = بھیڑیا، لالی = لومڑی، چنّو = ہرن، بابا گج = ہاتھی) — انسان جیسا چہرہ نہیں</span>}
               </div>
             );
           })}

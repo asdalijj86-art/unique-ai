@@ -185,6 +185,11 @@ check('voice: classify timeout transient', classifyVoiceError({ data: { errorTyp
 
 // Jungle scene + walk-in-place (2026-10-29, user's live test: plain panel, no jungle).
 check('scene: Shah dialogue is jungle', sceneBackgroundKind({ speaker: 'شاہ', text: 'یاد رکھو!' }) === 'jungle');
+// Animal faces, not human faces (2026-10-29 user correction): every
+// jungle character maps to its animal species, so the renderer draws
+// that animal — Shah is a lion, never a human named Shah.
+check('animal: all jungle cast map to animals', autoSpeciesFor('شاہ') === 'lion' && autoSpeciesFor('زال') === 'wolf' && autoSpeciesFor('لالی') === 'fox' && autoSpeciesFor('چنّو') === 'deer' && autoSpeciesFor('بابا گج') === 'elephant');
+check('animal: every jungle cast scene is jungle background', ['شاہ', 'زال', 'لالی', 'چنّو', 'بابا گج'].every((n) => sceneBackgroundKind({ speaker: n, text: 'بات' }) === 'jungle'));
 check('scene: narrator jungle text is jungle', sceneBackgroundKind({ speaker: 'راوی', text: 'اس جنگل میں شیر رہتا تھا۔' }) === 'jungle');
 check('scene: plain human dialogue stays gradient', sceneBackgroundKind({ speaker: 'احمد', text: 'سلام، کیسے ہو؟' }) === 'gradient');
 check('walk: bob starts at 0', walkMotion(0).bob === 0 && walkMotion(0).sway === 0);
