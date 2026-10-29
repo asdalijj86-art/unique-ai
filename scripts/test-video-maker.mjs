@@ -5,7 +5,8 @@ import {
   parseDialogue, speakingCharacters, computeEnvelope, mouthOpen, wrapLines,
   upsertCharacterLock, loadCharacterLocks, ensureCharacterLocks,
   saveVideoMakerJob, loadVideoMakerJob, videoMakerStatusText,
-  isVideoMakerStatusQuery, autoVoiceFor, autoSpeciesFor, autoHueFor,
+  isVideoMakerStatusQuery, shouldInterceptVideoMakerStatus,
+  autoVoiceFor, autoSpeciesFor, autoHueFor,
   VIDEO_SCENE_SECONDS,
 } from '/home/hatch/workspace/unique-ai-clean/client/src/lib/video-maker.ts';
 
@@ -73,6 +74,27 @@ check('status query: ordinary chat ignored', !isVideoMakerStatusQuery('چائے 
 
 // 8. Scene math.
 check('scene seconds = 10', VIDEO_SCENE_SECONDS === 10);
+
+// 9. LIVE-TEST FIX 2026-10-29 — collapsed newlines: two speaker lines
+// joined by a space must still parse as two scenes, not one narrator scene.
+const collapsed = parseDialogue('راوی: یہ ٹیسٹ ویڈیو ہے، پہلا سین شروع ہو رہا ہے۔ شاہ: میں شاہ ہوں، جنگل کا بادشاہ ہوں۔');
+check('collapsed: 2 scenes', collapsed.length === 2, JSON.stringify(collapsed));
+check('collapsed: speakers راوی+شاہ', collapsed[0].speaker === 'راوی' && collapsed[1].speaker === 'شاہ');
+check('collapsed: Shah is speaking, not narrator', collapsed[1].isNarrator === false);
+check('collapsed: exact dialogue kept', collapsed[1].text === 'میں شاہ ہوں، جنگل کا بادشاہ ہوں۔');
+const newline2 = parseDialogue('راوی: پہلی لائن۔\nشاہ: دوسری لائن۔');
+check('newline: 2 scenes', newline2.length === 2 && newline2[1].speaker === 'شاہ');
+const narrPlus = parseDialogue('یہ کہانی ہے۔ شاہ: میں بول رہا ہوں۔');
+check('narrator+speaker: 2 scenes', narrPlus.length === 2 && narrPlus[0].isNarrator === true && narrPlus[1].speaker === 'شاہ');
+
+// 10. LIVE-TEST FIX 2026-10-29 — status interception for a DONE job.
+const doneJob = { id: '1', title: 'ٹیسٹ', status: 'done', sceneIndex: 1, sceneTotal: 2, stage: 'تیار', error: '', format: 'video/webm', updatedAt: '' };
+check('status: generic question + done job intercepts', shouldInterceptVideoMakerStatus('میرا کام کہاں تک پہنچا؟', doneJob) === true);
+check('status: video question + done job intercepts', shouldInterceptVideoMakerStatus('میری ویڈیو بن گئی؟', doneJob) === true);
+check('status: app question + done video job does NOT intercept', shouldInterceptVideoMakerStatus('میری ایپ کہاں تک پہنچی؟', doneJob) === false);
+check('status: game question + done video job does NOT intercept', shouldInterceptVideoMakerStatus('میری گیم بن گئی؟', doneJob) === false);
+check('status: no job never intercepts', shouldInterceptVideoMakerStatus('میرا کام کہاں تک پہنچا؟', null) === false);
+check('status: ordinary chat never intercepts', shouldInterceptVideoMakerStatus('چائے بن گئی؟', doneJob) === false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

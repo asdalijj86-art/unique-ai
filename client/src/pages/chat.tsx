@@ -57,7 +57,7 @@ import {
   formatLearningsList,
 } from '@/lib/learnings';
 import { loadLastDocument } from '@/lib/doc-pdf';
-import { isVideoMakerStatusQuery, loadVideoMakerJob, videoMakerStatusText } from '@/lib/video-maker';
+import { isVideoMakerStatusQuery, loadVideoMakerJob, shouldInterceptVideoMakerStatus, videoMakerStatusText } from '@/lib/video-maker';
 import { parseSurahReference, surahDisplayName } from '@/lib/surah-names';
 import {
   loadBoardEntries,
@@ -1207,8 +1207,8 @@ export default function ChatPage() {
     // exists): answered LOCALLY from the maker's real job store, never
     // from a chat-only promise. This is the fix for Uniqa's empty
     // "just a moment, link coming" replies — a chat reply cannot know
-    // a job's state, but this store can. Only intercepts when a video
-    // job is actively running, or when the question names a video;
+    // a job's state, but this store can. Intercepts whenever a video
+    // job exists, unless the question clearly names an app/game;
     // otherwise the server's builder-status path runs untouched.
     if (!attachedImage && handleVideoMakerStatusQuery(text)) return;
     // Learning memory (Round 5): every message that reaches the brain
@@ -1530,15 +1530,17 @@ export default function ChatPage() {
   }
 
   // Video Maker status: «میرا کام کہاں تک پہنچا؟» / «میری ویڈیو بن گئی؟»
-  // answered from the maker's REAL job state in localStorage. A video
-  // job that is actively building/rendering always intercepts (it is
-  // the live job, and a generic chat reply would only guess). A
-  // terminal (done/failed) job intercepts only when the question
-  // names a video, so builder-status questions for apps/games still
-  // reach the server untouched. The reply opens the Video Maker panel
-  // so a finished video's download button is one tap away — and a
-  // "done" answer never invents a link: the file lives only in the
-  // session that rendered it, which the reply says plainly.
+  // answered from the maker's REAL job state in localStorage.
+  // LIVE-TEST FIX (2026-10-29): the old rule let a generic question
+  // about a DONE video job fall through to Gemini, which errored and
+  // gave no status at all. Now (see shouldInterceptVideoMakerStatus
+  // in lib/video-maker.ts): any video job — building, rendering,
+  // done or failed — intercepts a status question, UNLESS the
+  // question clearly names an app/game/software (then the server
+  // builder path runs untouched). The reply opens the Video Maker
+  // panel so a finished video's download button is one tap away —
+  // and a "done" answer never invents a link: the file lives only
+  // in the session that rendered it, which the reply says plainly.
   function handleVideoMakerStatusQuery(textValue: string): boolean {
     const text = textValue.trim();
     if (!text || !isVideoMakerStatusQuery(text)) return false;
@@ -1548,10 +1550,7 @@ export default function ChatPage() {
     } catch {
       return false;
     }
-    if (!job) return false;
-    const mentionsVideo = /(ویڈیو|video)/i.test(text);
-    const active = job.status === 'building' || job.status === 'rendering';
-    if (!active && !mentionsVideo) return false;
+    if (!shouldInterceptVideoMakerStatus(text, job)) return false;
     const reply = videoMakerStatusText(job);
     let conversation = activeConversation;
     if (!conversation) {

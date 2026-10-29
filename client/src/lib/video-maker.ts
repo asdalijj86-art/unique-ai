@@ -84,32 +84,64 @@ function splitProseIntoScenes(text: string): VideoScene[] {
  * - If NO line has a speaker at all, the whole input is treated as a
  *   story prompt and split into narrator scenes (up to 6).
  * Dialogue is never edited here: text is kept exactly as typed.
+ *
+ * LIVE-TEST FIX (2026-10-29): the prompt box is a textarea, but a
+ * browser/voice input can arrive with newlines collapsed into spaces
+ * («راوی: …۔ شاہ: …» on one line). Splitting on line breaks alone
+ * then merges two speakers into ONE narrator scene — exactly what
+ * the live test showed (1 scene instead of 2, no speaking face at
+ * all). So speaker labels are ALSO recognised mid-text: a label is
+ * 1–2 words (letters only, no punctuation, no digits) followed by a
+ * colon, at the start of the input or right after a sentence end
+ * (۔ . ! ?) or a newline. Text before the first label, if any,
+ * becomes a narrator scene. A colon inside ordinary dialogue (no
+ * sentence end before the label, e.g. «کہا: …» mid-sentence) is
+ * deliberately NOT split, to avoid cutting a line in half.
  */
+const SPEAKER_LABEL = /([\p{L}\p{M}]+(?:\s+[\p{L}\p{M}]+)?)\s*[:：]\s*/gu;
+
 export function parseDialogue(input: string): VideoScene[] {
-  const lines = String(input || '')
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (lines.length === 0) return [];
-  const dialogue: VideoScene[] = [];
-  let sawSpeaker = false;
-  for (const line of lines) {
-    const m = line.match(/^([^:：]{1,30})\s*[:：]\s*(.+)$/);
-    if (m && m[2].trim()) {
-      sawSpeaker = true;
-      const speaker = m[1].trim();
-      dialogue.push({
-        index: dialogue.length,
-        speaker,
-        text: m[2].trim(),
-        isNarrator: speaker === NARRATOR_NAME,
-      });
-    } else {
-      dialogue.push({ index: dialogue.length, speaker: NARRATOR_NAME, text: line, isNarrator: true });
+  const raw = String(input || '').trim();
+  if (!raw) return [];
+  // Find every speaker label with its position.
+  const labels: { speaker: string; matchIndex: number; textStart: number }[] = [];
+  let m: RegExpExecArray | null;
+  SPEAKER_LABEL.lastIndex = 0;
+  while ((m = SPEAKER_LABEL.exec(raw)) !== null) {
+    const atStart = m.index === 0;
+    const before = raw.slice(0, m.index);
+    const afterSentenceEnd = /[۔.!?]\s*$/.test(before) || /\n\s*$/.test(before);
+    if (atStart || afterSentenceEnd) {
+      labels.push({ speaker: m[1].trim(), matchIndex: m.index, textStart: m.index + m[0].length });
     }
   }
-  if (!sawSpeaker) return splitProseIntoScenes(String(input || ''));
-  return dialogue.slice(0, VIDEO_MAX_SCENES);
+  if (labels.length === 0) {
+    // No speaker labels at all: fall back to the old behaviour —
+    // lines as narrator scenes, or prose split if it is one block.
+    const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 1) {
+      return lines.map((line, i) => ({ index: i, speaker: NARRATOR_NAME, text: line, isNarrator: true })).slice(0, VIDEO_MAX_SCENES);
+    }
+    return splitProseIntoScenes(raw);
+  }
+  const scenes: VideoScene[] = [];
+  const preface = raw.slice(0, labels[0].matchIndex).trim();
+  if (preface) {
+    scenes.push({ index: 0, speaker: NARRATOR_NAME, text: preface, isNarrator: true });
+  }
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i];
+    const nextStart = i + 1 < labels.length ? labels[i + 1].matchIndex : raw.length;
+    const text = raw.slice(label.textStart, nextStart).trim();
+    if (!text) continue;
+    scenes.push({
+      index: scenes.length,
+      speaker: label.speaker,
+      text,
+      isNarrator: label.speaker === NARRATOR_NAME,
+    });
+  }
+  return scenes.slice(0, VIDEO_MAX_SCENES);
 }
 
 /** Unique speaking characters (narrator excluded) in first-appearance order. */
@@ -208,6 +240,32 @@ export function isVideoMakerStatusQuery(text: string): boolean {
   const progress = /(کہاں تک پہنچ|کتنا ہو گیا|کتنا بن گیا|بن گیا|بن گئی|تیار ہو گیا|ہو گیا کیا|status|progress|ready|کب تک|ہو رہا ہے|بن رہی ہے)/i.test(t);
   const context = /(میرا کام|میری چیز|کام|ویڈیو|چیز|video)/i.test(t);
   return progress && context;
+}
+
+/**
+ * LIVE-TEST FIX (2026-10-29) — who answers a work-status question.
+ * Old rule: a terminal (done/failed) video job only intercepted when
+ * the question named a video, so the generic «میرا کام کہاں تک
+ * پہنچا؟» fell through to Gemini, which errored (no key in the test
+ * browser) and gave NO status at all. New rule, testable here:
+ * - No video job → do not intercept (server builder path runs).
+ * - Question clearly names an app/game/software/website AND does
+ *   not name a video → do not intercept (server builder path runs).
+ * - Otherwise, when a video job exists (building, rendering, done
+ *   or failed) → intercept and answer from the real job store.
+ * A question naming BOTH a video and an app/game is treated as a
+ * video question, because the video job is the one with a local store.
+ */
+export function shouldInterceptVideoMakerStatus(
+  text: string,
+  job: VideoJobState | null,
+): boolean {
+  if (!job) return false;
+  if (!isVideoMakerStatusQuery(text)) return false;
+  const t = String(text || '');
+  if (/(ویڈیو|video)/i.test(t)) return true;
+  if (/(ایپ|گیم|سافٹ ویئر|ویب سائٹ|app|game|software|website)/i.test(t)) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------

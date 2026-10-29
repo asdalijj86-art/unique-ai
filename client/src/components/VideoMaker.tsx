@@ -453,15 +453,22 @@ export default function VideoMaker({ onClose, embedded = false }: { onClose: () 
           ctx.direction = 'rtl';
           ctx.fillText('🎙️ راوی', CANVAS_W / 2, cy + 110);
         } else {
+          // Speaking character, no photo: the deterministic cartoon
+          // face is LARGE and centred (r=165 on a 540-wide canvas, so
+          // it fills the frame, not a small waveform) with a head bob
+          // while speaking — this is the part the live test never saw,
+          // because the speaking scene had been merged away by the
+          // parser. Mouth is envelope-driven only, never phoneme-matched.
           const envIdx = Math.min(rs.envelope.length - 1, Math.floor(tInScene * FPS * PLAYBACK_RATE * 2));
           const m = mouthOpen(rs.envelope[envIdx] || 0);
           const blink = (absTime % 3.7) < 0.15;
-          drawAutoFace(ctx, scene.speaker, m, blink, CANVAS_W / 2, cy, 130);
+          const bob = m > 0 ? Math.sin(absTime * 6) * 5 : 0;
+          drawAutoFace(ctx, scene.speaker, m, blink, CANVAS_W / 2, cy + bob, 165);
           ctx.fillStyle = '#fff';
           ctx.font = 'bold 34px sans-serif';
           ctx.textAlign = 'center';
           ctx.direction = 'rtl';
-          ctx.fillText(scene.speaker, CANVAS_W / 2, cy + 190);
+          ctx.fillText(scene.speaker, CANVAS_W / 2, cy + 215);
         }
         // Subtitles: the EXACT dialogue, wrapped, high contrast.
         const lines = wrapLines(scene.text, 26);
