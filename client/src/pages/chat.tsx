@@ -99,6 +99,7 @@ import {
 // OLD TOOLS DELETED 2026-10-31: MediaTools.tsx removed completely on user order.
 // DESIGNSTUDIO DELETED 2026-10-31 on user order: CV + Assignment tool removed completely.
 import Library, { isLibraryOrder } from '@/components/Library';
+import PaperStudio, { isPaperStudioOrder, type PaperKind } from '@/components/PaperStudio';
 import AiOrb from '@/components/AiOrb';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import StatusPanel from '@/components/StatusPanel';
@@ -327,6 +328,7 @@ export default function ChatPage() {
   // Library — NEW tool (2026-10-31): PCTB official FREE library +
   // Book Mind (selected book + chapter index for Q&A).
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [paperStudio, setPaperStudio] = useState<{ kind: PaperKind } | null>(null);
   // Which section of a hub tool (تصویر ٹولز / ویڈیو ٹولز) to land on when a
   // voice/chat command names a specific feature; undefined = first section.
   // Device pairing (Task 6b): panel visibility + a join code arriving
@@ -1226,6 +1228,10 @@ export default function ChatPage() {
     if (!attachedImage && isLibraryOrder(text)) {
       setLibraryOpen(true);
       return;
+    }
+    if (!attachedImage) {
+      const paperKind = isPaperStudioOrder(text);
+      if (paperKind) { setPaperStudio({ kind: paperKind }); return; }
     }
     // Learning memory (Round 5): every message that reaches the brain
     // is also quietly mined for durable facts about this person
@@ -4288,6 +4294,9 @@ export default function ChatPage() {
       {/* DESIGNSTUDIO DELETED: CV + Assignment render removed completely. */}
       {libraryOpen && (
         <Library onClose={() => setLibraryOpen(false)} />
+      )}
+      {paperStudio && (
+        <PaperStudio initialKind={paperStudio.kind} onClose={() => setPaperStudio(null)} />
       )}
       {/* OLD TOOLS DELETED: MediaTools render removed completely. */}
       {/* Device pairing: stays mounted while linked so incoming
