@@ -108,15 +108,17 @@ export default function Library({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', marginBottom: 8, fontSize: 15 };
+  // USER FIX 2026-10-31: all small text must be BLACK on WHITE paper,
+  // clearly visible — never light/white text on a dark background.
+  const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', marginBottom: 8, fontSize: 15, color: '#000', background: '#fff' };
 
   return (
-    <div style={{ background: '#fff', borderRadius: 16, padding: 16, margin: 12, boxShadow: '0 4px 24px rgba(0,0,0,.12)', maxHeight: '85vh', overflowY: 'auto' }}>
+    <div style={{ background: '#fff', color: '#000', borderRadius: 16, padding: 16, margin: 12, boxShadow: '0 4px 24px rgba(0,0,0,.12)', maxHeight: '85vh', overflowY: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h3 style={{ margin: 0 }}>📚 لائبریری — پنجاب ٹیکسٹ بک بورڈ، مفت</h3>
         <button type="button" onClick={onClose} aria-label="بند کریں"><X size={18} /></button>
       </div>
-      <p style={{ color: '#4b5563', fontSize: 14 }}>
+      <p style={{ color: '#000', fontSize: 14 }}>
         سرکاری مفت کتابیں، کلاس 1 سے 12 تک، ہر ایجوکیشن پرپس کے لیے۔ کتابیں یونیک کے اندر محفوظ نہیں کی جاتیں،
         سرکاری لنک سے کھلتی ہیں — کوئی چوری شدہ یا پیسوں والی کتاب نہیں۔
       </p>
@@ -134,7 +136,7 @@ export default function Library({ onClose }: { onClose: () => void }) {
       </div>
       <div style={{ background: '#eef2ff', borderRadius: 12, padding: 12, marginBottom: 12 }}>
         <strong>{bookName}</strong>
-        <p style={{ color: '#4b5563', fontSize: 13, margin: '8px 0 0' }}>
+        <p style={{ color: '#000', fontSize: 13, margin: '8px 0 0' }}>
           اگر سرکاری PCTB سائٹ آپ کے نیٹ ورک پر بلاک ہو تو نیچے والے کام کرنے والے لنک استعمال کریں — کتاب وہیں سے کھلے گی۔
         </p>
         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
@@ -146,7 +148,7 @@ export default function Library({ onClose }: { onClose: () => void }) {
         </div>
       </div>
       <h4 style={{ margin: '12px 0 8px' }}>📖 اس کتاب سے سوال پوچھیں — Book Mind</h4>
-      <p style={{ color: '#4b5563', fontSize: 13 }}>
+      <p style={{ color: '#000', fontSize: 13 }}>
         اوپر جو کتاب چنی ہے، وہی اب یونیک کے ذہن میں ہے۔ اس کتاب کے اندر سے کوئی سوال پوچھیں،
         یونیک بتائے گا کہ یہ کس کتاب اور کس باب سے ہے، اور اس کا جواب کیا ہے۔
       </p>
