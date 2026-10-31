@@ -80,7 +80,7 @@ const PCTB_URL = 'https://pctb.punjab.gov.pk/E-Books';
 // NOT go through pctb.punjab.gov.pk. These are free, official-textbook
 // sources, not pirated books.
 const ALT_SOURCES = [
-  { label: '251 کتابوں والی لائبریری — آن لائن پڑھیں', url: 'https://rehmanahmad.com/textbooks', note: 'پری پرائمری سے 12ویں تک، 251 کتابیں، آن لائن ریڈر + سرکاری PDF' },
+  { label: 'پنجاب PCTB — 251 کتابیں، آن لائن پڑھیں', url: 'https://rehmanahmad.com/textbooks/punjab/', note: 'صرف پاکستان پنجاب، پری پرائمری سے 12ویں تک، اردو + انگلش، آن لائن ریڈر + سرکاری PDF — انڈیا سیکشن نہیں' },
   { label: 'Zahid Notes — PCTB کتابیں PDF', url: 'https://www.zahidenotes.com/punjab-textbook-board-new-books-pdf-download', note: 'نرسری سے 12ویں تک، ہر کلاس کی PDF' },
   { label: 'Tayarri — 9ویں سے 12ویں PCTB PDF', url: 'https://tayarri.com/textbooks.html', note: 'صرف 9ویں–12ویں، بغیر لاگ ان' },
 ];
