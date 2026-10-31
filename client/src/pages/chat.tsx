@@ -97,7 +97,7 @@ import {
   type AgentTaskState,
 } from '@/lib/agent-team';
 // OLD TOOLS DELETED 2026-10-31: MediaTools.tsx removed completely on user order.
-import DesignStudio, { isDesignStudioOrder, type DesignKind } from '@/components/DesignStudio';
+// DESIGNSTUDIO DELETED 2026-10-31 on user order: CV + Assignment tool removed completely.
 import Library, { isLibraryOrder } from '@/components/Library';
 import AiOrb from '@/components/AiOrb';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
@@ -324,9 +324,6 @@ export default function ChatPage() {
   // from DevicePairing's poll loop, outside React's render cycle).
   const conversationsRef = useRef<Conversation[]>([]);
   const activeIdRef = useRef<string | null>(null);
-  // DesignStudio — the ONE new design tool (2026-10-31): CV + assignment
-  // in a single panel, inside Unique AI. Not an old tool, not Canva.
-  const [designStudio, setDesignStudio] = useState<{ kind: DesignKind; plan: string } | null>(null);
   // Library — NEW tool (2026-10-31): PCTB official FREE library +
   // Book Mind (selected book + chapter index for Q&A).
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -1225,13 +1222,7 @@ export default function ChatPage() {
     // the maker in front of the user. Status questions above take
     // precedence so "بن رہی ہے؟" is answered, not re-ordered.
     if (!attachedImage && handleVideoMakerOrder(text)) return;
-    // DesignStudio (NEW, 2026-10-31): the ONE design tool — CV +
-    // assignment, inside Unique AI. Runs after the video maker so a
-    // video order is never mistaken for a design order.
-    if (!attachedImage && handleDesignStudioOrder(text)) return;
     // Library (NEW, 2026-10-31): PCTB free library + Book Mind.
-    // Runs after DesignStudio so a CV/assignment order is never
-    // mistaken for a library order.
     if (!attachedImage && isLibraryOrder(text)) {
       setLibraryOpen(true);
       return;
@@ -1657,45 +1648,6 @@ export default function ChatPage() {
   // line. Fires once per watched build (the card guards re-fires);
   // a build the user only asks about afterwards is announced by that
   // reply's own text, not from here.
-  // DesignStudio order (NEW, 2026-10-31): a CV/assignment design order
-  // never reaches the chat model — it opens the ONE DesignStudio panel
-  // in front of the user, prefilled with the plan/details they just
-  // gave, so Unique fills the beautiful template itself and the PDF
-  // download is one tap away. No external editor, no clicks there.
-  function handleDesignStudioOrder(textValue: string): boolean {
-    const kind = isDesignStudioOrder(textValue);
-    if (!kind) return false;
-    const text = textValue.trim();
-    const reply = kind === 'cv'
-      ? 'ڈیزائن اسٹوڈیو کھول دیا ہے — ایک ہی ٹول میں سی وی بھی بنے گی، اسائنمنٹ بھی۔ اپنی تفصیل (نام، جی میل، نمبر، اسکلز) اس میں ڈالیں، خوبصورت ڈیزائن چنیں، اور مکمل پی ڈی ایف ڈاؤن لوڈ کر لیں۔'
-      : 'ڈیزائن اسٹوڈیو کھول دیا ہے — ایک ہی ٹول میں اسائنمنٹ بھی بنے گی، سی وی بھی۔ اپنا پلان / متن اس میں ڈالیں، خوبصورت ڈیزائن چنیں، اور مکمل پی ڈی ایف ڈاؤن لوڈ کر لیں۔';
-    let conversation = activeConversation;
-    if (!conversation) {
-      conversation = {
-        id: createId(),
-        title: text.length > 42 ? `${text.slice(0, 42).trim()}…` : text,
-        updatedAt: new Date().toISOString(),
-        messages: [],
-      };
-      setConversations((current) => [conversation!, ...current]);
-      setActiveId(conversation.id);
-    }
-    const id = conversation.id;
-    const now = new Date().toISOString();
-    updateConversation(id, (item) => ({
-      ...item,
-      updatedAt: now,
-      messages: [
-        ...item.messages,
-        { id: createId(), role: 'user' as const, content: text, createdAt: now },
-        { id: createId(), role: 'assistant' as const, content: reply, createdAt: now },
-      ],
-    }));
-    setDesignStudio({ kind, plan: text });
-    void playAssistantMessage(reply);
-    return true;
-  }
-
   function handleBuildReady(title: string) {
     const text = `آپ کی چیز ریڈی ہو گئی ہے — «${title}» 🎉 نیچے کارڈ سے کھولیں یا ڈاؤن لوڈ کر لیں۔`;
     if (activeId) {
@@ -4333,13 +4285,7 @@ export default function ChatPage() {
           onBuildSettled={handleBuildSettled}
         />
       )}
-      {designStudio && (
-        <DesignStudio
-          initialKind={designStudio.kind}
-          initialPlan={designStudio.plan}
-          onClose={() => setDesignStudio(null)}
-        />
-      )}
+      {/* DESIGNSTUDIO DELETED: CV + Assignment render removed completely. */}
       {libraryOpen && (
         <Library onClose={() => setLibraryOpen(false)} />
       )}

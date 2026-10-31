@@ -17,7 +17,7 @@
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 
-/** Voice/text order detection, mirroring DesignStudio. */
+/** Voice/text order detection. */
 export function isLibraryOrder(text: string): boolean {
   const t = String(text || '');
   if (/(لائبریری|library|کتاب|kitab|book|پنجاب ٹیکسٹ|punjab textbook|pctb)/i.test(t)) return true;
