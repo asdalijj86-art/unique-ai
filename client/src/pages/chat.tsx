@@ -102,6 +102,7 @@ import Library, { isLibraryOrder } from '@/components/Library';
 import DocumentStudio, { isDocumentStudioOrder } from '@/components/DocumentStudio';
 import MediaStudio, { isMediaStudioOrder } from '@/components/MediaStudio';
 import IslamicStudio, { isIslamicStudioOrder } from '@/components/IslamicStudio';
+import GameStudio, { isGameStudioOrder } from '@/components/GameStudio';
 // PAPERSTUDIO DELETED 2026-10-31 on user order, before master plan.
 import AiOrb from '@/components/AiOrb';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
@@ -334,6 +335,7 @@ export default function ChatPage() {
   const [documentStudioOpen, setDocumentStudioOpen] = useState(false);
   const [mediaStudioOpen, setMediaStudioOpen] = useState(false);
   const [islamicStudioOpen, setIslamicStudioOpen] = useState(false);
+  const [gameStudioOpen, setGameStudioOpen] = useState(false);
   // Which section of a hub tool (تصویر ٹولز / ویڈیو ٹولز) to land on when a
   // voice/chat command names a specific feature; undefined = first section.
   // Device pairing (Task 6b): panel visibility + a join code arriving
@@ -1240,6 +1242,10 @@ export default function ChatPage() {
     }
     if (!attachedImage && isIslamicStudioOrder(text)) {
       setIslamicStudioOpen(true);
+      return;
+    }
+    if (!attachedImage && isGameStudioOrder(text)) {
+      setGameStudioOpen(true);
       return;
     }
     if (!attachedImage && isDocumentStudioOrder(text)) {
@@ -4316,6 +4322,9 @@ export default function ChatPage() {
       )}
       {islamicStudioOpen && (
         <IslamicStudio onClose={() => setIslamicStudioOpen(false)} />
+      )}
+      {gameStudioOpen && (
+        <GameStudio onClose={() => setGameStudioOpen(false)} />
       )}
       {/* PAPERSTUDIO DELETED: render removed completely. */}
       {/* OLD TOOLS DELETED: MediaTools render removed completely. */}
