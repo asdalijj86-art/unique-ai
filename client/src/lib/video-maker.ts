@@ -526,10 +526,20 @@ export function sceneBackgroundKind(scene: { speaker: string; text: string }): S
  * bobbing/swaying in place — this is NOT a generated walking-lion
  * video clip, and must never be described as one.
  */
-export function walkMotion(absTime: number): { bob: number; sway: number; groundShift: number } {
+export function walkMotion(absTime: number): { bob: number; sway: number; tilt: number; groundShift: number } {
+  // 2026-10-29 live-test fix: the old ±6px bob / ±7px sway on a
+  // 540-wide canvas with a ~330px face (~2% of the face) was
+  // invisible in the compressed WebM — the live test saw a
+  // stationary talking head. Amplitudes are now ~3–4× larger
+  // (bob peak 22px, sway peak 26px, ~6–8% of the face), plus a
+  // small lean (tilt) so a symmetric circle's sideways shift is
+  // actually perceptible, and a second harmonic for a step feel.
+  // Still safe: face centre 365px ± 22px, radius ~170px, so the
+  // face never reaches the subtitle box (~800px) or the frame edge.
   return {
-    bob: Math.sin(absTime * 7) * 6,
-    sway: Math.sin(absTime * 3.5) * 7,
+    bob: Math.sin(absTime * 7) * 18 + Math.sin(absTime * 14) * 4,
+    sway: Math.sin(absTime * 3.5) * 26,
+    tilt: Math.sin(absTime * 3.5) * 0.06,
     groundShift: ((absTime * 18) % 90 + 90) % 90,
   };
 }

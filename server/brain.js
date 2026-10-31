@@ -511,6 +511,15 @@ export function isQuranCommand(text) {
 export function classifyIntent(text) {
   const message = String(text || '').trim();
   if (!message) return { intent: 'chat' };
+  // TOOLS REMOVED 2026-10-31 by user order, CANVA REMOVED 2026-10-31
+  // ~00:46 by user order: every tool intent is disabled at the brain
+  // gate. The app answers as chat only. The ONE new tool that remains
+  // is DesignStudio (client/src/components/DesignStudio.tsx), opened
+  // by a client-side intercept in chat.tsx — NOT through this gate,
+  // so it is not restored here and no Canva route remains. Full
+  // old-tool code is backed up at
+  // ~/workspace/unique-ai-backups/tools-version-2026-10-31/.
+  return { intent: 'chat' };
 
   // Quran Pak wins over website commands — "قرآن کھولو" opens our in-app
   // Quran panel (with Urdu translation + voice), not an external site.
@@ -807,8 +816,8 @@ export function classifyIntent(text) {
 // anything whose "result" is just a canned line — those stay governed
 // by the command-shape gate above.
 export function detectDataIntents(text, excludeIntents = []) {
-  const message = String(text || '').trim();
-  if (!message) return [];
+  // TOOLS REMOVED 2026-10-31 by user order: no data-tool intents.
+  return [];
   const normalized = message.toLowerCase();
   const found = [];
   const add = (intent, payload, index) => {

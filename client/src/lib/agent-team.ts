@@ -139,6 +139,8 @@ export function agentForActionType(actionType: string): AgentDef | undefined {
  * 2+ defs match; final states always come from the server's actions.
  */
 export function detectAgentTasks(text: string): AgentDef[] {
+  // TOOLS REMOVED 2026-10-31 by user order: no agent tool strip.
+  return [];
   const t = String(text || '');
   if (!t.trim()) return [];
   const matched = AGENT_DEFS.filter((d) => {

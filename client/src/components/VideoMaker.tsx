@@ -105,6 +105,7 @@ function drawAutoFace(
   cx: number,
   cy: number,
   r: number,
+  tilt = 0,
 ): void {
   const species = autoSpeciesFor(name);
   const hue = autoHueFor(name);
@@ -124,6 +125,7 @@ function drawAutoFace(
   ];
   ctx.save();
   ctx.translate(cx, cy);
+  ctx.rotate(tilt);
   const eye = (sx: number, ex: number, ey: number, er: number) => {
     if (blink) {
       ctx.strokeStyle = '#1a1a1a';
@@ -798,12 +800,22 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
           const scale = Math.max((CANVAS_W * motion.zoom) / iw, (CANVAS_H * 0.72 * motion.zoom) / ih);
           const dw = iw * scale;
           const dh = ih * scale;
-          // Walk-in-place: the photo sways/bobs gently as if walking
-          // (speaking bob on top while it speaks), over the drifting
-          // jungle floor — the photo itself is never covered.
-          const sway = !scene.isNarrator ? walk.sway * 0.6 + (mouth > 0 ? Math.sin(absTime * 6) * 4 : 0) : 0;
-          const walkY = !scene.isNarrator ? walk.bob * 0.4 : 0;
-          ctx.drawImage(rs.image, (CANVAS_W - dw) / 2 + motion.panX * CANVAS_W + sway, cy - dh / 2 + CANVAS_H * 0.05 + motion.panY * CANVAS_H + walkY, dw, dh);
+          // Walk-in-place: the photo sways/bobs as if walking
+          // (small speaking bob on top while it speaks, at a
+          // different frequency so it cannot mask the walk), over
+          // the drifting jungle floor — the photo itself is never
+          // covered. Old code scaled the walk down to 0.6×/0.4×
+          // (±4px/±2px), which is why it was invisible; full
+          // walk amplitude + lean are applied here.
+          const sway = !scene.isNarrator ? walk.sway + (mouth > 0 ? Math.sin(absTime * 11) * 3 : 0) : 0;
+          const walkY = !scene.isNarrator ? walk.bob : 0;
+          const photoCx = (CANVAS_W - dw) / 2 + motion.panX * CANVAS_W + sway + dw / 2;
+          const photoCy = cy - dh / 2 + CANVAS_H * 0.05 + motion.panY * CANVAS_H + walkY + dh / 2;
+          ctx.save();
+          ctx.translate(photoCx, photoCy);
+          ctx.rotate(!scene.isNarrator ? walk.tilt : 0);
+          ctx.drawImage(rs.image, -dw / 2, -dh / 2, dw, dh);
+          ctx.restore();
           // Visible speaking jaw over the photo's lower face: the
           // envelope-driven mouth, big enough to see on a phone.
           if (!scene.isNarrator && mouth > 0) {
@@ -835,16 +847,27 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
           // Walk-in-place + speaking bob combined: step-rhythm bob
           // and sideways sway even in pauses, speaking bob on top
           // while it speaks — drawn head motion, not 3D walking.
-          const bob = walk.bob + (mouth > 0 ? Math.sin(absTime * 6) * 5 : 0);
+          // Two old bugs made this invisible: (1) walk amplitudes
+          // were ±6/±7px, and (2) the ground shadow was drawn at
+          // faceCy + faceR, i.e. it moved 1:1 WITH the face, so
+          // there was zero face-to-ground relative motion — the
+          // only cue a viewer could have seen. The shadow is now
+          // ANCHORED at the rest position (it widens slightly when
+          // the face dips, as a real shadow would), so the face
+          // visibly bobs against it. The speaking bob is smaller
+          // and at a different frequency (11 vs walk 7) so it
+          // cannot beat against / mask the walk bob.
+          const bob = walk.bob + (mouth > 0 ? Math.sin(absTime * 11) * 3 : 0);
           const faceR = 155 * motion.zoom;
           const faceCx = CANVAS_W / 2 + motion.panX * CANVAS_W + walk.sway;
           const faceCy = cy + bob;
-          // Ground shadow under the walking character.
+          // Ground shadow ANCHORED at the rest position (no bob),
+          // widening slightly as the face dips toward the ground.
           ctx.fillStyle = 'rgba(0,0,0,0.28)';
           ctx.beginPath();
-          ctx.ellipse(faceCx, faceCy + faceR + 16, faceR * 0.75, 14, 0, 0, Math.PI * 2);
+          ctx.ellipse(faceCx, cy + faceR + 16, faceR * 0.75 * (1 - bob * 0.004), 14, 0, 0, Math.PI * 2);
           ctx.fill();
-          drawAutoFace(ctx, scene.speaker, mouth, blink, faceCx, faceCy, faceR);
+          drawAutoFace(ctx, scene.speaker, mouth, blink, faceCx, faceCy, faceR, walk.tilt);
           ctx.fillStyle = '#fff';
           ctx.font = 'bold 34px sans-serif';
           ctx.textAlign = 'center';
