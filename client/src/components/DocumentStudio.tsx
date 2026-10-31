@@ -12,7 +12,10 @@ import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 
 export function isDocumentStudioOrder(text: string): boolean {
-  return /(document studio|ڈاکومنٹ اسٹوڈیو|document\s*studio)/i.test(String(text || ''));
+  // Mic transcription variants: Urdu «ڈاکومنٹ» can come out as
+  // «ڈاکیومنٹ», and «اسٹوڈیو» as «سٹوڈیو» — accept all of them,
+  // plus plain English «document studio» / «studio».
+  return /(document|ڈاکومنٹ|ڈاکیومنٹ|اسٹوڈیو|سٹوڈیو|studio)/i.test(String(text || ''));
 }
 
 type Layout = 'sidebar' | 'top' | 'minimal' | 'gold';
