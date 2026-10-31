@@ -1232,12 +1232,12 @@ export default function ChatPage() {
       setLibraryOpen(true);
       return;
     }
-    if (!attachedImage && isDocumentStudioOrder(text)) {
-      setDocumentStudioOpen(true);
-      return;
-    }
     if (!attachedImage && isMediaStudioOrder(text)) {
       setMediaStudioOpen(true);
+      return;
+    }
+    if (!attachedImage && isDocumentStudioOrder(text)) {
+      setDocumentStudioOpen(true);
       return;
     }
     // Learning memory (Round 5): every message that reaches the brain

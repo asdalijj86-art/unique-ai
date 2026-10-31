@@ -15,7 +15,7 @@ export function isDocumentStudioOrder(text: string): boolean {
   // Mic transcription variants: Urdu «ڈاکومنٹ» can come out as
   // «ڈاکیومنٹ», and «اسٹوڈیو» as «سٹوڈیو» — accept all of them,
   // plus plain English «document studio» / «studio».
-  return /(document|ڈاکومنٹ|ڈاکیومنٹ|اسٹوڈیو|سٹوڈیو|studio)/i.test(String(text || ''));
+  return /(document|ڈاکومنٹ|ڈاکیومنٹ)/i.test(String(text || ''));
 }
 
 type Layout = 'sidebar' | 'top' | 'minimal' | 'gold';

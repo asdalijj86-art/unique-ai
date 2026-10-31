@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 
 export function isMediaStudioOrder(text: string): boolean {
-  return /(media studio|میڈیا اسٹوڈیو|میڈیا سٹوڈیو|media\s*studio)/i.test(String(text || ''));
+  return /(media|میڈیا|editing studio|ایڈیٹنگ اسٹوڈیو|ایڈیٹنگ سٹوڈیو|video photo studio|ویڈیو ایڈیٹر)/i.test(String(text || ''));
 }
 
 const VIDEO_FILTERS: Record<string, string> = {
