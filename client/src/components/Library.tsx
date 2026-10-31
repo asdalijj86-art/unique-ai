@@ -74,6 +74,16 @@ const TOPICS: Record<string, { chapter: string; keywords: string[]; answer: stri
 };
 
 const PCTB_URL = 'https://pctb.punjab.gov.pk/E-Books';
+// WORKING BOOK SOURCES (fix 2026-10-31, user order): PCTB alone is NOT
+// enough — on the user's network it is blocked by a FortiGuard local
+// URL filter, so the panel must offer working alternatives that do
+// NOT go through pctb.punjab.gov.pk. These are free, official-textbook
+// sources, not pirated books.
+const ALT_SOURCES = [
+  { label: '251 کتابوں والی لائبریری — آن لائن پڑھیں', url: 'https://rehmanahmad.com/textbooks', note: 'پری پرائمری سے 12ویں تک، 251 کتابیں، آن لائن ریڈر + سرکاری PDF' },
+  { label: 'Zahid Notes — PCTB کتابیں PDF', url: 'https://www.zahidenotes.com/punjab-textbook-board-new-books-pdf-download', note: 'نرسری سے 12ویں تک، ہر کلاس کی PDF' },
+  { label: 'Tayarri — 9ویں سے 12ویں PCTB PDF', url: 'https://tayarri.com/textbooks.html', note: 'صرف 9ویں–12ویں، بغیر لاگ ان' },
+];
 
 export default function Library({ onClose }: { onClose: () => void }) {
   const [cls, setCls] = useState<string>('5');
@@ -101,7 +111,7 @@ export default function Library({ onClose }: { onClose: () => void }) {
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', marginBottom: 8, fontSize: 15 };
 
   return (
-    <div style={{ background: '#fff', borderRadius: 16, padding: 16, margin: 12, boxShadow: '0 4px 24px rgba(0,0,0,.12)' }}>
+    <div style={{ background: '#fff', borderRadius: 16, padding: 16, margin: 12, boxShadow: '0 4px 24px rgba(0,0,0,.12)', maxHeight: '85vh', overflowY: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h3 style={{ margin: 0 }}>📚 لائبریری — پنجاب ٹیکسٹ بک بورڈ، مفت</h3>
         <button type="button" onClick={onClose} aria-label="بند کریں"><X size={18} /></button>
@@ -124,8 +134,14 @@ export default function Library({ onClose }: { onClose: () => void }) {
       </div>
       <div style={{ background: '#eef2ff', borderRadius: 12, padding: 12, marginBottom: 12 }}>
         <strong>{bookName}</strong>
+        <p style={{ color: '#4b5563', fontSize: 13, margin: '8px 0 0' }}>
+          اگر سرکاری PCTB سائٹ آپ کے نیٹ ورک پر بلاک ہو تو نیچے والے کام کرنے والے لنک استعمال کریں — کتاب وہیں سے کھلے گی۔
+        </p>
         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-          <a href={PCTB_URL} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', borderRadius: 999, background: '#2563eb', color: '#fff', textDecoration: 'none' }}>سرکاری کتاب کھولیں (PCTB)</a>
+          {ALT_SOURCES.map((s) => (
+            <a key={s.url} href={s.url} target="_blank" rel="noreferrer" title={s.note} style={{ padding: '8px 16px', borderRadius: 999, background: '#2563eb', color: '#fff', textDecoration: 'none' }}>{s.label}</a>
+          ))}
+          <a href={PCTB_URL} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', borderRadius: 999, background: '#e5e7eb', color: '#111', textDecoration: 'none' }}>سرکاری کتاب کھولیں (PCTB)</a>
           <a href={openLibraryUrl} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', borderRadius: 999, background: '#e5e7eb', color: '#111', textDecoration: 'none' }}>Open Library میں تلاش کریں</a>
         </div>
       </div>

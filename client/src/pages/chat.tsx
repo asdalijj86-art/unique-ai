@@ -96,7 +96,7 @@ import {
   type AgentDef,
   type AgentTaskState,
 } from '@/lib/agent-team';
-import MediaTools, { type MediaToolName, type HubSection, resolveToolOpen } from '@/components/MediaTools';
+// OLD TOOLS DELETED 2026-10-31: MediaTools.tsx removed completely on user order.
 import DesignStudio, { isDesignStudioOrder, type DesignKind } from '@/components/DesignStudio';
 import Library, { isLibraryOrder } from '@/components/Library';
 import AiOrb from '@/components/AiOrb';
@@ -324,7 +324,6 @@ export default function ChatPage() {
   // from DevicePairing's poll loop, outside React's render cycle).
   const conversationsRef = useRef<Conversation[]>([]);
   const activeIdRef = useRef<string | null>(null);
-  const [mediaTool, setMediaTool] = useState<MediaToolName | null>(null);
   // DesignStudio — the ONE new design tool (2026-10-31): CV + assignment
   // in a single panel, inside Unique AI. Not an old tool, not Canva.
   const [designStudio, setDesignStudio] = useState<{ kind: DesignKind; plan: string } | null>(null);
@@ -333,7 +332,6 @@ export default function ChatPage() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   // Which section of a hub tool (تصویر ٹولز / ویڈیو ٹولز) to land on when a
   // voice/chat command names a specific feature; undefined = first section.
-  const [toolSection, setToolSection] = useState<HubSection | undefined>(undefined);
   // Device pairing (Task 6b): panel visibility + a join code arriving
   // via a scanned QR link (?pair=CODE), pre-filled for one-tap joining.
   const [pairingOpen, setPairingOpen] = useState(false);
@@ -726,8 +724,7 @@ export default function ChatPage() {
     if (command.action === 'open_quran') setFocusView('quran');
     else if (command.action === 'open_map') setFocusView('map');
     else if (command.action === 'open_tool' && command.tool) {
-      setToolSection(undefined);
-      setMediaTool(command.tool as MediaToolName);
+      // OLD TOOLS DELETED: legacy tool open ignored.
     } else return;
     void playAssistantMessage(`📱 دوسری ڈیوائس کے کہنے پر ${labels[command.action] || 'ٹول'} کھول دیا ہے۔`);
   }
@@ -1451,16 +1448,7 @@ export default function ChatPage() {
         setBuildLive({ title: result.action.title || text.slice(0, 40), startedAt: Date.now() });
         setToolAction(result.action as ChatAction);
       } else if (result.action?.type === 'open_tool') {
-        // The server may still name a legacy image/video tool — land on
-        // its hub + matching section; unknown ids are ignored gracefully.
-        const open = resolveToolOpen(result.action.tool);
-        if (open) {
-          setMediaTool(open.tool);
-          setToolSection(open.section);
-        }
-        if (result.action.phone) {
-          setToolPrefill({ phone: result.action.phone });
-        }
+        // OLD TOOLS DELETED: legacy tool opens are ignored, chat continues.
       } else if (result.action) {
         // Brain-taught learning (Round 5): when the brain saves a
         // note (save_note), the taught statement ALSO feeds the
@@ -1604,8 +1592,7 @@ export default function ChatPage() {
         { id: createId(), role: 'assistant' as const, content: reply, createdAt: now },
       ],
     }));
-    setMediaTool('video_tools');
-    setToolSection('video_maker');
+    // OLD TOOLS DELETED: video_tools hub removed.
     void playAssistantMessage(reply);
     return true;
   }
@@ -1659,9 +1646,8 @@ export default function ChatPage() {
         { id: createId(), role: 'assistant' as const, content: reply, createdAt: now },
       ],
     }));
-    setVideoMakerPrefill({ prompt, autoStart: Boolean(prompt), signal: Date.now() });
-    setMediaTool('video_tools');
-    setToolSection('video_maker');
+    // OLD TOOLS DELETED: video maker prefill via hub removed.
+    // OLD TOOLS DELETED: video_tools hub removed.
     void playAssistantMessage(reply);
     return true;
   }
@@ -4357,16 +4343,7 @@ export default function ChatPage() {
       {libraryOpen && (
         <Library onClose={() => setLibraryOpen(false)} />
       )}
-      {mediaTool && (
-        <MediaTools
-          tool={mediaTool}
-          initialSection={toolSection}
-          initialPhone={toolPrefill?.phone}
-          initialVideoPrompt={videoMakerPrefill}
-          onBrainTool={(example) => { setMediaTool(null); setToolPrefill(null); setVideoMakerPrefill(null); setToolSection(undefined); setDraft(example); textareaRef.current?.focus(); }}
-          onClose={() => { setMediaTool(null); setToolPrefill(null); setVideoMakerPrefill(null); setToolSection(undefined); }}
-        />
-      )}
+      {/* OLD TOOLS DELETED: MediaTools render removed completely. */}
       {/* Device pairing: stays mounted while linked so incoming
           conversations/commands arrive even with the panel closed.
           Its entry point lives in Settings (📱 ڈیوائس جوڑیں) — the

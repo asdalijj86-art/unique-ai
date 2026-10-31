@@ -13,14 +13,14 @@
 // only decides which action (if any) accompanies the reply.
 
 import { parseWebsiteCommand } from './site-commands.js';
-import {
-  parseTimerRequest as parseTimer,
-  parseNoteSave as parseNoteText,
-  parseCurrencyRequest,
-  parseUnitConvert,
-  evaluateMath,
-  normalizeMathExpression,
-} from './tools.js';
+// OLD TOOLS DELETED 2026-10-31: server/tools.js removed completely on user order.
+// Tool helpers below are stubs (always null) so chat falls back to Gemini.
+const parseTimer = () => null;
+const parseNoteText = () => null;
+const parseCurrencyRequest = () => null;
+const parseUnitConvert = () => null;
+const evaluateMath = () => ({ ok: false });
+const normalizeMathExpression = (x) => String(x || '');
 
 // --- language detection -----------------------------------------------------
 // 'ur' = Perso-Arabic script (Urdu), 'ar' = Arabic, 'roman' = Roman Urdu, 'en' = English.

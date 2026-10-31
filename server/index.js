@@ -38,20 +38,20 @@ import {
   makeGeminiGenerator,
   registerBuilderRoutes,
 } from "./builder.js";
-import {
-  webSearch,
-  getWeather,
-  evaluateMath,
-  youtubeSearch,
-  getNews,
-  parseCurrencyRequest,
-  convertCurrency,
-  getPrayerTimes,
-  convertUnits,
-  getWorldTime,
-  videoIdeasPrompt,
-  fetchPageText,
-} from "./tools.js";
+// OLD TOOLS DELETED 2026-10-31: server/tools.js removed completely on user order.
+// All tool functions below are stubs returning {ok:false}; chat falls back to Gemini.
+const webSearch = async () => ({ ok: false });
+const getWeather = async () => ({ ok: false });
+const evaluateMath = () => ({ ok: false });
+const youtubeSearch = async () => ({ ok: false });
+const getNews = async () => ({ ok: false });
+const parseCurrencyRequest = () => null;
+const convertCurrency = async () => ({ ok: false });
+const getPrayerTimes = async () => ({ ok: false });
+const convertUnits = () => ({ ok: false });
+const getWorldTime = () => ({ ok: false });
+const videoIdeasPrompt = (n) => String(n || '');
+const fetchPageText = async () => null;
 import { MsEdgeTTS, OUTPUT_FORMAT } from "./vendor/msedge-tts/index.js";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { registerPairingRoutes } from "./pairing.js";
