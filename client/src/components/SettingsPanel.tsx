@@ -40,6 +40,12 @@ type SettingsPanelProps = {
   onPersonaChange: (p: 'unique' | 'uniqa') => void;
   tone: 'neutral' | 'serious' | 'romantic';
   onToneChange: (t: 'neutral' | 'serious' | 'romantic') => void;
+  /** Awareness (Phase 1): speaks first — title-bar switch mirrors
+   *  this same toggle. Optional: only chat.tsx wires it. */
+  awarenessEnabled?: boolean;
+  onAwarenessChange?: (enabled: boolean) => void;
+  /** Test path: shows the thought bubble, then speaks the line. */
+  onTestAwareness?: () => void;
 };
 
 const chipStyle = (active: boolean): React.CSSProperties => ({
@@ -473,7 +479,7 @@ function ApiKeySetting() {
   );
 }
 
-export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange, awarenessEnabled, onAwarenessChange, onTestAwareness }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
 
   const toggle = (key: keyof AppSettings) =>
@@ -545,6 +551,36 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
               <span className="setting-icon"><Volume2 size={16} /></span>
               <span className="setting-label">🔊 آواز ٹیسٹ کریں</span>
             </button>
+          )}
+          {onAwarenessChange && (
+            <>
+              <div className="settings-group">✨ Awareness — پہلے بولنا</div>
+              <Toggle
+                label="Awareness (خود پہلے بولے)"
+                icon={<span aria-hidden="true">✨</span>}
+                value={awarenessEnabled ?? true}
+                onToggle={() => onAwarenessChange(!(awarenessEnabled ?? true))}
+              />
+              <div className="setting-row" dir="rtl" style={{ cursor: 'default' }}>
+                <span style={{ fontSize: 11.5, opacity: 0.65, lineHeight: 1.8 }}>
+                  جب آپ کام میں مصروف ہوں، رات دیر ہو جائے، یا کافی دیر خاموشی ہو — تو یونیک خود پہلے بولے گا، اور بولنے سے پہلے
+                  سوچ کا بلبلہ دکھائے گا۔ کیمرہ کبھی استعمال نہیں ہوتا — صرف کام، وقت اور خاموشی دیکھی جاتی ہے۔
+                </span>
+              </div>
+              {onTestAwareness && (
+                <button
+                  type="button"
+                  className="setting-row"
+                  onClick={onTestAwareness}
+                  dir="rtl"
+                  aria-label="Awareness آزمائیں"
+                  data-testid="button-awareness-test"
+                >
+                  <span className="setting-icon">💭</span>
+                  <span className="setting-label">💭 Awareness آزمائیں — بلبلہ دکھائیں</span>
+                </button>
+              )}
+            </>
           )}
           <ApiKeySetting />
           <VoiceSelector />

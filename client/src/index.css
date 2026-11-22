@@ -61,11 +61,14 @@ body {
   overflow: hidden;
 }
 
-/* ================= JARVIS SHELL ================= */
-/* Fixed viewport shell: the page itself NEVER scrolls. Only the chat
-   messages area scrolls internally; the center hero (orb) and the
-   status panel stay pinned exactly where they are. */
-.jarvis {
+/* ================= UNIQUE SHELL (Phase 1, 2026-11-22) ================= */
+/* The new main screen: a living particle face in the center, MEMORY /
+   SKILLS / CHARACTER / SETTINGS panels around it, the seven agents and
+   memory visible on screen. Mobile-first: one column on phones, a
+   three-column dock (panels | face + chat | office) on laptops.
+   Fixed viewport shell: the page itself NEVER scrolls. Only the chat
+   messages area (and the laptop panel dock) scroll internally. */
+.unique-shell {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
@@ -78,7 +81,7 @@ body {
     #04070f;
   position: relative;
 }
-.jarvis::before {
+.unique-shell::before {
   content: '';
   position: fixed;
   inset: 0;
@@ -87,8 +90,8 @@ body {
   z-index: 0;
 }
 
-/* ================= TOP BAR ================= */
-.jarvis-topbar {
+/* ---- TOP BAR: brand + Awareness switch + live status ---- */
+.unique-topbar {
   position: relative;
   z-index: 5;
   display: flex;
@@ -100,148 +103,239 @@ body {
   backdrop-filter: blur(10px);
   gap: 10px;
 }
-/* Language selector chips in the top bar */
-.jarvis-lang-chips {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-.lang-chip {
-  padding: 5px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  background: rgba(34, 211, 238, 0.08);
-  border: 1px solid rgba(56, 189, 248, 0.2);
-  color: #7dd3fc;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-.lang-chip:hover {
-  background: rgba(34, 211, 238, 0.18);
-  color: #e0f7ff;
-}
-.lang-chip.active {
-  background: rgba(34, 211, 238, 0.28);
-  color: #fff;
-  border-color: rgba(34, 211, 238, 0.6);
-  box-shadow: 0 0 10px rgba(34, 211, 238, 0.4);
-}
-@media (max-width: 640px) {
-  .jarvis-lang-chips { gap: 4px; }
-  .lang-chip { padding: 4px 8px; font-size: 11px; }
-}
-.jarvis-brand { display: flex; align-items: center; gap: 10px; }
-.jarvis-brand-logo {
+.unique-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.unique-brand-logo {
   width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
   box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
   animation: brand-pulse 3s ease-in-out infinite;
+  flex-shrink: 0;
 }
 @keyframes brand-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.12); opacity: 0.85; }
 }
-.jarvis-brand-title {
+.unique-brand-title {
   font-weight: 700; font-size: 16px; letter-spacing: 0.4px;
   color: #eaf9ff; text-shadow: 0 0 14px rgba(34, 211, 238, 0.55);
+  white-space: nowrap;
 }
-.jarvis-top-right { display: flex; align-items: center; gap: 9px; }
-.jarvis-live-dot {
+.unique-persona-chip {
+  font-size: 12px; color: #7dd3fc;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+}
+.unique-top-right { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* Awareness switch — one tap in the title bar (Stonic-style). */
+.unique-awareness {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(34, 211, 238, 0.07);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  color: #a5e3f5; border-radius: 999px; padding: 4px 6px 4px 10px;
+  cursor: pointer; font-size: 12.5px; flex-shrink: 0;
+}
+.unique-awareness-label { white-space: nowrap; }
+.unique-awareness-track {
+  width: 30px; height: 16px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14); position: relative; flex-shrink: 0;
+}
+.unique-awareness-track i {
+  position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+  border-radius: 50%; background: #94a3b8; transition: left 0.2s ease, background 0.2s ease;
+}
+.unique-awareness.on .unique-awareness-track { background: rgba(34, 211, 238, 0.45); }
+.unique-awareness.on .unique-awareness-track i {
+  left: 16px; background: #fff; box-shadow: 0 0 8px rgba(34, 211, 238, 0.9);
+}
+.unique-live-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+  flex-shrink: 0;
 }
-.jarvis-live-dot.pulse { animation: brand-pulse 1.2s ease-in-out infinite; background: #22d3ee; box-shadow: 0 0 10px rgba(34, 211, 238, 0.9); }
-.jarvis-live-text { font-size: 12.5px; color: #9fd8ef; }
-.jarvis-top-error {
+.unique-live-dot.pulse { animation: brand-pulse 1.2s ease-in-out infinite; background: #22d3ee; box-shadow: 0 0 10px rgba(34, 211, 238, 0.9); }
+.unique-live-text { font-size: 12.5px; color: #9fd8ef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.unique-top-error {
   display: flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; border-radius: 50%;
   background: rgba(239, 68, 68, 0.18); color: #fca5a5;
-  border: 1px solid rgba(239, 68, 68, 0.4); cursor: pointer;
+  border: 1px solid rgba(239, 68, 68, 0.4); cursor: pointer; flex-shrink: 0;
 }
 
-/* ================= BODY GRID ================= */
-.jarvis-body {
+/* ---- MAIN: panels | face + chat | office ---- */
+.unique-main {
   position: relative;
   z-index: 4;
   flex: 1;
-  display: grid;
-  /* rail | chat | hero | status | OFFICE — the office is a main-screen
-     column on wide screens (user decision, 2026-10-23); below 1280px
-     the stacked layout takes over and the office becomes a full-width
-     row/section of its own. */
-  grid-template-columns: 56px minmax(250px, 0.95fr) minmax(300px, 1.25fr) minmax(210px, 0.72fr) minmax(290px, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  gap: 14px;
-  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
-
-/* ---- slim vertical rail ---- */
-.jarvis-rail {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 12px 0;
-  background: rgba(10, 20, 38, 0.55);
-  border: 1px solid rgba(56, 189, 248, 0.14);
-  border-radius: 16px;
-  backdrop-filter: blur(12px);
-  align-self: start;
-  position: sticky; top: 14px;
+.unique-left { display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; }
+.unique-center {
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0; overflow: hidden;
 }
-.rail-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 38px; height: 38px; border-radius: 12px;
+.unique-right { min-height: 0; overflow-y: auto; }
+
+/* ---- Panel tabs (horizontal chips on phones, vertical dock on laptops) ---- */
+.unique-panel-tabs {
+  display: flex; gap: 8px;
+  padding: 10px 12px 6px;
+  overflow-x: auto; scrollbar-width: none;
+  flex-shrink: 0;
+}
+.unique-panel-tabs::-webkit-scrollbar { display: none; }
+.unique-panel-tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 999px;
   background: rgba(34, 211, 238, 0.06);
-  border: 1px solid rgba(56, 189, 248, 0.16);
-  color: #7dd3fc; cursor: pointer;
-  transition: all 0.2s ease;
-  position: relative;
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  color: #a5e3f5; font-size: 13px; white-space: nowrap;
+  cursor: pointer; flex-shrink: 0; transition: all 0.2s ease;
 }
-.rail-btn:hover { background: rgba(34, 211, 238, 0.16); color: #e0f7ff; box-shadow: 0 0 12px rgba(34, 211, 238, 0.35); }
-.rail-btn.active {
+.unique-panel-tab:hover { background: rgba(34, 211, 238, 0.16); color: #e0f7ff; }
+.unique-panel-tab.active {
   background: rgba(34, 211, 238, 0.22); color: #fff;
-  box-shadow: 0 0 14px rgba(34, 211, 238, 0.55);
   border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.35);
 }
-/* Custom tooltip (replaces native title) — hides on click so it never gets stuck */
-.rail-btn[data-tip]::after {
-  content: attr(data-tip);
-  position: absolute;
-  right: calc(100% + 10px);
-  top: 50%;
-  transform: translateY(-50%);
-  background: #f1f5f9;
-  color: #1e293b;
-  padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-  z-index: 60;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+.unique-panel-badge {
+  background: #22d3ee; color: #04202e;
+  font-size: 11px; font-weight: 700;
+  border-radius: 999px; padding: 1px 7px;
 }
-.rail-btn[data-tip]:hover::after { opacity: 1; }
-.rail-btn[data-tip].no-tip::after { opacity: 0 !important; }
+/* Inline dock panel (laptops only — phones use the bottom sheet). */
+.unique-panel-inline {
+  flex: 1; min-height: 0; overflow-y: auto;
+  margin-top: 10px;
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 18px; padding: 14px;
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08), 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+.unique-panel-inline::-webkit-scrollbar { width: 6px; }
+.unique-panel-inline::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.25); border-radius: 3px; }
 
-/* ---- LEFT: chat panel ---- */
-.jarvis-chat {
+/* ---- CENTER: the living face ---- */
+.unique-stage {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 8px 12px 2px;
+  flex-shrink: 0;
+}
+.unique-orb-wrap { position: relative; display: flex; justify-content: center; }
+.unique-orb-wrap.tappable { cursor: pointer; }
+.unique-name { text-align: center; }
+.unique-name-text {
+  font-size: 17px; font-weight: 700; color: #eaf9ff;
+  text-shadow: 0 0 14px rgba(34, 211, 238, 0.55);
+}
+.unique-name-sub { display: block; font-size: 12.5px; color: #7cc4e4; margin-top: 4px; }
+.unique-wave { width: 100%; max-width: 420px; }
+.unique-voice-status {
+  display: flex; align-items: center; gap: 8px;
+  color: #7dd3fc; font-size: 13px; margin-top: 2px;
+}
+.unique-voice-pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: #22d3ee;
+  animation: brand-pulse 1.2s ease-in-out infinite; flex-shrink: 0;
+}
+.unique-attach-preview {
+  display: flex; align-items: center; gap: 8px; margin: 6px 0 2px;
+  background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 10px; padding: 6px 10px; max-width: 100%;
+}
+.unique-attach-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
+.unique-attach-remove {
+  background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 50%; width: 24px; height: 24px; cursor: pointer; color: #fca5a5; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.unique-attach-hint { font-size: 12px; color: #7dd3fc; }
+.jmsg-image { max-width: 100%; max-height: 280px; border-radius: 10px; margin-bottom: 6px; display: block; }
+.unique-caption { font-size: 11.5px; color: #4e6f8a; text-align: center; padding: 2px 12px 10px; flex-shrink: 0; }
+
+/* ---- Awareness thought bubble (shows BEFORE the line is spoken) ---- */
+.uaware-bubble {
+  position: relative;
+  width: 100%; max-width: 440px;
+  margin-bottom: 10px;
+  background: rgba(139, 92, 246, 0.14);
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-radius: 16px;
+  padding: 10px 12px 12px;
+  overflow: hidden;
+}
+.uaware-bubble-label { font-size: 12px; color: #c4b5fd; }
+.uaware-bubble-line { margin: 6px 0 10px; font-size: 14.5px; line-height: 1.9; color: #ede9fe; }
+.uaware-bubble-actions { display: flex; gap: 8px; }
+.uaware-bubble-speak {
+  padding: 6px 14px; border-radius: 999px;
+  border: 1px solid rgba(167, 139, 250, 0.6);
+  background: rgba(139, 92, 246, 0.3);
+  color: #fff; font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.uaware-bubble-dismiss {
+  padding: 6px 10px; border-radius: 999px;
+  border: 1px solid transparent; background: transparent;
+  color: #c4b5fd; cursor: pointer; font-size: 13px;
+}
+.uaware-bubble-progress {
+  position: absolute; right: 0; bottom: 0; height: 3px; width: 100%;
+  transform-origin: right;
+  background: linear-gradient(90deg, #a78bfa, #22d3ee);
+  animation: uaware-progress 3s linear forwards;
+}
+@keyframes uaware-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* ---- Agents strip (the seven agents, live) ---- */
+.uagents-strip {
+  display: flex; gap: 8px;
+  overflow-x: auto; scrollbar-width: none;
+  padding: 6px 12px 2px;
+  flex-shrink: 0;
+}
+.uagents-strip::-webkit-scrollbar { display: none; }
+.uagents-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 999px;
+  background: rgba(34, 211, 238, 0.05);
+  border: 1px solid rgba(56, 189, 248, 0.16);
+  color: #a5e3f5; font-size: 12.5px; white-space: nowrap; flex-shrink: 0;
+}
+.uagents-chip.working { border-color: rgba(34, 197, 94, 0.5); color: #bbf7d0; }
+.uagents-dot { width: 7px; height: 7px; border-radius: 50%; background: #475569; flex-shrink: 0; }
+.uagents-dot.working {
+  background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+  animation: brand-pulse 1.2s ease-in-out infinite;
+}
+.uagents-icon { font-size: 14px; }
+.uagents-name { font-weight: 600; }
+.uagents-state { font-size: 11.5px; opacity: 0.75; }
+.uagents-office {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px;
+  background: rgba(139, 92, 246, 0.16);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: #ede9fe; font-size: 12.5px; white-space: nowrap;
+  cursor: pointer; flex-shrink: 0;
+}
+
+/* ---- CHAT ---- */
+.unique-chat {
   background: rgba(8, 17, 33, 0.62);
   border: 1px solid rgba(56, 189, 248, 0.14);
   border-radius: 18px;
   backdrop-filter: blur(14px);
   display: flex; flex-direction: column;
-  min-height: 0; overflow: hidden;
+  flex: 1; min-height: 0; overflow: hidden;
+  margin: 6px 12px 0;
   box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08), 0 8px 32px rgba(0, 0, 0, 0.35);
 }
-.jarvis-chat-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 16px 14px; min-height: 0; }
-.jarvis-chat-scroll::-webkit-scrollbar { width: 6px; }
-.jarvis-chat-scroll::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.25); border-radius: 3px; }
+.unique-chat-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 16px 14px; min-height: 0; }
+.unique-chat-scroll::-webkit-scrollbar { width: 6px; }
+.unique-chat-scroll::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.25); border-radius: 3px; }
 
 .jarvis-alert {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -253,146 +347,205 @@ body {
   border-radius: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer;
 }
 
-.jarvis-welcome { text-align: center; padding: 34px 12px; }
-.jarvis-welcome-eyebrow { color: #67e8f9; font-size: 12.5px; letter-spacing: 0.5px; margin-bottom: 10px; }
-.jarvis-welcome h1 {
-  font-size: 26px; line-height: 2.1; color: #f0fbff; margin: 0 0 10px;
+.unique-welcome { text-align: center; padding: 20px 12px; }
+.unique-welcome-eyebrow { color: #67e8f9; font-size: 12.5px; letter-spacing: 0.5px; margin-bottom: 10px; }
+.unique-welcome h1 {
+  font-size: 24px; line-height: 2.1; color: #f0fbff; margin: 0 0 10px;
   text-shadow: 0 0 24px rgba(34, 211, 238, 0.35); font-weight: 600;
 }
-.jarvis-welcome h1 span { color: #67e8f9; }
-.jarvis-welcome p { color: #8fb8d4; font-size: 13.5px; margin: 0 0 18px; }
-.jarvis-suggestions { display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 0 auto; }
-.jarvis-suggestion {
-  background: rgba(34, 211, 238, 0.07); border: 1px solid rgba(56, 189, 248, 0.22);
-  color: #bdeaff; border-radius: 12px; padding: 10px 14px; font-size: 13px;
-  cursor: pointer; transition: all 0.2s ease; font-family: inherit;
+.unique-welcome h1 span { color: #67e8f9; }
+.unique-welcome p { color: #8fb8d4; font-size: 13.5px; margin: 0 0 18px; }
+.unique-suggestions { display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 0 auto; }
+.unique-suggestion {
+  padding: 9px 12px; border-radius: 12px;
+  background: rgba(34, 211, 238, 0.07);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  color: #bae6fd; font-size: 13.5px; cursor: pointer; text-align: right;
 }
-.jarvis-suggestion:hover { background: rgba(34, 211, 238, 0.16); box-shadow: 0 0 14px rgba(34, 211, 238, 0.3); }
-
+.unique-suggestion:hover { background: rgba(34, 211, 238, 0.16); box-shadow: 0 0 14px rgba(34, 211, 238, 0.3); }
 .jarvis-messages { display: flex; flex-direction: column; gap: 12px; }
-.jmsg { display: flex; flex-direction: column; max-width: 92%; }
-.jmsg.user { align-self: flex-end; align-items: flex-end; }
-.jmsg.assistant { align-self: flex-start; align-items: flex-start; }
-.jmsg-bubble {
-  padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 2;
-  overflow-wrap: anywhere;
-}
-.jmsg.user .jmsg-bubble {
-  background: linear-gradient(135deg, rgba(14, 116, 144, 0.55), rgba(30, 64, 175, 0.4));
-  border: 1px solid rgba(56, 189, 248, 0.35); color: #eaf9ff;
-  border-bottom-right-radius: 4px;
-  box-shadow: 0 0 16px rgba(34, 211, 238, 0.12);
-}
-.jmsg.assistant .jmsg-bubble {
-  background: rgba(15, 28, 52, 0.75); border: 1px solid rgba(56, 189, 248, 0.16);
-  color: #d7efff; border-bottom-left-radius: 4px;
-}
-.jmsg-speak {
-  display: inline-flex; align-items: center; gap: 5px; margin-top: 5px;
-  background: transparent; border: 1px solid rgba(56, 189, 248, 0.25); color: #7dd3fc;
-  border-radius: 999px; padding: 3px 11px; font-size: 11.5px; cursor: pointer; font-family: inherit;
-}
-.jmsg-speak:hover { background: rgba(34, 211, 238, 0.14); }
-.jmsg-meta { font-size: 11px; color: #5b7d99; margin-top: 4px; }
-.jmsg-thinking {
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(15, 28, 52, 0.75); border: 1px solid rgba(56, 189, 248, 0.16);
-  border-radius: 14px; padding: 10px 14px; color: #9fd8ef; font-size: 13.5px;
-}
-.jmsg-dots { display: inline-flex; gap: 4px; }
-.jmsg-dots i {
-  width: 6px; height: 6px; border-radius: 50%; background: #22d3ee;
-  animation: jmsg-blink 1.2s infinite;
-}
-.jmsg-dots i:nth-child(2) { animation-delay: 0.2s; }
-.jmsg-dots i:nth-child(3) { animation-delay: 0.4s; }
-@keyframes jmsg-blink { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 
-/* ---- CENTER: hero (PINNED — never scrolls, never moves) ---- */
-.jarvis-center {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px; padding: 18px 10px; min-height: 0;
-  overflow: hidden; flex-shrink: 0;
-}
-.hero-orb-wrap { position: relative; display: flex; justify-content: center; }
-.hero-orb-wrap.tappable { cursor: pointer; }
-.hero-name { text-align: center; }
-.hero-name-text {
-  display: block; font-size: 22px; font-weight: 700; letter-spacing: 0.6px; color: #f0fbff;
-  text-shadow: 0 0 18px rgba(34, 211, 238, 0.7), 0 0 44px rgba(34, 211, 238, 0.3);
-}
-.hero-name-sub { display: block; font-size: 12.5px; color: #7cc4e4; margin-top: 5px; }
-.hero-wave { width: 100%; max-width: 420px; }
-.hero-voice-status {
-  display: flex; align-items: center; gap: 8px;
-  color: #67e8f9; font-size: 13px;
-  background: rgba(34, 211, 238, 0.08); border: 1px solid rgba(56, 189, 248, 0.25);
-  padding: 6px 14px; border-radius: 999px;
-}
-.hero-voice-pulse {
-  width: 9px; height: 9px; border-radius: 50%; background: #22d3ee;
-  box-shadow: 0 0 10px rgba(34, 211, 238, 0.9);
-  animation: brand-pulse 1s ease-in-out infinite;
-}
-
-.hero-composer {
-  display: flex; align-items: center; gap: 8px; width: 100%; max-width: 460px;
-  background: rgba(10, 22, 42, 0.78);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  border-radius: 999px; padding: 7px 8px 7px 16px;
+/* ---- COMPOSER ---- */
+.unique-composer {
+  display: flex; align-items: flex-end; gap: 8px;
+  margin: 8px 12px 0; padding: 8px;
+  background: rgba(10, 20, 38, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 18px;
   box-shadow: 0 0 22px rgba(34, 211, 238, 0.14), inset 0 1px 0 rgba(125, 211, 252, 0.1);
   backdrop-filter: blur(12px);
   transition: box-shadow 0.25s ease, border-color 0.25s ease;
+  flex-shrink: 0;
 }
-.hero-composer:focus-within {
+.unique-composer:focus-within {
   border-color: rgba(34, 211, 238, 0.65);
   box-shadow: 0 0 30px rgba(34, 211, 238, 0.3), inset 0 1px 0 rgba(125, 211, 252, 0.12);
 }
-.hero-composer textarea {
+.unique-composer textarea {
   flex: 1; background: transparent; border: none; outline: none; resize: none;
-  color: #eaf9ff; font-size: 14px; font-family: inherit; line-height: 1.7;
-  max-height: 120px; padding: 6px 0;
+  color: #eaf9ff; font-size: 15px; font-family: inherit; line-height: 1.5;
+  max-height: 120px; padding: 6px 2px; min-width: 0;
 }
-.hero-composer textarea::placeholder { color: #4e6f8a; }
-.hero-mic, .hero-send {
+.unique-composer textarea::placeholder { color: #4e6f8a; }
+.unique-mic, .unique-send {
   display: flex; align-items: center; justify-content: center;
   width: 38px; height: 38px; border-radius: 50%; cursor: pointer; flex-shrink: 0;
   border: 1px solid rgba(56, 189, 248, 0.35); transition: all 0.2s ease;
 }
-.hero-mic { background: rgba(34, 211, 238, 0.1); color: #7dd3fc; }
-.hero-mic:hover { background: rgba(34, 211, 238, 0.22); box-shadow: 0 0 14px rgba(34, 211, 238, 0.45); }
-.hero-mic.recording {
+.unique-mic { background: rgba(34, 211, 238, 0.1); color: #7dd3fc; }
+.unique-mic:hover { background: rgba(34, 211, 238, 0.22); box-shadow: 0 0 14px rgba(34, 211, 238, 0.45); }
+.unique-mic.recording {
   background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.6); color: #fca5a5;
   animation: brand-pulse 1s ease-in-out infinite;
 }
-.hero-send {
+.unique-send {
   background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #fff; border-color: transparent;
   box-shadow: 0 0 16px rgba(34, 211, 238, 0.5);
 }
-.hero-send:hover:not(:disabled) { filter: brightness(1.15); box-shadow: 0 0 22px rgba(34, 211, 238, 0.7); }
-.hero-send:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
-.hero-attach {
+.unique-send:hover:not(:disabled) { filter: brightness(1.15); box-shadow: 0 0 22px rgba(34, 211, 238, 0.7); }
+.unique-send:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+.unique-attach {
   display: flex; align-items: center; justify-content: center;
   width: 38px; height: 38px; border-radius: 50%; cursor: pointer; flex-shrink: 0;
   border: 1px solid rgba(56, 189, 248, 0.35); transition: all 0.2s ease;
   background: rgba(34, 211, 238, 0.1); color: #7dd3fc; font-size: 17px;
 }
-.hero-attach:hover:not(:disabled) { background: rgba(34, 211, 238, 0.22); box-shadow: 0 0 14px rgba(34, 211, 238, 0.45); }
-.hero-attach:disabled { opacity: 0.4; cursor: not-allowed; }
-.hero-attach-preview {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
-  background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.25);
-  border-radius: 10px; padding: 6px 10px;
+.unique-attach:hover:not(:disabled) { background: rgba(34, 211, 238, 0.22); box-shadow: 0 0 14px rgba(34, 211, 238, 0.45); }
+.unique-attach:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---- PANELS: memory / skills / character (shared by the dock + sheet) ---- */
+.upanel { display: flex; flex-direction: column; gap: 10px; }
+.upanel-intro { font-size: 13px; line-height: 1.9; color: #a5e3f5; margin: 0; }
+.upanel-section-title { font-size: 13px; font-weight: 700; color: #7dd3fc; margin-top: 6px; }
+.upanel-empty { font-size: 13px; line-height: 1.9; color: #7c93a8; margin: 0; }
+.upanel-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.upanel-item {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(34, 211, 238, 0.05);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 12px; padding: 9px 10px;
 }
-.hero-attach-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; }
-.hero-attach-remove {
-  background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4);
-  border-radius: 50%; width: 24px; height: 24px; cursor: pointer; color: #fca5a5; font-size: 12px;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+.upanel-item-text { flex: 1; font-size: 13.5px; line-height: 1.8; color: #dbeafe; min-width: 0; }
+.upanel-item-delete { background: transparent; border: none; cursor: pointer; font-size: 14px; padding: 2px 4px; flex-shrink: 0; }
+.upanel-refresh {
+  align-self: flex-start; padding: 7px 14px; border-radius: 999px;
+  background: rgba(34, 211, 238, 0.1); border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #bae6fd; font-size: 13px; cursor: pointer;
 }
-.hero-attach-hint { font-size: 12px; color: #7dd3fc; }
-.jmsg-image { max-width: 100%; max-height: 280px; border-radius: 10px; margin-bottom: 6px; display: block; }
-.hero-caption { font-size: 11.5px; color: #4e6f8a; }
+.upanel-refresh:hover { background: rgba(34, 211, 238, 0.2); }
+.uskills-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.uskills-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 12px; border-radius: 14px;
+  background: rgba(34, 211, 238, 0.06);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  color: #eaf9ff; cursor: pointer; text-align: right;
+}
+.uskills-card:hover { background: rgba(34, 211, 238, 0.16); box-shadow: 0 0 14px rgba(34, 211, 238, 0.3); }
+.uskills-icon { font-size: 20px; }
+.uskills-label { font-weight: 700; font-size: 13.5px; }
+.uskills-desc { font-size: 11.5px; line-height: 1.7; color: #8fb8d4; }
+.uagent-personas { display: flex; flex-direction: column; gap: 8px; }
+.uagent-persona {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 11px 12px; border-radius: 14px;
+  background: rgba(34, 211, 238, 0.05);
+  border: 1px solid rgba(56, 189, 248, 0.16);
+  color: #eaf9ff; cursor: pointer; text-align: right;
+}
+.uagent-persona.active {
+  background: rgba(34, 211, 238, 0.18); border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 0 14px rgba(34, 211, 238, 0.35);
+}
+.uagent-persona-name { font-weight: 700; font-size: 14px; }
+.uagent-persona-desc { font-size: 12px; color: #8fb8d4; }
+.utone-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.utone-chip {
+  padding: 6px 14px; border-radius: 999px;
+  background: rgba(34, 211, 238, 0.06);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  color: #a5e3f5; font-size: 13px; cursor: pointer;
+}
+.utone-chip.active {
+  background: rgba(34, 211, 238, 0.22); color: #fff;
+  border-color: rgba(34, 211, 238, 0.5);
+}
+.uagent-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; flex-shrink: 0; }
+.uagent-dot.working {
+  background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+  animation: brand-pulse 1.2s ease-in-out infinite;
+}
+
+/* ---- Panel drawer (phones: bottom sheet) ---- */
+.upanel-drawer-overlay {
+  position: fixed; inset: 0; z-index: 70;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.upanel-drawer {
+  width: 100%; max-width: 640px; max-height: 78dvh;
+  background: #0a1426;
+  border: 1px solid rgba(56, 189, 248, 0.25); border-bottom: none;
+  border-radius: 18px 18px 0 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.upanel-drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid rgba(56, 189, 248, 0.14);
+  flex-shrink: 0;
+}
+.upanel-drawer-title { font-weight: 700; color: #eaf9ff; font-size: 15px; }
+.upanel-drawer-close {
+  background: transparent; border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #bae6fd; border-radius: 50%; width: 28px; height: 28px; cursor: pointer;
+}
+.upanel-drawer-body { padding: 14px 16px 20px; overflow-y: auto; }
+
+/* ---- LAPTOP DOCK (min-width: 1100px) ---- */
+@media (min-width: 1100px) {
+  .unique-main {
+    display: grid;
+    grid-template-columns: 288px minmax(0, 1fr) 320px;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px 16px;
+  }
+  .unique-left { display: flex; flex-direction: column; min-height: 0; }
+  .unique-panel-tabs {
+    flex-direction: column; overflow: visible; padding: 0;
+  }
+  .unique-panel-tab { justify-content: flex-start; border-radius: 12px; padding: 9px 12px; }
+  .unique-center { min-height: 0; }
+  .unique-chat { margin: 6px 0 0; }
+  .unique-composer { margin: 8px 0 0; }
+  .unique-caption { padding: 2px 0 0; }
+  .unique-stage { padding-top: 2px; }
+  /* The status panel lives inside the dock now — it must fill the
+     dock's width instead of hugging its own column. */
+  .unique-panel-inline .status-panel { max-height: none; overflow: visible; align-self: stretch; }
+}
+
+/* ---- SMALL PHONES ---- */
+@media (max-width: 640px) {
+  .unique-topbar { padding: 8px 12px; }
+  .unique-awareness-label { display: none; }
+  .unique-live-text { display: none; }
+  .unique-brand-title { font-size: 15px; }
+  .unique-caption { display: none; }
+  .unique-stage { padding: 6px 8px 0; }
+  .unique-wave { max-height: 54px; overflow: hidden; }
+  .uagents-strip { padding: 4px 10px 0; }
+  .unique-chat { margin: 4px 10px 0; }
+  .unique-composer { margin: 6px 10px 0; }
+  .unique-panel-tabs { padding: 8px 10px 4px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .uaware-bubble-progress, .uagents-dot.working, .uagent-dot.working,
+  .unique-voice-pulse, .unique-brand-logo, .unique-live-dot.pulse {
+    animation: none !important;
+  }
+}
 
 /* ================= AI ORB ================= */
 .ai-orb { position: relative; border-radius: 50%; }
@@ -711,47 +864,15 @@ body {
 .icon-button:hover { color: #eaf9ff; background: rgba(34, 211, 238, 0.16); }
 
 /* ================= RESPONSIVE ================= */
-/* Stacked layouts keep the same rule: page locked, ONLY the chat
-   messages area scrolls internally; hero + status stay pinned. */
-@media (max-width: 1280px) {
-  .jarvis-body {
-    grid-template-columns: 52px 1fr;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
-    overflow: hidden;
-  }
-  .jarvis-chat { grid-column: 2; grid-row: 2; min-height: 0; max-height: none; height: 100%; }
-  .jarvis-center { grid-column: 1 / -1; grid-row: 1; order: -1; }
-  .status-panel { grid-column: 1 / -1; grid-row: 3; position: static; align-self: start; }
-  .status-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 16px; }
-  .jarvis-rail { grid-row: 2; align-self: start; }
-  /* Office: full-width row under the status panel — its body scrolls
-     internally, so the cabins stay a bounded, reachable strip. */
-  .office-panel { grid-column: 1 / -1; grid-row: 4; max-height: 400px; }
+/* The shell stays locked at every width: the page never scrolls, only
+   the chat messages area (and the laptop panel dock) scrolls
+   internally. The dock breakpoint is 1100px (see the UNIQUE SHELL
+   section above); these are the in-between tweaks. */
+@media (max-width: 1280px) and (min-width: 1100px) {
+  .unique-main { grid-template-columns: 244px minmax(0, 1fr) 280px; gap: 10px; padding: 12px; }
 }
 @media (max-width: 640px) {
-  .jarvis-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    gap: 10px; padding: 10px;
-    overflow: hidden;
-  }
-  .jarvis-rail {
-    grid-row: 2;
-    flex-direction: row; justify-content: center; align-self: stretch;
-    position: static; padding: 8px;
-  }
-  /* Compact pinned hero on phones so chat keeps usable space */
-  .jarvis-center { grid-column: 1; grid-row: 1; gap: 6px; padding: 10px 8px; }
-  .hero-orb-wrap { height: 118px; overflow: hidden; }
-  .hero-orb-wrap .ai-orb { transform: scale(0.557); transform-origin: top center; }
-  .hero-wave { max-height: 54px; overflow: hidden; }
-  .hero-caption { display: none; }
-  .jarvis-chat { grid-column: 1; grid-row: 3; max-height: none; min-height: 0; height: 100%; }
-  .status-panel { grid-column: 1; grid-row: 4; padding: 10px 12px; gap: 8px; }
   .brain-wrap { display: none; }
-  .status-rows { grid-template-columns: 1fr 1fr; }
-  .jarvis-topbar { padding: 8px 12px; }
-  .hero-composer { max-width: 100%; }
   .gesture-pip { width: 132px; bottom: 12px; right: 12px; }
 }
 
@@ -1064,40 +1185,33 @@ body {
 
 /* ============ MOBILE overrides (LAST in file so they win the cascade) ============ */
 /* ============ MOBILE-FIRST responsive: phone vs laptop ============ */
+/* NOTE: unlike the old shell, the new shell stays LOCKED on phones
+   (page never scrolls; only the chat area scrolls). The old
+   "mobile page scrolls" rules for .jarvis/.jarvis-body are gone on
+   purpose — the office now opens as the big scene from the agents
+   strip, and settings live in the bottom-sheet panel. */
 @media (max-width: 640px) {
-  /* Top bar: stack brand and language chips so nothing overlaps */
-  .jarvis-topbar {
+  /* Top bar: let the brand and the right side wrap so nothing overlaps */
+  .unique-topbar {
     flex-wrap: wrap;
     row-gap: 6px;
   }
-  .jarvis-brand-title { font-size: 16px; }
-  .jarvis-brand-logo { width: 28px; height: 28px; }
-  .jarvis-lang-chips {
-    order: 3;
-    width: 100%;
-    justify-content: flex-start;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    padding-bottom: 2px;
-  }
-  .jarvis-top-right { margin-left: auto; }
-  /* Status panel: single column rows, no overlapping labels */
-  .status-rows { grid-template-columns: 1fr; gap: 7px; }
+  .unique-brand-title { font-size: 16px; }
+  .unique-brand-logo { width: 28px; height: 28px; }
+  .unique-top-right { margin-left: auto; }
+  /* Status panel (inside the settings sheet): tighter rows */
   .status-row { gap: 6px; }
   .status-label { font-size: 12px; }
-  /* Hero: compact on phones */
-  .jarvis-welcome h1 { font-size: 22px; }
-  .jarvis-welcome p { font-size: 13px; }
-  .jarvis-suggestions {
+  /* Welcome: compact on phones */
+  .unique-welcome h1 { font-size: 22px; }
+  .unique-welcome p { font-size: 13px; }
+  .unique-suggestions {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
     max-width: 100%;
   }
-  .jarvis-suggestion { font-size: 12px; padding: 8px 10px; }
-  /* Composer: full width, comfortable tap targets */
-  .hero-composer { padding: 0 4px; }
-  .composer-input { font-size: 14px; }
+  .unique-suggestion { font-size: 12px; padding: 8px 10px; }
   /* Tool grid: 2 columns on phones */
   .tools-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .tool-card { padding: 12px 8px; }
@@ -1115,22 +1229,6 @@ body {
   .rail-btn[data-tip]::after { display: none; }
   body { overflow-x: clip; }
   html, body, #root { height: auto; min-height: 100%; }
-  .jarvis { height: auto; min-height: 100dvh; overflow: visible; }
-  .jarvis-body {
-    display: flex;
-    flex-direction: column;
-    overflow: visible;
-    height: auto;
-    gap: 12px;
-    padding: 12px;
-  }
-  .jarvis-center { order: 1; width: 100%; }
-  .jarvis-rail { order: 2; width: 100%; }
-  .jarvis-chat { order: 3; width: 100%; height: 52vh; min-height: 280px; max-height: none; }
-  .status-panel { order: 4; width: 100%; max-height: none; overflow: visible; align-self: stretch; }
-  /* Office on phones: a visible section under the status panel — the
-     page scrolls, so the team is one swipe down, never hidden. */
-  .office-panel { order: 5; width: 100%; max-height: none; }
   /* Settings dropdown: centered modal on phones too (same inset+margin technique) */
   .settings-dropdown {
     max-height: 82dvh;

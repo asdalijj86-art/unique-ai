@@ -34,6 +34,10 @@ type StatusPanelProps = {
   onPersonaChange: (p: 'unique' | 'uniqa') => void;
   tone: 'neutral' | 'serious' | 'romantic';
   onToneChange: (t: 'neutral' | 'serious' | 'romantic') => void;
+  /** Awareness (Phase 1) — the «✨ Awareness» group in Settings. */
+  awarenessEnabled?: boolean;
+  onAwarenessChange?: (enabled: boolean) => void;
+  onTestAwareness?: () => void;
 };
 
 function StatusRow({
@@ -56,7 +60,7 @@ function StatusRow({
   );
 }
 
-export default function StatusPanel({ status, settings, onSettingsChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange }: StatusPanelProps) {
+export default function StatusPanel({ status, settings, onSettingsChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange, awarenessEnabled, onAwarenessChange, onTestAwareness }: StatusPanelProps) {
   return (
     <aside className="status-panel" aria-label="سسٹم کی حالت">
       <div className="status-head">
@@ -78,6 +82,9 @@ export default function StatusPanel({ status, settings, onSettingsChange, onClea
           onPersonaChange={onPersonaChange}
           tone={tone}
           onToneChange={onToneChange}
+          awarenessEnabled={awarenessEnabled}
+          onAwarenessChange={onAwarenessChange}
+          onTestAwareness={onTestAwareness}
         />
       </div>
       <div className="status-rows">

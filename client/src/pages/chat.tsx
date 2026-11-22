@@ -1,8 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import {
-  AudioLines,
-  Bot,
-  Clock3,
   Mic,
   MicOff,
   Plus,
@@ -49,6 +46,7 @@ import {
   parseMemoryCommand,
   applyMemoryCommand,
   memoryConfirmation,
+  loadNotes,
 } from '@/lib/memory';
 import {
   learnFromText,
@@ -110,6 +108,11 @@ import StatusPanel from '@/components/StatusPanel';
 import MapWidget from '@/components/MapWidget';
 import WhatsAppSender from '@/components/WhatsAppSender';
 import QuranReader from '@/components/QuranReader';
+// Phase 1 (2026-11-22): the new main screen — panels around the
+// living face, and Awareness (speaks first, thought bubble first).
+import { readAwarenessEnabled, saveAwarenessEnabled, useAwareness } from '@/lib/awareness';
+import AwarenessBubble from '@/components/AwarenessBubble';
+import { AgentsStrip, CharacterPanel, MemoryPanel, PanelDrawer, SkillsPanel, type FocusViewKey, type StudioKey } from '@/components/HomePanels';
 import type { ChatAction } from '@/lib/api';
 
 type ChatRole = 'user' | 'assistant';
@@ -336,6 +339,36 @@ export default function ChatPage() {
   const [mediaStudioOpen, setMediaStudioOpen] = useState(false);
   const [islamicStudioOpen, setIslamicStudioOpen] = useState(false);
   const [gameStudioOpen, setGameStudioOpen] = useState(false);
+
+  // Phase 1 (2026-11-22): the new main screen — four panels around
+  // the living face, and Awareness (speaks first). On phones the
+  // panel is a bottom sheet; on laptops it docks inline on the left.
+  const [awarenessEnabled, setAwarenessEnabled] = useState(() => readAwarenessEnabled(window.localStorage));
+  const [activePanel, setActivePanel] = useState<null | 'memory' | 'skills' | 'character' | 'settings'>(null);
+  const [memoryCount, setMemoryCount] = useState(0);
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1100px)').matches);
+
+  function toggleAwareness(next: boolean) {
+    setAwarenessEnabled(next);
+    saveAwarenessEnabled(window.localStorage, next);
+  }
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1100px)');
+    const onChange = () => setIsDesktop(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // The MEMORY tab's badge counts the real notes + learnings on
+  // this device; refresh it whenever a panel opens or closes.
+  useEffect(() => {
+    try {
+      setMemoryCount(loadNotes(window.localStorage).length + loadLearnings(window.localStorage).length);
+    } catch {
+      setMemoryCount(0);
+    }
+  }, [activePanel]);
   // Which section of a hub tool (تصویر ٹولز / ویڈیو ٹولز) to land on when a
   // voice/chat command names a specific feature; undefined = first section.
   // Device pairing (Task 6b): panel visibility + a join code arriving
@@ -570,6 +603,31 @@ export default function ChatPage() {
   const busy = chatMutation.isPending;
   conversationsRef.current = conversations;
   activeIdRef.current = activeId;
+
+  // Phase 1 — Awareness (speaks first): work / time / silence only,
+  // NEVER the camera. It never interrupts a reply, speech, recording,
+  // typing, or an open studio/overlay. A fired line is appended as a
+  // normal assistant message and then spoken aloud.
+  const awareness = useAwareness({
+    enabled: awarenessEnabled,
+    feminine: persona === 'uniqa',
+    paused:
+      busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
+      libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
+      focusView !== null || agentTeamSceneOpen || pairingOpen,
+    onSpeak: (line) => {
+      appendAssistantMessage(line);
+      void playAssistantMessage(line);
+    },
+  });
+
+  // Any message arriving, or any studio opening, is activity: the
+  // quiet clock restarts and a pending thought bubble is dropped.
+  const messageCount = activeConversation?.messages.length ?? 0;
+  useEffect(() => {
+    awareness.recordActivity();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageCount, libraryOpen, documentStudioOpen, mediaStudioOpen, islamicStudioOpen, gameStudioOpen, focusView]);
 
   // Hand gestures (Phase 2): camera-based commands, all client-side.
   const {
@@ -944,15 +1002,6 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appSettings]);
 
-  // Rail tooltip helpers: custom tooltips (data-tip) hide on click so they
-  // never get stuck on screen; they come back on next hover.
-  function hideTipOnClick(e: React.MouseEvent<HTMLButtonElement>) {
-    e.currentTarget.classList.add('no-tip');
-  }
-  function restoreTipOnLeave(e: React.MouseEvent<HTMLButtonElement>) {
-    e.currentTarget.classList.remove('no-tip');
-  }
-
   function startNewChat() {
     // Leaving this chat silences its reply — a voice from a chat the
     // user has already left must never keep talking over the new one.
@@ -990,6 +1039,30 @@ export default function ChatPage() {
     setConversations((current) => current.map((conversation) =>
       conversation.id === id ? updater(conversation) : conversation,
     ).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  }
+
+  // Phase 1: Awareness speaks through the SAME channel as every other
+  // assistant message — it is appended to the conversation (visible
+  // and persistent) and then spoken aloud by the caller.
+  function appendAssistantMessage(text: string) {
+    const now = new Date().toISOString();
+    let conversation = activeConversation;
+    if (!conversation) {
+      conversation = {
+        id: createId(),
+        title: text.length > 42 ? `${text.slice(0, 42).trim()}…` : text,
+        updatedAt: now,
+        messages: [],
+      };
+      setConversations((current) => [conversation!, ...current]);
+      setActiveId(conversation.id);
+    }
+    const id = conversation.id;
+    updateConversation(id, (item) => ({
+      ...item,
+      updatedAt: now,
+      messages: [...item.messages, { id: createId(), role: 'assistant' as const, content: text, createdAt: now }],
+    }));
   }
 
   function toneConfirmation(next: ToneMode): string {
@@ -1286,6 +1359,9 @@ export default function ChatPage() {
       messages: sentMessages,
     }));
     setDraft('');
+    // Phase 1: a sent message counts toward Awareness's long-work
+    // stretch, and resets the quiet clock.
+    awareness.recordMessage();
     // Helper-agent team (Task D): predict whether this message asks
     // for SEVERAL data tools at once. If so, the team strip appears on
     // the chat screen with «کام کر رہا ہے…» cards — and is FINALIZED
@@ -3888,21 +3964,135 @@ export default function ChatPage() {
           ? 'سوچ رہا ہوں…'
           : 'میں آپ کے ساتھ ہوں';
 
+  // Phase 1 — the four panels around the living face. The panel
+  // content is shared by the laptop inline dock and the phone
+  // bottom sheet; every button inside opens the real thing.
+  const PANEL_TITLES: Record<Exclude<typeof activePanel, null>, string> = {
+    memory: '🧠 میموری',
+    skills: '🛠️ مہارتیں',
+    character: '💛 کردار',
+    settings: '⚙️ سیٹنگز',
+  };
+
+  function openStudio(key: StudioKey) {
+    if (key === 'library') setLibraryOpen(true);
+    else if (key === 'document') setDocumentStudioOpen(true);
+    else if (key === 'media') setMediaStudioOpen(true);
+    else if (key === 'islamic') setIslamicStudioOpen(true);
+    else if (key === 'game') setGameStudioOpen(true);
+  }
+
+  function renderPanelContent() {
+    switch (activePanel) {
+      case 'memory':
+        return <MemoryPanel />;
+      case 'skills':
+        return (
+          <SkillsPanel
+            onOpenStudio={(key: StudioKey) => { setActivePanel(null); openStudio(key); }}
+            onOpenFocus={(key: FocusViewKey) => { setActivePanel(null); setFocusView(key); }}
+          />
+        );
+      case 'character':
+        return (
+          <CharacterPanel
+            persona={persona}
+            onPersonaChange={changePersona}
+            tone={tone}
+            onToneChange={changeTone}
+            tasks={agentTeam}
+            boardEntries={boardEntries}
+            onOpenOffice={() => { setActivePanel(null); setAgentTeamSceneOpen(true); }}
+          />
+        );
+      case 'settings':
+        return (
+          <StatusPanel
+            status={{
+              micActive: micLive,
+              speaking: isSpeaking,
+              thinking: busy,
+              gesturesOn: gesturesEnabled,
+              continuousVoice,
+            }}
+            settings={appSettings}
+            onSettingsChange={setAppSettings}
+            persona={persona}
+            onPersonaChange={changePersona}
+            tone={tone}
+            onToneChange={changeTone}
+            chatLang={chatLang}
+            onChatLangChange={(v: string) => {
+              setChatLang(v);
+              try { localStorage.setItem('unique-ai-chat-lang', v); } catch { /* ignore */ }
+            }}
+            onOpenPairing={() => setPairingOpen(true)}
+            onBackupDownload={() => { downloadBrainBackup(); }}
+            onBackupRestore={() => backupInputRef.current?.click()}
+            onClearChat={() => {
+              interruptSpeech('chat-cleared'); // the cleared chat's reply stops with it
+              if (activeConversation) {
+                setConversations(prev => prev.map(c =>
+                  c.id === activeConversation.id ? { ...c, messages: [] } : c
+                ));
+              }
+            }}
+            onTestVoice={() => {
+              void playAssistantMessage('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
+            }}
+            awarenessEnabled={awarenessEnabled}
+            onAwarenessChange={toggleAwareness}
+            onTestAwareness={() => awareness.fireNow('quiet')}
+          />
+        );
+      default:
+        return null;
+    }
+  }
+
+  // The living face: big when the screen is fresh, compact once the
+  // conversation starts — always visible, always animated.
+  const hasMessages = (activeConversation?.messages.length ?? 0) > 0;
+  const orbSize = !hasMessages ? (isDesktop ? 300 : 208) : (isDesktop ? 160 : 104);
+
   return (
-    <main className="jarvis" lang="ur" data-testid="page-maira-chat">
-      {/* ======= TOP BAR ======= */}
-      <header className="jarvis-topbar">
-        <div className="jarvis-brand" data-testid="brand-maira">
-          <img src="/logo.png" alt="Unique AI" className="jarvis-brand-logo" />
-          <span className="jarvis-brand-title">Unique AI</span>
+    <main className="unique-shell" lang="ur" data-testid="page-maira-chat">
+      {/* ======= TOP BAR: brand + Awareness switch + live status ======= */}
+      <header className="unique-topbar">
+        <div className="unique-brand" data-testid="brand-maira">
+          <img src="/logo.png" alt="Unique AI" className="unique-brand-logo" />
+          <span className="unique-brand-title">Unique AI</span>
+          <span
+            className="unique-persona-chip"
+            dir="rtl"
+            data-testid="persona-indicator"
+            style={{ color: persona === 'uniqa' ? '#f0a6c8' : undefined }}
+          >
+            {persona === 'uniqa' ? '💛 یونیکا' : 'یونیک'}
+          </span>
         </div>
         {/* Language selection moved into Settings (Phase سادگی): the
-            top bar carries only the brand and the live status. */}
-        <div className="jarvis-top-right">
-          <span className={`jarvis-live-dot${busy || isSpeaking ? ' pulse' : ''}`} aria-hidden="true" />
-          <span className="jarvis-live-text" dir="rtl" data-testid="status-assistant">{heroStatus}</span>
+            top bar carries the brand, the Awareness switch, and the
+            live status. */}
+        <div className="unique-top-right">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={awarenessEnabled}
+            aria-label="Awareness — خود پہلے بولے"
+            className={`unique-awareness${awarenessEnabled ? ' on' : ''}`}
+            onClick={() => toggleAwareness(!awarenessEnabled)}
+            data-testid="switch-awareness"
+            title={awarenessEnabled ? 'Awareness آن ہے — بند کرنے کے لیے دبائیں' : 'Awareness بند ہے — چالو کرنے کے لیے دبائیں'}
+          >
+            <span aria-hidden="true">✨</span>
+            <span className="unique-awareness-label">Awareness</span>
+            <span className="unique-awareness-track" aria-hidden="true"><i /></span>
+          </button>
+          <span className={`unique-live-dot${busy || isSpeaking ? ' pulse' : ''}`} aria-hidden="true" />
+          <span className="unique-live-text" dir="rtl" data-testid="status-assistant">{heroStatus}</span>
           {error && (
-            <button className="jarvis-top-error" onClick={() => setError('')} data-testid="status-chat-error" title={error}>
+            <button className="unique-top-error" onClick={() => setError('')} data-testid="status-chat-error" title={error}>
               <X size={13} />
             </button>
           )}
@@ -3954,171 +4144,223 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* ======= BODY: rail | chat | hero | status ======= */}
-      <div className="jarvis-body">
-        {/* Slim vertical icon toolbar */}
-        <nav className="jarvis-rail" aria-label="مینیو">
-          <button className="rail-btn" onClick={(e) => { hideTipOnClick(e); startNewChat(); }} onMouseLeave={restoreTipOnLeave} aria-label="نئی گفتگو" data-tip="نئی گفتگو" data-testid="button-new-chat">
-            <Plus size={18} />
-          </button>
-          <button className="rail-btn" onClick={(e) => { hideTipOnClick(e); setShowHistory((v) => !v); }} onMouseLeave={restoreTipOnLeave} aria-label="گفتگوؤں کی فہرست" data-tip="گفتگوؤں کی فہرست" data-testid="button-mobile-history">
-            <Clock3 size={18} />
-          </button>
-          <button
-            className={`rail-btn${continuousVoice ? ' active' : ''}`}
-            onClick={(e) => { hideTipOnClick(e); toggleContinuousVoice(); }}
-            onMouseLeave={restoreTipOnLeave}
-            aria-label={continuousVoice ? 'مسلسل آواز بند کریں' : 'مسلسل آواز چالو کریں'}
-            aria-pressed={continuousVoice}
-            data-tip="مسلسل آواز — بولیں، جواب خود آئے گا"
-            data-testid="button-continuous-voice"
-          >
-            <AudioLines size={18} />
-          </button>
-          <button
-            className={`rail-btn${agentTeamSceneOpen ? ' active' : ''}`}
-            onClick={(e) => { hideTipOnClick(e); setAgentTeamSceneOpen((v) => !v); }}
-            onMouseLeave={restoreTipOnLeave}
-            aria-label="ایجنٹ ٹیم دیکھیں"
-            aria-pressed={agentTeamSceneOpen}
-            data-tip="ایجنٹ ٹیم 🤖"
-            data-testid="button-agent-team"
-          >
-            <Bot size={18} />
-          </button>
-          {/* Phase سادگی: the rail keeps ONLY conversation essentials —
-              new chat, history, continuous voice, agent team. Gestures
-              moved into Settings (its toggle already lived there); the
-              tools button is GONE with the whole toolbox; map/WhatsApp
-              have no rail buttons — they open by voice («نقشہ دکھاؤ»,
-              «واٹس ایپ کھولو») as full-screen scenes. The ONE settings
-              button is the gear in the status panel. */}
-        </nav>
-
-        {/* LEFT: chat messages */}
-        <section className="jarvis-chat" aria-label="گفتگو">
-          <div className="jarvis-chat-scroll">
-            {storageError && (
-              <div className="jarvis-alert" role="status" dir="rtl" data-testid="status-storage-error">
-                <span>Browser storage دستیاب نہیں، اس لیے جانے کے بعد یہ گفتگو محفوظ نہ رہ سکے گی۔</span>
-                <button onClick={() => setStorageError(false)}>بند کریں</button>
-              </div>
-            )}
-            {!activeConversation || activeConversation.messages.length === 0 ? (
-              <div className="jarvis-welcome" data-testid="section-welcome">
-                <div className="jarvis-welcome-eyebrow" dir="rtl">جب چاہیں، تھوڑی سی مدد</div>
-                <h1 dir="rtl">السلام علیکم۔<br /><span>میں Unique AI ہوں۔</span></h1>
-                <p dir="rtl">آپ اردو، رومن اردو، انگریزی یا عربی میں بات کر سکتے ہیں۔</p>
-                <div className="jarvis-suggestions">
-                  {suggestions.map((suggestion, index) => (
-                    <button key={suggestion} className="jarvis-suggestion" dir="auto" onClick={() => void sendMessage(suggestion)} data-testid={`button-suggestion-${index}`}>
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="jarvis-messages" data-testid="list-messages">
-                {activeConversation.messages.map((message) => (
-                  <article key={message.id} className={`jmsg ${message.role}`} data-testid={`message-${message.role}-${message.id}`}>
-                    <div className="jmsg-bubble" dir="auto" data-testid={`text-message-content-${message.id}`}>
-                      {message.image ? (
-                        message.image.startsWith('data:video/') ? (
-                          <video src={message.image} controls className="jmsg-image" />
-                        ) : (
-                          <img src={message.image} alt="بھیجی گئی فائل" className="jmsg-image" />
-                        )
-                      ) : null}
-                      {renderMessageContent(message.content)}
-                    </div>
-                    {message.role === 'assistant' ? (
-                      <button
-                        className="jmsg-speak"
-                        onClick={() => void playAssistantMessage(message.content)}
-                        data-testid={`button-speak-${message.id}`}
-                        aria-label="جواب سنیں"
-                      >
-                        <Volume2 size={12} />
-                        <span dir="rtl">سنیں</span>
-                      </button>
-                    ) : (
-                      <div className="jmsg-meta" dir="rtl">آپ</div>
-                    )}
-                  </article>
-                ))}
-                {busy && (
-                  <div className="jmsg assistant" data-testid="status-thinking">
-                    <div className="jmsg-thinking" dir="rtl">
-                      <span>سوچ رہا ہوں</span>
-                      <span className="jmsg-dots" aria-hidden="true"><i /><i /><i /></span>
-                    </div>
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* CENTER: hero orb + waveform + input */}
-        <section className="jarvis-center" aria-label="Unique AI">
-          <div
-            className={`hero-orb-wrap${isSpeaking || isPreparingVoice ? ' tappable' : ''}`}
-            onClick={() => {
-              // Tap the orb while it speaks = "stop, listen to me" —
-              // works even where recognition barge-in is unavailable.
-              if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
-            }}
-            title={isSpeaking || isPreparingVoice ? 'رکنے کے لیے دبائیں' : undefined}
-          >
-            <AiOrb isSpeaking={isSpeaking} isThinking={busy || isPreparingVoice} size={212} />
-          </div>
-          <div className="hero-name">
-            <span className="hero-name-text">Unique AI</span>
-            {/* Persona indicator (Phase 2): who is "present" right now.
-                Defaults to Unique; shows Uniqa (and the tone, when set)
-                only while she is the active companion. */}
-            <span
-              className="hero-name-sub"
-              dir="rtl"
-              data-testid="persona-indicator"
-              style={{ color: persona === 'uniqa' ? '#f0a6c8' : undefined }}
-            >
-              {persona === 'uniqa' ? '💛 یونیکا حاضر ہے' : 'یونیک حاضر ہے'}
-              {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
-            </span>
-            <span className="hero-name-sub" dir="rtl" data-testid="text-avatar-status">{heroStatus}</span>
-          </div>
-          <div className="hero-wave">
-            <VoiceWaveform mode={waveMode} height={78} />
-          </div>
-          {(continuousVoice && voiceStatus) || recording ? (
-            <div className="hero-voice-status" dir="rtl" data-testid="status-continuous-voice">
-              <span className="hero-voice-pulse" aria-hidden="true" />
-              <span>{recording ? `ریکارڈ ہو رہا ہے · ${durationLabel}` : voiceStatus}</span>
-            </div>
-          ) : null}
-          {attachedImage ? (
-            <div className="hero-attach-preview" dir="ltr">
-              {attachedImage.startsWith('data:video/') ? (
-                <video src={attachedImage} className="hero-attach-thumb" muted />
-              ) : (
-                <img src={attachedImage} alt="منسلک فائل" className="hero-attach-thumb" />
-              )}
-              <button
-                type="button"
-                className="hero-attach-remove"
-                onClick={() => setAttachedImage(null)}
-                aria-label="فائل ہٹائیں"
-              >
-                ✕
-              </button>
-              <span className="hero-attach-hint">{attachedImage.startsWith('data:video/') ? 'ویڈیو تیار ہے — سوال لکھیں یا بھیج دیں 🎬' : 'تصویر تیار ہے — سوال لکھیں یا بھیج دیں 📷'}</span>
-            </div>
-          ) : null}
-          <div className="hero-composer">
+      {/* ======= MAIN: panels | living face + chat | office (desktop) ======= */}
+      <div className="unique-main">
+        {/* LEFT: the four panels — inline dock on laptops, tabs only on phones */}
+        <div className="unique-left">
+          <nav className="unique-panel-tabs" aria-label="پینل">
             <button
-              className={`hero-mic${recording ? ' recording' : ''}`}
+              type="button"
+              className={`unique-panel-tab${activePanel === 'memory' ? ' active' : ''}`}
+              onClick={() => setActivePanel(activePanel === 'memory' ? null : 'memory')}
+              aria-pressed={activePanel === 'memory'}
+              data-testid="button-panel-memory"
+            >
+              <span aria-hidden="true">🧠</span>
+              <span>میموری</span>
+              {memoryCount > 0 && <span className="unique-panel-badge">{memoryCount}</span>}
+            </button>
+            <button
+              type="button"
+              className={`unique-panel-tab${activePanel === 'skills' ? ' active' : ''}`}
+              onClick={() => setActivePanel(activePanel === 'skills' ? null : 'skills')}
+              aria-pressed={activePanel === 'skills'}
+              data-testid="button-panel-skills"
+            >
+              <span aria-hidden="true">🛠️</span>
+              <span>مہارتیں</span>
+            </button>
+            <button
+              type="button"
+              className={`unique-panel-tab${activePanel === 'character' ? ' active' : ''}`}
+              onClick={() => setActivePanel(activePanel === 'character' ? null : 'character')}
+              aria-pressed={activePanel === 'character'}
+              data-testid="button-panel-character"
+            >
+              <span aria-hidden="true">💛</span>
+              <span>کردار</span>
+            </button>
+            <button
+              type="button"
+              className={`unique-panel-tab${activePanel === 'settings' ? ' active' : ''}`}
+              onClick={() => setActivePanel(activePanel === 'settings' ? null : 'settings')}
+              aria-pressed={activePanel === 'settings'}
+              data-testid="button-panel-settings"
+            >
+              <span aria-hidden="true">⚙️</span>
+              <span>سیٹنگز</span>
+            </button>
+            <button
+              type="button"
+              className="unique-panel-tab"
+              onClick={() => startNewChat()}
+              data-testid="button-new-chat"
+            >
+              <span aria-hidden="true">➕</span>
+              <span>نئی گفتگو</span>
+            </button>
+            <button
+              type="button"
+              className="unique-panel-tab"
+              onClick={() => setShowHistory((v) => !v)}
+              data-testid="button-mobile-history"
+            >
+              <span aria-hidden="true">🕘</span>
+              <span>تاریخ</span>
+            </button>
+            <button
+              type="button"
+              className={`unique-panel-tab${continuousVoice ? ' active' : ''}`}
+              onClick={() => toggleContinuousVoice()}
+              aria-pressed={continuousVoice}
+              data-testid="button-continuous-voice"
+            >
+              <span aria-hidden="true">🎙️</span>
+              <span>مسلسل آواز</span>
+            </button>
+          </nav>
+          {activePanel && isDesktop && (
+            <div className="unique-panel-inline" data-testid="panel-inline">
+              {renderPanelContent()}
+            </div>
+          )}
+        </div>
+
+        {/* CENTER: living face, agents, chat, composer */}
+        <div className="unique-center">
+          <section className="unique-stage" aria-label="Unique AI">
+            {awareness.bubble && (
+              <AwarenessBubble
+                line={awareness.bubble.line}
+                thinkingLabel={persona === 'uniqa' ? '💭 یونیکا سوچ رہی ہے…' : '💭 یونیک سوچ رہا ہے…'}
+                onSpeakNow={awareness.speakNow}
+                onDismiss={awareness.dismissBubble}
+              />
+            )}
+            <div
+              className={`unique-orb-wrap${isSpeaking || isPreparingVoice ? ' tappable' : ''}`}
+              onClick={() => {
+                // Tap the orb while it speaks = "stop, listen to me" —
+                // works even where recognition barge-in is unavailable.
+                if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
+              }}
+              title={isSpeaking || isPreparingVoice ? 'رکنے کے لیے دبائیں' : undefined}
+            >
+              <AiOrb isSpeaking={isSpeaking} isThinking={busy || isPreparingVoice} size={orbSize} />
+            </div>
+            <div className="unique-name">
+              <span className="unique-name-text">Unique AI</span>
+              {/* Persona indicator (Phase 2): who is "present" right now.
+                  Defaults to Unique; shows Uniqa (and the tone, when set)
+                  only while she is the active companion. */}
+              <span
+                className="unique-name-sub"
+                dir="rtl"
+                style={{ color: persona === 'uniqa' ? '#f0a6c8' : undefined }}
+              >
+                {persona === 'uniqa' ? '💛 یونیکا حاضر ہے' : 'یونیک حاضر ہے'}
+                {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
+              </span>
+              <span className="unique-name-sub" dir="rtl" data-testid="text-avatar-status">{heroStatus}</span>
+            </div>
+            <div className="unique-wave">
+              <VoiceWaveform mode={waveMode} height={56} />
+            </div>
+            {(continuousVoice && voiceStatus) || recording ? (
+              <div className="unique-voice-status" dir="rtl" data-testid="status-continuous-voice">
+                <span className="unique-voice-pulse" aria-hidden="true" />
+                <span>{recording ? `ریکارڈ ہو رہا ہے · ${durationLabel}` : voiceStatus}</span>
+              </div>
+            ) : null}
+            {attachedImage ? (
+              <div className="unique-attach-preview" dir="ltr">
+                {attachedImage.startsWith('data:video/') ? (
+                  <video src={attachedImage} className="unique-attach-thumb" muted />
+                ) : (
+                  <img src={attachedImage} alt="منسلک فائل" className="unique-attach-thumb" />
+                )}
+                <button
+                  type="button"
+                  className="unique-attach-remove"
+                  onClick={() => setAttachedImage(null)}
+                  aria-label="فائل ہٹائیں"
+                >
+                  ✕
+                </button>
+                <span className="unique-attach-hint">{attachedImage.startsWith('data:video/') ? 'ویڈیو تیار ہے — سوال لکھیں یا بھیج دیں 🎬' : 'تصویر تیار ہے — سوال لکھیں یا بھیج دیں 📷'}</span>
+              </div>
+            ) : null}
+          </section>
+
+          <AgentsStrip tasks={agentTeam} boardEntries={boardEntries} onOpenOffice={() => setAgentTeamSceneOpen(true)} />
+
+          <section className="unique-chat" aria-label="گفتگو">
+            <div className="unique-chat-scroll">
+              {storageError && (
+                <div className="jarvis-alert" role="status" dir="rtl" data-testid="status-storage-error">
+                  <span>Browser storage دستیاب نہیں، اس لیے جانے کے بعد یہ گفتگو محفوظ نہ رہ سکے گی۔</span>
+                  <button onClick={() => setStorageError(false)}>بند کریں</button>
+                </div>
+              )}
+              {!activeConversation || activeConversation.messages.length === 0 ? (
+                <div className="unique-welcome" data-testid="section-welcome">
+                  <div className="unique-welcome-eyebrow" dir="rtl">جب چاہیں، تھوڑی سی مدد</div>
+                  <h1 dir="rtl">السلام علیکم۔<br /><span>میں Unique AI ہوں۔</span></h1>
+                  <p dir="rtl">آپ اردو، رومن اردو، انگریزی یا عربی میں بات کر سکتے ہیں۔</p>
+                  <div className="unique-suggestions">
+                    {suggestions.map((suggestion, index) => (
+                      <button key={suggestion} className="unique-suggestion" dir="auto" onClick={() => void sendMessage(suggestion)} data-testid={`button-suggestion-${index}`}>
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="jarvis-messages" data-testid="list-messages">
+                  {activeConversation.messages.map((message) => (
+                    <article key={message.id} className={`jmsg ${message.role}`} data-testid={`message-${message.role}-${message.id}`}>
+                      <div className="jmsg-bubble" dir="auto" data-testid={`text-message-content-${message.id}`}>
+                        {message.image ? (
+                          message.image.startsWith('data:video/') ? (
+                            <video src={message.image} controls className="jmsg-image" />
+                          ) : (
+                            <img src={message.image} alt="بھیجی گئی فائل" className="jmsg-image" />
+                          )
+                        ) : null}
+                        {renderMessageContent(message.content)}
+                      </div>
+                      {message.role === 'assistant' ? (
+                        <button
+                          className="jmsg-speak"
+                          onClick={() => void playAssistantMessage(message.content)}
+                          data-testid={`button-speak-${message.id}`}
+                          aria-label="جواب سنیں"
+                        >
+                          <Volume2 size={12} />
+                          <span dir="rtl">سنیں</span>
+                        </button>
+                      ) : (
+                        <div className="jmsg-meta" dir="rtl">آپ</div>
+                      )}
+                    </article>
+                  ))}
+                  {busy && (
+                    <div className="jmsg assistant" data-testid="status-thinking">
+                      <div className="jmsg-thinking" dir="rtl">
+                        <span>سوچ رہا ہوں</span>
+                        <span className="jmsg-dots" aria-hidden="true"><i /><i /><i /></span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
+          </section>
+
+          <div className="unique-composer">
+            <button
+              className={`unique-mic${recording ? ' recording' : ''}`}
               onClick={() => {
                 // While the AI speaks, the mic button is the interrupt:
                 // silence it instantly and take the user's new turn.
@@ -4143,7 +4385,7 @@ export default function ChatPage() {
               data-testid="input-image-attach"
             />
             <button
-              className="hero-attach"
+              className="unique-attach"
               onClick={() => fileInputRef.current?.click()}
               disabled={busy}
               aria-label="تصویر یا ویڈیو بھیجیں"
@@ -4169,7 +4411,7 @@ export default function ChatPage() {
               data-testid="input-message"
             />
             <button
-              className="hero-send"
+              className="unique-send"
               onClick={() => void sendMessage(draft)}
               disabled={(!draft.trim() && !attachedImage) || busy}
               aria-label="پیغام بھیجیں"
@@ -4178,66 +4420,33 @@ export default function ChatPage() {
               <Send size={16} />
             </button>
           </div>
-          <div className="hero-caption" dir="rtl" data-testid="text-composer-caption">
+          <div className="unique-caption" dir="rtl" data-testid="text-composer-caption">
             Unique AI سے غلطی ہو سکتی ہے۔ جو مددگار لگے، وہ لے لیں۔
           </div>
-        </section>
+        </div>
 
-        {/* RIGHT: system status */}
-        <StatusPanel
-          status={{
-            micActive: micLive,
-            speaking: isSpeaking,
-            thinking: busy,
-            gesturesOn: gesturesEnabled,
-            continuousVoice,
-          }}
-          settings={appSettings}
-          onSettingsChange={setAppSettings}
-          persona={persona}
-          onPersonaChange={changePersona}
-          tone={tone}
-          onToneChange={changeTone}
-          chatLang={chatLang}
-          onChatLangChange={(v: string) => {
-            setChatLang(v);
-            try { localStorage.setItem('unique-ai-chat-lang', v); } catch { /* ignore */ }
-          }}
-          onOpenPairing={() => setPairingOpen(true)}
-          onBackupDownload={() => { downloadBrainBackup(); }}
-          onBackupRestore={() => backupInputRef.current?.click()}
-          onClearChat={() => {
-            interruptSpeech('chat-cleared'); // the cleared chat's reply stops with it
-            if (activeConversation) {
-              // Clear messages of active conversation
-              setConversations(prev => prev.map(c =>
-                c.id === activeConversation.id ? { ...c, messages: [] } : c
-              ));
-            }
-          }}
-          onTestVoice={() => {
-            // Voice test: speak a short phrase so the user can check if
-            // sound comes out of their speakers. MUST go through the real
-            // Gemini voice path (playAssistantMessage) — the old version
-            // called the browser voice directly, so the test stayed silent
-            // on devices without a device voice even when the real
-            // (Charon) voice worked, misleading everyone (fixed 2026-10-20).
-            void playAssistantMessage('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
-          }}
-        />
-
-        {/* FAR RIGHT: the development office ON the main screen
-            (user decision, 2026-10-23) — cabins beside the chat,
-            lit by the SAME real task state as the strip and the
-            🤖 overlay scene; ⤢ opens that big view. */}
-        <AgentOfficePanel
-          tasks={agentTeam}
-          persona={persona}
-          boardEntries={boardEntries}
-          buildLive={buildLive}
-          onExpand={() => setAgentTeamSceneOpen(true)}
-        />
+        {/* RIGHT: the development office ON the main screen (user
+            decision, 2026-10-23) — visible on laptops; on phones the
+            office opens as the big scene from the agents strip. */}
+        {isDesktop && (
+          <div className="unique-right">
+            <AgentOfficePanel
+              tasks={agentTeam}
+              persona={persona}
+              boardEntries={boardEntries}
+              buildLive={buildLive}
+              onExpand={() => setAgentTeamSceneOpen(true)}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Phone panel sheet — the same four panels, as a bottom sheet. */}
+      {activePanel && !isDesktop && (
+        <PanelDrawer title={PANEL_TITLES[activePanel]} onClose={() => setActivePanel(null)} testId={`drawer-panel-${activePanel}`}>
+          {renderPanelContent()}
+        </PanelDrawer>
+      )}
 
       {/* ======= FOCUS VIEW: one thing at a time fills the whole screen ======= */}
       {focusView && (
