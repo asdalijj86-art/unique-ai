@@ -39,7 +39,9 @@ export const BACKUP_EXCLUDED_KEYS = [
 
 const CONVERSATIONS_KEY = 'maira-ai-conversations-v1';
 const NOTES_KEY = 'unique-ai-notes';
+const NOTES_KEY_UNIQUE = 'unique-ai-notes-unique';
 const LEARNINGS_KEY = 'unique-ai-learnings';
+const LEARNINGS_KEY_UNIQUE = 'unique-ai-learnings-unique';
 
 export type StorageLike = {
   getItem: (key: string) => string | null;
@@ -180,8 +182,10 @@ function countArrayEntry(entries: Record<string, string>, key: string): number {
 export function summarizeBackup(data: BrainBackup): BackupSummary {
   return {
     conversations: countArrayEntry(data.entries, CONVERSATIONS_KEY),
-    notes: countArrayEntry(data.entries, NOTES_KEY),
-    learnings: countArrayEntry(data.entries, LEARNINGS_KEY),
+    // Per-persona memory (2026-11-25): both personas' stores count —
+    // Uniqa's original keys plus Unique's '-unique' keys.
+    notes: countArrayEntry(data.entries, NOTES_KEY) + countArrayEntry(data.entries, NOTES_KEY_UNIQUE),
+    learnings: countArrayEntry(data.entries, LEARNINGS_KEY) + countArrayEntry(data.entries, LEARNINGS_KEY_UNIQUE),
     totalEntries: Object.keys(data.entries).length,
     createdAt: data.createdAt,
   };

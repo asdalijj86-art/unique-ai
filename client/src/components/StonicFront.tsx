@@ -181,6 +181,9 @@ export function FrontStage({
   cameraLive,
   cameraPermission,
   onToggleCamera,
+  /** The newest memory, one short line — Stonic's pattern: a thin
+   *  line with the memory beside it, then a thin divider below. */
+  memoryLine,
 }: {
   persona: 'unique' | 'uniqa';
   tone: 'neutral' | 'serious' | 'romantic';
@@ -222,6 +225,8 @@ export function FrontStage({
   cameraPermission: boolean;
   /** Toggle the camera permission (same as the MEDIA LINK switch). */
   onToggleCamera: () => void;
+  /** The newest memory, one short line (or null when there is none). */
+  memoryLine: string | null;
 }) {
   return (
     <section className="ufront-stage" aria-label="فرنٹ">
@@ -313,7 +318,7 @@ export function FrontStage({
         <span
           className="unique-name-sub"
           dir="rtl"
-          style={{ color: persona === 'uniqa' ? '#f0a6c8' : undefined }}
+          style={{ color: persona === 'uniqa' ? '#67e8f9' : undefined }}
         >
           {persona === 'uniqa' ? '💛 یونیکا حاضر ہے' : 'یونیک حاضر ہے'}
           {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
@@ -333,9 +338,25 @@ export function FrontStage({
         )}
       </div>
 
-      {/* Awareness / Unawareness, visible on the front itself (Stonic
-          reel, 2026-11-25): ON — Uniqa notices and speaks first;
-          OFF — she only answers when called, and looks at nothing. */}
+      {/* MEMORY LINE — Stonic's own pattern (2026-11-25, the user's
+          words): a thin line with the memory beside it, the memory
+          below it, then another thin line. One short line only — the
+          full memory lives in the MEMORY node panel. */}
+      <div className="umem-block" dir="rtl" data-testid="memory-line">
+        <div className="umem-head">
+          <span className="umem-rule" aria-hidden="true" />
+          <span className="umem-label">🧠 میموری</span>
+        </div>
+        <p className="umem-text">
+          {memoryLine ?? 'ابھی کوئی یادداشت نہیں — کچھ یاد رکھنے کو کہیں، میں سنبھال لوں گی۔'}
+        </p>
+        <span className="umem-rule-full" aria-hidden="true" />
+      </div>
+
+      {/* The front's pills in ONE slim row (2026-11-25 declutter):
+          Awareness, camera, START/TERMINATE, call — same buttons,
+          same handlers, no more stacked tower under the face. */}
+      <div className="ufront-pills">
       <button
         type="button"
         className={`uaware-chip${awarenessEnabled ? '' : ' off'}`}
@@ -344,13 +365,9 @@ export function FrontStage({
         data-testid="button-awareness-front"
         title={awarenessEnabled ? 'آگاہی بند کرنے کے لیے دبائیں' : 'آگاہی آن کرنے کے لیے دبائیں'}
       >
-        {awarenessEnabled ? '👁️ آگاہی آن ہے — یونیکا خود بولے گی' : '🙈 آگاہی بند ہے — یونیکا صرف بلانے پر بولے گی'}
+        {awarenessEnabled ? '👁️ آگاہی آن ہے' : '🙈 آگاہی بند ہے'}
       </button>
 
-      {/* Camera permission, on the front itself (2026-11-25,
-          user-approved): when ON, Uniqa may turn the camera on
-          herself — a short look, never hidden, never recorded. When
-          OFF, she never turns it on. Awareness OFF also stops it. */}
       <button
         type="button"
         className={`ucam-chip${cameraPermission ? '' : ' off'}`}
@@ -359,10 +376,9 @@ export function FrontStage({
         data-testid="button-camera-front"
         title={cameraPermission ? 'کیمرہ اجازت بند کرنے کے لیے دبائیں — یونیکا پھر خود آن نہیں کرے گی' : 'کیمرہ اجازت آن کرنے کے لیے دبائیں'}
       >
-        {cameraPermission ? '📷 کیمرہ اجازت آن ہے — یونیکا خود دیکھ سکتی ہے' : '📷 کیمرہ بند ہے — یونیکا خود آن نہیں کرے گی'}
+        {cameraPermission ? '📷 کیمرہ آن ہے' : '📷 کیمرہ بند ہے'}
       </button>
 
-      {/* START AI / TERMINATE — the assistant's power pill. */}
       <button
         type="button"
         className={`ufront-power${isActive ? ' active' : ''}`}
@@ -374,8 +390,6 @@ export function FrontStage({
         <span>{isActive ? 'TERMINATE' : 'START AI'}</span>
       </button>
 
-      {/* 📞 کال — کہیں سے بھی (Stonic Remote-style): the front door to
-          the call screen. The signalling lives in DevicePairing. */}
       <button
         type="button"
         className="ufront-call"
@@ -384,11 +398,12 @@ export function FrontStage({
         title="فون سے یونیک کو کال کریں — لیپ ٹاپ آن ہو تو کہیں سے بھی"
       >
         <span aria-hidden="true">📞</span>
-        <span>کال کریں — کہیں سے بھی</span>
+        <span>کال کریں</span>
       </button>
+      </div>
 
       <div className="unique-wave">
-        <VoiceWaveform mode={waveMode} height={56} />
+        <VoiceWaveform mode={waveMode} height={36} />
       </div>
       {voiceStatus || recording ? (
         <div className="unique-voice-status" dir="rtl" data-testid="status-continuous-voice">

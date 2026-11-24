@@ -21,6 +21,14 @@
  *     saves and the brain's save_note action) are run through the
  *     same extractor with source 'told'.
  *
+ * Per-persona memory (2026-11-25): Uniqa and Unique each keep their
+ * OWN store — Uniqa on the original key, Unique on
+ * 'unique-ai-learnings-unique'. Every function here takes the
+ * persona (default 'uniqa'), and the caller threads the ACTIVE
+ * persona through, so a fact Uniqa learned never leaks into
+ * Unique's recall, and vice versa. The recall block sent to the
+ * server always carries only the speaking persona's learnings.
+ *
  * Control stays with the person: «تم نے کیا سیکھا؟» lists the
  * learnings (lib/memory routes it here), «… بھول جاؤ» deletes matching
  * ones, «ساری میموری ڈیلیٹ کر دو» clears them with the notes.
@@ -44,6 +52,17 @@ export type Learning = {
 };
 
 export const LEARNINGS_KEY = 'unique-ai-learnings';
+/** Unique's own learnings store (2026-11-25, per-persona memory):
+ *  Uniqa keeps the ORIGINAL key exactly as it was — every learning
+ *  saved so far stays hers, the default persona. Unique gets his
+ *  own key; nothing is copied or moved, so the split loses nothing. */
+export const LEARNINGS_KEY_UNIQUE = 'unique-ai-learnings-unique';
+export type MemoryPersona = 'uniqa' | 'unique';
+
+/** Which localStorage key holds this persona's learnings. */
+export function learningsKeyFor(persona: MemoryPersona = 'uniqa'): string {
+  return persona === 'unique' ? LEARNINGS_KEY_UNIQUE : LEARNINGS_KEY;
+}
 export const MAX_LEARNINGS = 60;
 export const RECALL_LIMIT = 12;
 
@@ -56,9 +75,9 @@ export type StorageLike = {
 // Store
 // ---------------------------------------------------------------------------
 
-export function loadLearnings(storage: StorageLike): Learning[] {
+export function loadLearnings(storage: StorageLike, persona: MemoryPersona = 'uniqa'): Learning[] {
   try {
-    const raw = storage.getItem(LEARNINGS_KEY);
+    const raw = storage.getItem(learningsKeyFor(persona));
     const arr = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(arr)) return [];
     return arr.filter(
@@ -70,9 +89,9 @@ export function loadLearnings(storage: StorageLike): Learning[] {
   }
 }
 
-export function saveLearnings(storage: StorageLike, learnings: Learning[]): void {
+export function saveLearnings(storage: StorageLike, learnings: Learning[], persona: MemoryPersona = 'uniqa'): void {
   try {
-    storage.setItem(LEARNINGS_KEY, JSON.stringify(learnings));
+    storage.setItem(learningsKeyFor(persona), JSON.stringify(learnings));
   } catch {
     // storage unavailable — learning just won't persist
   }
@@ -110,9 +129,10 @@ export function addLearnings(
   storage: StorageLike,
   items: Array<{ text: string; kind: LearningKind }>,
   source: 'auto' | 'told',
+  persona: MemoryPersona = 'uniqa',
 ): Learning[] {
   if (!items.length) return [];
-  let current = loadLearnings(storage);
+  let current = loadLearnings(storage, persona);
   const added: Learning[] = [];
   for (const item of items) {
     const text = String(item.text || '').trim();
@@ -138,7 +158,7 @@ export function addLearnings(
       current[current.length - 1] = nameEntry;
     }
   }
-  saveLearnings(storage, current);
+  saveLearnings(storage, current, persona);
   return added;
 }
 
@@ -147,14 +167,15 @@ export function learnFromText(
   storage: StorageLike,
   rawText: string,
   source: 'auto' | 'told',
+  persona: MemoryPersona = 'uniqa',
 ): Learning[] {
   const items = extractLearnings(rawText);
-  return addLearnings(storage, items, source);
+  return addLearnings(storage, items, source, persona);
 }
 
-export function clearLearnings(storage: StorageLike): number {
-  const n = loadLearnings(storage).length;
-  saveLearnings(storage, []);
+export function clearLearnings(storage: StorageLike, persona: MemoryPersona = 'uniqa'): number {
+  const n = loadLearnings(storage, persona).length;
+  saveLearnings(storage, [], persona);
   return n;
 }
 
@@ -188,10 +209,10 @@ export function findLearningsToForget(learnings: Learning[], query: string | nul
   });
 }
 
-export function removeLearnings(storage: StorageLike, targets: Learning[]): void {
+export function removeLearnings(storage: StorageLike, targets: Learning[], persona: MemoryPersona = 'uniqa'): void {
   if (!targets.length) return;
   const ids = new Set(targets.map((l) => l.id));
-  saveLearnings(storage, loadLearnings(storage).filter((l) => !ids.has(l.id)));
+  saveLearnings(storage, loadLearnings(storage, persona).filter((l) => !ids.has(l.id)), persona);
 }
 
 // ---------------------------------------------------------------------------

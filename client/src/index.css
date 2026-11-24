@@ -226,10 +226,10 @@ body {
 }
 .unique-name { text-align: center; }
 .unique-name-text {
-  font-size: 17px; font-weight: 700; color: #eaf9ff;
+  font-size: 15px; font-weight: 700; color: #eaf9ff;
   text-shadow: 0 0 14px rgba(34, 211, 238, 0.55);
 }
-.unique-name-sub { display: block; font-size: 12.5px; color: #7cc4e4; margin-top: 4px; }
+.unique-name-sub { display: block; font-size: 11.5px; color: #7cc4e4; margin-top: 2px; }
 .unique-wave { width: 100%; max-width: 420px; }
 .unique-voice-status {
   display: flex; align-items: center; gap: 8px;
@@ -867,7 +867,7 @@ body {
    internally. The dock breakpoint is 1100px (see the UNIQUE SHELL
    section above); these are the in-between tweaks. */
 @media (max-width: 1280px) and (min-width: 1100px) {
-  .unique-main { grid-template-columns: 244px minmax(0, 1fr) 280px; gap: 10px; padding: 12px; }
+  .unique-main { grid-template-columns: minmax(0, 1fr) 280px; gap: 10px; padding: 8px 12px; }
 }
 @media (max-width: 640px) {
   .brain-wrap { display: none; }
@@ -1836,8 +1836,10 @@ body {
    floor (components/FloorScene + lib/floor-layout). */
 
 /* ======= Call (Phase 4): incoming overlay + live banner ======= */
+/* Calls stay above everything (110) — an incoming/live call must
+   never hide behind an agent's work view (100). */
 .call-overlay {
-  position: fixed; inset: 0; z-index: 90;
+  position: fixed; inset: 0; z-index: 110;
   background: rgba(2, 6, 16, .72);
   display: flex; align-items: center; justify-content: center;
   padding: 18px;
@@ -1865,7 +1867,7 @@ body {
 
 .call-banner {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: 132px; z-index: 61;
+  bottom: 132px; z-index: 110;
   width: min(600px, calc(100vw - 24px));
   display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
   background: rgba(6, 26, 16, .97);
@@ -1941,29 +1943,29 @@ body {
   transition: box-shadow 0.4s ease;
 }
 
-/* ---- Uniqa's orb: violet/rose instead of Unique's blue/violet ----
-   (2026-11-24: NO gold — the user wants her SIMPLE, not yellow-gold) */
+/* ---- Uniqa's orb: cyan instead of Unique's blue/violet ----
+   (2026-11-25: Stonic's Love glows cyan — no gold, no pink) */
 .ai-orb-uniqa .ai-orb-ring {
-  background: conic-gradient(from 0deg, #a78bfa, #f9a8d4, #c4b5fd, #a78bfa);
+  background: conic-gradient(from 0deg, #22d3ee, #67e8f9, #0ea5e9, #22d3ee);
 }
 .ai-orb-uniqa .ai-orb-ring2 {
-  background: conic-gradient(from 180deg, transparent 20%, rgba(167, 139, 250, 0.9), transparent 80%);
+  background: conic-gradient(from 180deg, transparent 20%, rgba(34, 211, 238, 0.9), transparent 80%);
 }
 .ai-orb-uniqa .ai-orb-core {
   background:
-    radial-gradient(circle at 38% 32%, rgba(196, 181, 253, 0.5), transparent 45%),
-    radial-gradient(circle at 50% 55%, rgba(139, 92, 246, 0.35), rgba(12, 8, 26, 0.95) 70%);
-  border: 1px solid rgba(196, 181, 253, 0.4);
-  box-shadow: inset 0 0 30px rgba(139, 92, 246, 0.35), 0 0 34px rgba(139, 92, 246, 0.35);
+    radial-gradient(circle at 38% 32%, rgba(103, 232, 249, 0.5), transparent 45%),
+    radial-gradient(circle at 50% 55%, rgba(34, 211, 238, 0.35), rgba(8, 18, 30, 0.95) 70%);
+  border: 1px solid rgba(103, 232, 249, 0.4);
+  box-shadow: inset 0 0 30px rgba(34, 211, 238, 0.35), 0 0 34px rgba(34, 211, 238, 0.35);
 }
 .ai-orb-uniqa .ai-orb-halo {
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.22), transparent 65%);
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.22), transparent 65%);
 }
 .ai-orb-uniqa.ai-orb-speaking .ai-orb-core {
-  box-shadow: inset 0 0 34px rgba(139, 92, 246, 0.6), 0 0 48px rgba(139, 92, 246, 0.6);
+  box-shadow: inset 0 0 34px rgba(34, 211, 238, 0.6), 0 0 48px rgba(34, 211, 238, 0.6);
 }
 .ai-orb-uniqa.ai-orb-thinking .ai-orb-ring {
-  background: conic-gradient(from 0deg, #a78bfa, #f9a8d4, #ec4899, #a78bfa);
+  background: conic-gradient(from 0deg, #22d3ee, #67e8f9, #0ea5e9, #22d3ee);
 }
 
 /* ---- Uniqa's flowing hair: golden-rose strands swaying around the globe ---- */
@@ -2021,9 +2023,9 @@ body {
   background: rgba(139, 92, 246, 0.10);
   border: 1px solid rgba(167, 139, 250, 0.45);
 }
-.uface-line-uniqa::before { border-bottom-color: rgba(167, 139, 250, 0.45); }
+.uface-line-uniqa::before { border-bottom-color: rgba(34, 211, 238, 0.45); }
 .uface-line-label { font-size: 11.5px; color: #7cc4e4; }
-.uface-line-uniqa .uface-line-label { color: #f0a6c8; }
+.uface-line-uniqa .uface-line-label { color: #a5f3fc; }
 .uface-line-text {
   margin: 4px 0 0; font-size: 14px; line-height: 1.9; color: #eaf9ff;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
@@ -2057,7 +2059,7 @@ body {
 .ustop-btn:hover { background: rgba(239, 68, 68, 0.3); }
 
 /* ---- Stage name in soft rose when Uniqa is present (no gold) ---- */
-.unique-name-text.uniqa { color: #f0a6c8; text-shadow: 0 0 14px rgba(249, 168, 212, 0.55); }
+.unique-name-text.uniqa { color: #67e8f9; text-shadow: 0 0 14px rgba(103, 232, 249, 0.55); }
 
 /* ---- Visual Hub: tabs + flow diagram + world picks + activity ---- */
 .uhub {
@@ -2182,15 +2184,18 @@ body {
 }
 .unique-theme select option { background: #0a1426; color: #eaf9ff; }
 
-/* ---- Desktop dashboard: world | front | chat, strip below ---- */
+/* ---- Desktop dashboard: slim world strip on TOP, then face | chat ----
+   (2026-11-25 layout correction: map on TOP, agents below the face —
+   NOT a left column for the map.) */
 @media (min-width: 1100px) {
   .unique-main {
     display: grid;
-    grid-template-columns: minmax(220px, 0.58fr) minmax(0, 1.24fr) minmax(0, 0.82fr);
-    grid-template-rows: minmax(0, 1fr);
-    gap: 12px;
-    padding: 10px 14px 8px;
+    grid-template-columns: minmax(0, 1.24fr) minmax(0, 0.82fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 8px 14px;
   }
+  .uworld-strip { grid-column: 1 / -1; }
   .uworld-col {
     display: flex; flex-direction: column;
     min-height: 0; overflow-y: auto; scrollbar-width: thin;
@@ -2209,7 +2214,7 @@ body {
 .ufront-stage {
   position: relative;
   display: flex; flex-direction: column; align-items: center;
-  padding: 4px 8px 2px;
+  padding: 2px 8px 0;
   flex-shrink: 0;
 }
 /* Face row (2026-11-25, Stonic front screenshot): node chips in a
@@ -2231,14 +2236,14 @@ body {
 .ufront-lines polyline { fill: none; stroke-width: 1.2; opacity: 0.5; }
 .ufront-nodes-col {
   position: relative; z-index: 2;
-  display: flex; flex-direction: column; justify-content: space-evenly; gap: 8px;
-  flex-shrink: 0; width: 104px;
+  display: flex; flex-direction: column; justify-content: space-evenly; gap: 6px;
+  flex-shrink: 0; width: 96px;
 }
 .ufront-node {
   position: relative;
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 6px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-radius: 10px;
   background: rgba(8, 17, 33, 0.78);
   border: 1px solid var(--node-color, #22d3ee);
@@ -2263,31 +2268,65 @@ body {
   font-size: 11px; font-weight: 700;
   border-radius: 999px; padding: 1px 7px;
 }
-/* The face, in its glowing frame. */
+/* The face, in its glowing frame — cyan for Uniqa (2026-11-25,
+   Stonic's Love glow), violet-blue for Unique. */
 .uface-panel {
   position: relative; z-index: 1;
   flex: 1; min-width: 0;
   display: flex; align-items: center; justify-content: center;
-  padding: 12px 8px 36px;
+  padding: 8px 8px 30px;
   border-radius: 16px;
-  border: 1px solid rgba(167, 139, 250, 0.5);
-  background: radial-gradient(120% 120% at 50% 0%, rgba(139, 92, 246, 0.3), rgba(8, 17, 33, 0.92) 72%);
-  box-shadow: 0 0 28px rgba(139, 92, 246, 0.35), inset 0 0 24px rgba(139, 92, 246, 0.16);
+  border: 1px solid rgba(34, 211, 238, 0.5);
+  background: radial-gradient(120% 120% at 50% 0%, rgba(34, 211, 238, 0.28), rgba(8, 17, 33, 0.92) 72%);
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.35), inset 0 0 24px rgba(34, 211, 238, 0.16);
   overflow: hidden;
 }
 .uface-panel.tappable { cursor: pointer; }
 .uface-panel-tag {
   position: absolute; top: 8px; inset-inline-end: 8px;
   font-size: 10.5px; font-weight: 800; letter-spacing: 1px;
-  color: #f0a6c8; background: rgba(167, 139, 250, 0.2);
-  border: 1px solid rgba(167, 139, 250, 0.45); border-radius: 999px; padding: 2px 8px;
+  color: #a5f3fc; background: rgba(34, 211, 238, 0.2);
+  border: 1px solid rgba(34, 211, 238, 0.45); border-radius: 999px; padding: 2px 8px;
 }
 .uface-panel-state {
   position: absolute; left: 0; right: 0; bottom: 0;
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 6px 8px; font-size: 12.5px; color: #ede9fe;
+  padding: 4px 8px; font-size: 12px; color: #ede9fe;
   background: rgba(8, 17, 33, 0.65);
-  border-top: 1px solid rgba(167, 139, 250, 0.3);
+  border-top: 1px solid rgba(34, 211, 238, 0.3);
+}
+/* The front's pills in ONE slim row (2026-11-25 declutter) — the
+   four stacked buttons under the face used to eat ~150px and clip
+   on 1366x768. Same buttons, same handlers, one row now. */
+.ufront-pills {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 6px; margin-top: 8px; width: 100%;
+}
+.ufront-pills .uaware-chip,
+.ufront-pills .ucam-chip,
+.ufront-pills .ufront-power,
+.ufront-pills .ufront-call {
+  margin-top: 0; padding: 5px 12px; font-size: 12px;
+}
+/* MEMORY LINE — Stonic's pattern (2026-11-25): a thin line with
+   the memory beside it, the memory below it, then a thin line. */
+.umem-block { width: 100%; margin-top: 8px; }
+.umem-head { display: flex; align-items: center; gap: 8px; }
+.umem-rule {
+  flex: 1; height: 1px; min-width: 24px;
+  background: linear-gradient(to left, rgba(34, 211, 238, 0.55), rgba(34, 211, 238, 0.05));
+}
+.umem-label {
+  font-size: 11.5px; font-weight: 800; letter-spacing: 1px;
+  color: #67e8f9; white-space: nowrap;
+}
+.umem-text {
+  margin: 5px 0 6px; font-size: 12.5px; line-height: 1.6; color: #c9ecf7;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.umem-rule-full {
+  display: block; height: 1px;
+  background: linear-gradient(to right, transparent, rgba(34, 211, 238, 0.4), transparent);
 }
 /* Awareness / Unawareness chip on the front itself. */
 .uaware-chip {
@@ -2321,7 +2360,7 @@ body {
   display: inline-flex; align-items: center; gap: 6px;
   margin-top: 8px; padding: 6px 14px;
   border-radius: 999px; font-size: 12.5px; font-weight: 700; cursor: pointer;
-  background: rgba(244, 114, 182, 0.12); border: 1px solid rgba(244, 114, 182, 0.45); color: #fbcfe8;
+  background: rgba(34, 211, 238, 0.12); border: 1px solid rgba(34, 211, 238, 0.45); color: #a5f3fc;
 }
 .ucam-chip.off {
   background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.45); color: #cbd5e1;
@@ -2340,7 +2379,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 12px;
   background: transparent;
   border: none;
   color: #7dd3fc;
@@ -2375,7 +2414,7 @@ body {
   border-left: none;
 }
 .ufront-face-row .uface-line-uniqa::before {
-  border-right-color: rgba(167, 139, 250, 0.45);
+  border-right-color: rgba(34, 211, 238, 0.45);
   border-bottom-color: transparent;
 }
 .ufront-face-row .uface-line-text {
@@ -2421,18 +2460,18 @@ body {
 
 /* ---- YOUR WORLD column (left) + LIBRARY strip ---- */
 .uworld {
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 6px;
   background: rgba(8, 17, 33, 0.62);
   border: 1px solid rgba(56, 189, 248, 0.14);
   border-radius: 16px;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 .uworld-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .uworld-title { font-size: 13px; font-weight: 800; color: #7dd3fc; }
 .uworld-title-en { font-size: 10.5px; font-weight: 800; letter-spacing: 1px; color: #5b7a8c; }
 .uworld-date { margin: 0; font-size: 12px; color: #7c93a8; }
 .uworld-globe { display: flex; justify-content: center; padding: 2px 0; }
-.uworld-globe-svg { width: 150px; height: 150px; }
+.uworld-globe-svg { width: 104px; height: 104px; }
 .uworld-globe-you { animation: uworld-ping 2.2s ease-in-out infinite; }
 @keyframes uworld-ping { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .uworld-sec { font-size: 12.5px; font-weight: 700; color: #a5e3f5; margin: 2px 0 0; }
@@ -2444,15 +2483,15 @@ body {
   border-radius: 10px; padding: 7px 10px;
 }
 .uworld-pick-title { font-size: 12.5px; font-weight: 800; color: #fde68a; }
-.uworld-pick-detail { font-size: 13px; line-height: 1.8; color: #eaf9ff; }
+.uworld-pick-detail { font-size: 12.5px; line-height: 1.6; color: #eaf9ff; }
 .uworld-pick-source { font-size: 11.5px; color: #7cc4e4; }
 .uworld-news { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .uworld-news-item { display: flex; flex-direction: column; gap: 1px; padding: 7px 0; border-top: 1px solid rgba(56, 189, 248, 0.12); }
 .uworld-news-item:first-child { border-top: none; padding-top: 2px; }
-.uworld-news-title { font-size: 13px; line-height: 1.8; color: #eaf9ff; text-decoration: none; }
+.uworld-news-title { font-size: 12.5px; line-height: 1.6; color: #eaf9ff; text-decoration: none; }
 .uworld-news-title:hover { text-decoration: underline; }
 .uworld-news-src { font-size: 11.5px; color: #7cc4e4; }
-.uworld-wx { margin: 0; font-size: 13.5px; line-height: 1.8; color: #eaf9ff; }
+.uworld-wx { margin: 0; font-size: 13px; line-height: 1.6; color: #eaf9ff; }
 .uworld-note { margin: 0; font-size: 12.5px; line-height: 1.8; color: #7c93a8; }
 .uworld-empty { margin: 0; font-size: 12.5px; line-height: 1.9; color: #7cc4e4; }
 .uworld-off { display: flex; flex-direction: column; gap: 8px; }
@@ -2462,14 +2501,141 @@ body {
   align-self: flex-start;
 }
 
+/* ---- YOUR WORLD slim top strip (2026-11-25 layout correction) ----
+   One compact row: globe hint + date, three things short, news
+   capped short, weather one line, World Monitor button. Everything
+   truncates with ellipsis so the strip never grows tall on 1366x768. */
+.uworld-strip {
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 14px;
+  padding: 5px 12px;
+  min-height: 46px;
+  overflow: hidden;
+}
+.uworld-strip-brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.uworld-strip-globe { width: 34px; height: 34px; flex-shrink: 0; }
+.uworld-strip-titles { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.uworld-strip-title { font-size: 13px; font-weight: 800; color: #7dd3fc; white-space: nowrap; }
+.uworld-strip-title-en { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #5b7a8c; }
+.uworld-strip-date { font-size: 11.5px; color: #7c93a8; white-space: nowrap; }
+.uworld-strip-sep { width: 1px; align-self: stretch; background: rgba(56, 189, 248, 0.16); flex-shrink: 0; }
+.uworld-strip-picks { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.uworld-strip-pick {
+  font-size: 12.5px; line-height: 1.5; color: #eaf9ff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; flex: 1 1 0;
+}
+.uworld-strip-pick strong { color: #fde68a; font-weight: 800; }
+.uworld-strip-news { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.uworld-strip-news-item {
+  font-size: 12.5px; line-height: 1.5; color: #eaf9ff; text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; flex: 1 1 0;
+}
+.uworld-strip-news-item:hover { text-decoration: underline; }
+.uworld-strip-note { font-size: 12.5px; line-height: 1.6; color: #7c93a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uworld-strip-mini-btn {
+  padding: 3px 10px; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 700;
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd;
+  margin-inline-start: 8px; white-space: nowrap;
+}
+.uworld-strip-wx { font-size: 12.5px; color: #eaf9ff; white-space: nowrap; flex-shrink: 0; }
+.uworld-strip-monitor-btn {
+  padding: 7px 14px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 800;
+  background: rgba(34, 211, 238, 0.2); border: 1px solid rgba(56, 189, 248, 0.55); color: #e0f7ff;
+  white-space: nowrap; flex-shrink: 0;
+}
+.uworld-strip-monitor-btn:hover { background: rgba(34, 211, 238, 0.32); }
+@media (max-width: 1099px) {
+  .uworld-strip { flex-wrap: wrap; }
+  .uworld-strip-sep { display: none; }
+  .uworld-strip-picks, .uworld-strip-news { flex-basis: 100%; }
+}
+
+/* ---- World Monitor full-screen overlay (2026-11-25) ---- */
+.uwmon {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; flex-direction: column;
+  background: #050b16;
+  color: #eaf9ff;
+  overflow: hidden;
+}
+.uwmon-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 14px; flex-shrink: 0;
+  background: rgba(8, 17, 33, 0.9);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+}
+.uwmon-head-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.uwmon-title { font-size: 16px; font-weight: 800; color: #7dd3fc; white-space: nowrap; }
+.uwmon-sub { font-size: 12px; color: #7c93a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uwmon-close {
+  padding: 7px 16px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 800;
+  background: rgba(239, 68, 68, 0.18); border: 1px solid rgba(239, 68, 68, 0.5); color: #fecaca;
+  flex-shrink: 0;
+}
+.uwmon-close:hover { background: rgba(239, 68, 68, 0.3); }
+.uwmon-body { display: flex; gap: 10px; padding: 10px 14px; flex: 1; min-height: 0; }
+.uwmon-map-col { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.uwmon-layers { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.uwmon-layer-btn {
+  padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 700;
+  background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.25); color: #a5e3f5;
+}
+.uwmon-layer-btn.active { background: rgba(34, 211, 238, 0.25); color: #fff; border-color: rgba(34, 211, 238, 0.6); }
+.uwmon-place { font-size: 12.5px; color: #7cc4e4; margin-inline-start: auto; }
+.uwmon-map { flex: 1; min-height: 0; border-radius: 14px; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.2); background: #0a1426; }
+.uwmon-map .leaflet-container { width: 100%; height: 100%; font-family: inherit; }
+.uwmon-map-note { margin: 0; font-size: 11.5px; color: #7c93a8; flex-shrink: 0; }
+.uwmon-side {
+  display: flex; flex-direction: column; gap: 10px;
+  width: 320px; flex-shrink: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin;
+}
+.uwmon-card {
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 14px; padding: 10px 12px;
+}
+.uwmon-sec { font-size: 13px; font-weight: 700; color: #a5e3f5; margin-bottom: 6px; }
+.uwmon-news { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.uwmon-news-item { display: flex; flex-direction: column; gap: 1px; padding: 7px 0; border-top: 1px solid rgba(56, 189, 248, 0.12); }
+.uwmon-news-item:first-child { border-top: none; padding-top: 2px; }
+.uwmon-news-title { font-size: 13px; line-height: 1.6; color: #eaf9ff; text-decoration: none; }
+.uwmon-news-title:hover { text-decoration: underline; }
+.uwmon-news-src { font-size: 11.5px; color: #7cc4e4; }
+.uwmon-wx { margin: 0; font-size: 13.5px; line-height: 1.7; color: #eaf9ff; }
+.uwmon-note { margin: 6px 0 0; font-size: 12.5px; line-height: 1.8; color: #7c93a8; }
+.uwmon-btn {
+  margin-top: 8px; padding: 7px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 700;
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd;
+}
+@media (max-width: 1099px) {
+  .uwmon-body { flex-direction: column; overflow-y: auto; }
+  .uwmon-map-col { min-height: 320px; }
+  .uwmon-side { width: auto; overflow-y: visible; }
+}
+
+/* ---- MEMORY panel: whose memory (2026-11-25, per-persona) ---- */
+.umem-who { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.umem-who-label { font-size: 14px; font-weight: 800; color: #eaf9ff; }
+.umem-who-btns { display: flex; gap: 6px; }
+.umem-who-btn {
+  padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 700;
+  background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.25); color: #a5e3f5;
+}
+.umem-who-btn.active { background: rgba(34, 211, 238, 0.25); color: #fff; border-color: rgba(34, 211, 238, 0.6); }
+.umem-who-note { margin: 0; font-size: 12px; line-height: 1.7; color: #7c93a8; }
+
 .ulib {
   flex-shrink: 0;
   background: rgba(8, 17, 33, 0.62);
   border: 1px solid rgba(56, 189, 248, 0.14);
   border-radius: 16px;
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
-.ulib-title { font-size: 12.5px; font-weight: 700; color: #7dd3fc; margin-bottom: 6px; }
+.ulib-title { font-size: 12.5px; font-weight: 700; color: #7dd3fc; margin-bottom: 4px; }
 .ulib-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .ulib-item {
   width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
@@ -2492,9 +2658,9 @@ body {
   background: rgba(8, 17, 33, 0.62);
   border: 1px solid rgba(56, 189, 248, 0.14);
   border-radius: 16px;
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
-.utown-title { font-size: 12.5px; font-weight: 700; color: #7dd3fc; margin-bottom: 6px; }
+.utown-title { font-size: 12px; font-weight: 700; color: #7dd3fc; margin-bottom: 4px; }
 .utown-bubbles { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .utown-bubble {
   display: flex; gap: 6px; align-items: baseline;
@@ -2508,14 +2674,14 @@ body {
 .utown-chips::-webkit-scrollbar { display: none; }
 .utown-chip {
   display: flex; align-items: center; gap: 5px;
-  padding: 6px 10px; border-radius: 999px;
+  padding: 5px 9px; border-radius: 999px;
   background: rgba(34, 211, 238, 0.05);
   border: 1px solid rgba(56, 189, 248, 0.16);
-  color: #a5e3f5; font-size: 12.5px; white-space: nowrap;
+  color: #a5e3f5; font-size: 12px; white-space: nowrap;
   cursor: pointer; flex-shrink: 0;
 }
 .utown-chip.working { border-color: rgba(34, 197, 94, 0.55); color: #bbf7d0; }
-.utown-manager { border-color: rgba(167, 139, 250, 0.5); color: #ede9fe; }
+.utown-manager { border-color: rgba(34, 211, 238, 0.5); color: #cffafe; }
 .utown-dot { width: 7px; height: 7px; border-radius: 50%; background: #475569; flex-shrink: 0; }
 .utown-dot.working {
   background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
@@ -2565,7 +2731,11 @@ body {
 
 /* ---- Agent work view (an agent's own live screen) ---- */
 .uwork-overlay {
-  position: fixed; inset: 0; z-index: 60;
+  /* USER RULE (2026-11-25): the working agent's own browser must stay
+     visible on screen while it works — so this sits above every other
+     overlay, including the World Monitor (90) and the panel drawer (70).
+     Only an incoming/live call (110) may cover it. */
+  position: fixed; inset: 0; z-index: 100;
   background: rgba(2, 6, 16, 0.78);
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
@@ -2733,9 +2903,9 @@ body {
   flex-shrink: 0;
 }
 .uchat-tab {
-  padding: 7px 14px; border-radius: 10px 10px 0 0; cursor: pointer;
+  padding: 6px 11px; border-radius: 10px 10px 0 0; cursor: pointer;
   background: transparent; border: 1px solid transparent; border-bottom: none;
-  color: #7cc4e4; font-size: 13px; font-weight: 700;
+  color: #7cc4e4; font-size: 12.5px; font-weight: 700;
 }
 .uchat-tab.active {
   background: rgba(34, 211, 238, 0.1);
@@ -2744,7 +2914,7 @@ body {
 }
 .uchat-tab-actions { margin-inline-start: auto; display: flex; gap: 6px; }
 .uchat-mini-btn {
-  padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  padding: 5px 9px; border-radius: 999px; cursor: pointer; font-size: 12px;
   background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.2); color: #a5e3f5;
   white-space: nowrap;
 }
@@ -2811,13 +2981,20 @@ body {
   .unique-topbar { padding: 6px 14px; }
   .unique-main { padding: 8px 12px 6px; gap: 10px; }
   .ufront-stage { padding-top: 0; }
-  .unique-wave { max-height: 44px; overflow: hidden; }
+  .unique-wave { max-height: 36px; overflow: hidden; }
   .uplayer-frame { display: none; }
   .uplayer-open-btn { display: block; }
   .unique-bottom-strip { padding-bottom: 8px; }
   .ustrip-note { display: none; }
   .uplayer-presets { display: none; }
-  .ufront-col { overflow-y: auto; scrollbar-width: thin; }
+  .ufront-col { overflow-y: auto; scrollbar-width: thin; gap: 6px; }
+  /* Slim the bottom strip further: the last-camera note also lives
+     in MEMORY, and the idle job bar stays visible but thin. */
+  .ucam-note { display: none; }
+  .ucam-perm { margin-top: 4px; }
+  .ustrip-card { padding: 7px 10px; }
+  .umedia-rows { gap: 4px; }
+  [data-testid="job-indicator-idle"] { margin-top: 4px !important; padding: 4px 12px !important; }
 }
 
 /* ---- Mobile: nodes as a row, columns stack, page scrolls ---- */
@@ -2826,6 +3003,7 @@ body {
   .unique-main { display: flex; flex-direction: column; overflow: visible; }
   .ufront-col { overflow: visible; order: 1; }
   .uworld-col { overflow: visible; order: 2; }
+  .uworld-strip { order: 0; }
   .uchat-col { overflow: visible; order: 3; }
   .ufront-lines { display: none; }
   .ufront-face-row { flex-direction: column; }

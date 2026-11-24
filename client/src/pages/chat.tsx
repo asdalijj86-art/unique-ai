@@ -114,6 +114,7 @@ import { UniquePlayer, MediaLinkCard, HeadlinesCard, SupportButton, readSupportN
 // Front 3.0 (2026-11-25, Stonic front screenshot): the left YOUR WORLD
 // column — globe, three things, news, weather.
 import WorldPanel from '@/components/WorldPanel';
+import WorldMonitor from '@/components/WorldMonitor';
 import { loadCustomSkills, addCustomSkill, deleteCustomSkill, formatCustomSkills, type CustomSkill } from '@/lib/custom-skills';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import StatusPanel from '@/components/StatusPanel';
@@ -372,6 +373,9 @@ export default function ChatPage() {
   // panel is a bottom sheet; on laptops it docks inline on the left.
   const [awarenessEnabled, setAwarenessEnabled] = useState(() => readAwarenessEnabled(window.localStorage));
   const [activePanel, setActivePanel] = useState<null | FrontNodeKey>(null);
+  /** Full-screen World Monitor overlay (2026-11-25): opened from the
+   *  slim YOUR WORLD strip at the top; ✕ closes back to the front. */
+  const [worldMonitorOpen, setWorldMonitorOpen] = useState(false);
 
   // Front 2.0 (2026-11-24, Stonic-video build): theme, chat tabs,
   // agent work view, custom skills, support number, short screens.
@@ -391,7 +395,24 @@ export default function ChatPage() {
   const [supportNumber, setSupportNumber] = useState(() => readSupportNumber());
   const [shortScreen, setShortScreen] = useState(() => window.matchMedia('(max-height: 820px)').matches);
   const [memoryCount, setMemoryCount] = useState(0);
+  /** The newest memory, one short line under the face (Stonic's
+   *  thin-line pattern). Newest of the latest note / learning. */
+  const [latestMemoryLine, setLatestMemoryLine] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1100px)').matches);
+
+  function refreshMemoryLine() {
+    try {
+      const cands: { text: string; at: string }[] = [
+        ...loadNotes(window.localStorage, personaRef.current).map((n) => ({ text: n.text, at: n.createdAt })),
+        ...loadLearnings(window.localStorage, personaRef.current).map((l) => ({ text: l.text, at: l.createdAt })),
+      ];
+      cands.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+      const top = cands[0]?.text?.trim() ?? '';
+      setLatestMemoryLine(top ? (top.length > 90 ? `${top.slice(0, 87).trimEnd()}…` : top) : null);
+    } catch {
+      setLatestMemoryLine(null);
+    }
+  }
 
   function toggleAwareness(next: boolean) {
     setAwarenessEnabled(next);
@@ -498,11 +519,12 @@ export default function ChatPage() {
   // this device; refresh it whenever a panel opens or closes.
   useEffect(() => {
     try {
-      setMemoryCount(loadNotes(window.localStorage).length + loadLearnings(window.localStorage).length);
+      setMemoryCount(loadNotes(window.localStorage, persona).length + loadLearnings(window.localStorage, persona).length);
     } catch {
       setMemoryCount(0);
     }
-  }, [activePanel]);
+    refreshMemoryLine();
+  }, [activePanel, persona]);
   // Which section of a hub tool (تصویر ٹولز / ویڈیو ٹولز) to land on when a
   // voice/chat command names a specific feature; undefined = first section.
   // Device pairing (Task 6b): panel visibility + a join code arriving
@@ -797,9 +819,10 @@ export default function ChatPage() {
       const note = formatCameraNote(obs);
       setLastCameraNote(note);
       try {
-        const notes = loadNotes(window.localStorage);
-        saveNotes(window.localStorage, [makeNote(note), ...notes]);
-        setMemoryCount(loadNotes(window.localStorage).length + loadLearnings(window.localStorage).length);
+        const notes = loadNotes(window.localStorage, personaRef.current);
+        saveNotes(window.localStorage, [makeNote(note), ...notes], personaRef.current);
+        setMemoryCount(loadNotes(window.localStorage, personaRef.current).length + loadLearnings(window.localStorage, personaRef.current).length);
+        refreshMemoryLine();
       } catch {
         // storage unavailable — the look still happened, the note just won't persist
       }
@@ -1357,11 +1380,11 @@ export default function ChatPage() {
     const cmd = parseMemoryCommand(textValue);
     if (!cmd) return false;
     if (cmd.type === 'show') {
-      // «تم نے کیا سیکھا؟» (Round 5) — list what the shared learning
-      // brain holds about this person, spoken and on screen.
+      // «تم نے کیا سیکھا؟» (Round 5) — list what the SPEAKING persona's
+      // learning brain holds about this person, spoken and on screen.
       let listing: string;
       try {
-        listing = formatLearningsList(loadLearnings(window.localStorage), personaRef.current === 'uniqa');
+        listing = formatLearningsList(loadLearnings(window.localStorage, personaRef.current), personaRef.current === 'uniqa');
       } catch {
         return false; // storage unavailable — let the brain answer instead
       }
@@ -1372,7 +1395,7 @@ export default function ChatPage() {
     }
     let outcome;
     try {
-      outcome = applyMemoryCommand(window.localStorage, cmd);
+      outcome = applyMemoryCommand(window.localStorage, cmd, personaRef.current);
     } catch {
       return false; // storage unavailable — let the brain answer instead
     }
@@ -1547,7 +1570,7 @@ export default function ChatPage() {
     // (name / likes / facts — lib/learnings). Fully silent: no card,
     // no announcement — the knowledge simply shows in later replies.
     try {
-      learnFromText(window.localStorage, text, 'auto');
+      learnFromText(window.localStorage, text, 'auto', personaRef.current);
     } catch {
       // storage unavailable — the reply matters, not the learning
     }
@@ -1650,10 +1673,11 @@ export default function ChatPage() {
           persona: personaRef.current,
           tone: toneRef.current,
           // Learned-memory recall (Round 5): a compact block of what
-          // the app has learned about this person rides along, so the
-          // whole team (Unique / Uniqa / every agent) answers with
-          // that knowledge — name first, capped, never instructions.
-          memory: buildRecallBlock(loadLearnings(window.localStorage)) || undefined,
+          // the SPEAKING persona has learned about this person rides
+          // along, so the reply answers with that knowledge — name
+          // first, capped, never instructions. The other persona's
+          // learnings never ride along.
+          memory: buildRecallBlock(loadLearnings(window.localStorage, personaRef.current)) || undefined,
           // Team-work context (2026-10-24): today's real team state so
           // any member asked about their work can answer in full
           // spoken detail from facts, never invention or refusal.
@@ -1726,7 +1750,7 @@ export default function ChatPage() {
         // batch also feeds the learning store — silently.
         for (const a of result.actions) {
           if (a.type === 'save_note' && typeof a.text === 'string') {
-            try { learnFromText(window.localStorage, a.text, 'told'); } catch { /* bonus only */ }
+            try { learnFromText(window.localStorage, a.text, 'told', personaRef.current); } catch { /* bonus only */ }
           }
         }
         setToolActions(result.actions as ChatAction[]);
@@ -1780,7 +1804,7 @@ export default function ChatPage() {
         // the note card below stays the only visible result.
         if (result.action.type === 'save_note' && typeof result.action.text === 'string') {
           try {
-            learnFromText(window.localStorage, result.action.text, 'told');
+            learnFromText(window.localStorage, result.action.text, 'told', personaRef.current);
           } catch {
             // learning is a silent bonus; the note card is the result
           }
@@ -4233,7 +4257,7 @@ export default function ChatPage() {
   const worldPicks = useMemo(() => {
     const picks: { title: string; detail: string; source: string }[] = [];
     try {
-      const learnings = loadLearnings(window.localStorage);
+      const learnings = loadLearnings(window.localStorage, persona);
       const last = learnings[learnings.length - 1];
       if (last) picks.push({ title: 'آپ نے مجھے یہ سکھایا', detail: last.text, source: 'سیکھا ہوا' });
     } catch { /* ignore */ }
@@ -4248,7 +4272,7 @@ export default function ChatPage() {
       }
     } catch { /* ignore */ }
     try {
-      const notes = loadNotes(window.localStorage);
+      const notes = loadNotes(window.localStorage, persona);
       const last = notes[notes.length - 1];
       if (last) picks.push({ title: 'یادداشت', detail: last.text, source: 'میموری' });
     } catch { /* ignore */ }
@@ -4256,7 +4280,7 @@ export default function ChatPage() {
       picks.push({ title: 'آج کی گفتگو', detail: `آج آپ نے ${messageCount} پیغام بھیجے`, source: 'آج' });
     }
     return picks.slice(0, 3);
-  }, [messageCount, boardEntries]);
+  }, [messageCount, boardEntries, persona]);
 
   // Latest assistant reply — the Visual Hub draws its steps.
   const lastAssistant = [...(activeConversation?.messages ?? [])]
@@ -4311,7 +4335,7 @@ export default function ChatPage() {
   function renderPanelContent() {
     switch (activePanel) {
       case 'memory':
-        return <MemoryPanel refreshSignal={messageCount} />;
+        return <MemoryPanel refreshSignal={messageCount} persona={persona} />;
       case 'skills':
         return (
           <SkillsPanel
@@ -4387,7 +4411,7 @@ export default function ChatPage() {
   // the user wants the face FRONT, Stonic-style — sizes raised so it
   // stays prominent even mid-conversation.)
   const hasMessages = (activeConversation?.messages.length ?? 0) > 0;
-  const orbSize = !hasMessages ? (isDesktop ? (shortScreen ? 210 : 260) : 232) : (isDesktop ? 180 : 132);
+  const orbSize = !hasMessages ? (isDesktop ? (shortScreen ? 190 : 260) : 232) : (isDesktop ? 170 : 132);
 
   return (
     <main className={`unique-shell${busy || isSpeaking ? ' working' : ''}`} lang="ur" data-theme={theme} data-testid="page-maira-chat">
@@ -4400,7 +4424,7 @@ export default function ChatPage() {
             className="unique-persona-chip"
             dir="rtl"
             data-testid="persona-indicator"
-            style={{ color: persona === 'uniqa' ? '#f0a6c8' : undefined }}
+            style={{ color: persona === 'uniqa' ? '#a5f3fc' : undefined }}
           >
             {persona === 'uniqa' ? '💛 یونیکا' : 'یونیک'}
           </span>
@@ -4487,13 +4511,15 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* ======= MAIN: world | front (nodes + face + hub + library + town) | chat ======= */}
+      {/* ======= MAIN: slim world strip on TOP, then face | chat;
+          Agent Town sits below the face inside the front column ======= */}
       <div className="unique-main">
-        {/* YOUR WORLD (left): globe, three things, news, weather. */}
+        {/* YOUR WORLD — slim top strip (map on TOP, agents below). */}
         <WorldPanel
           awarenessEnabled={awarenessEnabled}
           picks={worldPicks}
           onEnableAwareness={() => toggleAwareness(true)}
+          onOpenMonitor={() => setWorldMonitorOpen(true)}
         />
 
         {/* FRONT: nodes attached to the face, orb, Agent Town, hub */}
@@ -4535,6 +4561,7 @@ export default function ChatPage() {
             cameraLive={cameraLook.status === 'looking' || cameraLook.status === 'starting'}
             cameraPermission={cameraPermission}
             onToggleCamera={() => toggleCameraPermission(!cameraPermission)}
+            memoryLine={latestMemoryLine}
           />
 
           <AgentTown
@@ -4764,7 +4791,7 @@ export default function ChatPage() {
               )}
               {chatTab === 'notes' && (
                 <div className="uchat-scroll" dir="rtl">
-                  <MemoryPanel refreshSignal={messageCount} />
+                  <MemoryPanel refreshSignal={messageCount} persona={persona} />
                 </div>
               )}
             </div>
@@ -4853,6 +4880,17 @@ export default function ChatPage() {
         <SupportButton supportNumber={supportNumber} onSaveNumber={setSupportNumber} />
       </div>
 
+      {/* World Monitor — full-screen overlay (real map, news, weather,
+          real camera status only; no fake CCTV). ✕ returns to the front. */}
+      {worldMonitorOpen && (
+        <WorldMonitor
+          onClose={() => setWorldMonitorOpen(false)}
+          cameraStatus={cameraLook.status}
+          cameraStatusMessage={cameraLook.statusMessage}
+          cameraPermission={cameraPermission}
+        />
+      )}
+
       {/* Node panel — a dialog over the front (not a side panel). */}
       {activePanel && (
         <NodeDialog title={PANEL_TITLES[activePanel]} onClose={() => setActivePanel(null)} testId={`dialog-panel-${activePanel}`}>
@@ -4936,6 +4974,7 @@ export default function ChatPage() {
         <ToolResults
           key={`${multiAction.type}-${i}`}
           action={multiAction}
+          persona={persona}
           onClose={() => {
             setToolActions((current) => {
               const next = (current || []).filter((_, j) => j !== i);
@@ -4953,6 +4992,7 @@ export default function ChatPage() {
       {toolAction && (
         <ToolResults
           action={toolAction}
+          persona={persona}
           onClose={() => setToolAction(null)}
           onTimerDone={() => {
             void playAssistantMessage('ٹائمر ختم ہو گیا!');

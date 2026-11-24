@@ -168,7 +168,9 @@ export function MediaLinkCard({
   cameraStatusMessage: string;
   cameraPermission: boolean;
   onToggleCameraPermission: () => void;
-  /** The look's preview — always mounted, hidden until the camera is live. */
+  /** The look's video — always mounted but NEVER shown on screen
+      (user rule 2026-11-25: his own picture must never appear).
+      Face detection reads from it, so the camera still works for Uniqa. */
   cameraVideoRef: RefObject<HTMLVideoElement | null>;
   lastCameraNote: string | null;
   onStopCameraLook: () => void;
@@ -189,17 +191,21 @@ export function MediaLinkCard({
           <strong>{micLive ? 'LIVE' : 'بند'}</strong>
         </div>
       </div>
-      {/* The preview is always mounted so the look can attach the
-          moment it starts; it is hidden until the camera is live. */}
+      {/* USER RULE (2026-11-25): his own picture must NEVER be shown.
+          The video stays mounted but invisible — face detection still
+          reads from it — so the camera works for Uniqa without him
+          ever seeing himself. Only the live label + stop button show. */}
+      <video
+        ref={cameraVideoRef}
+        className="ucam-preview"
+        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+        muted
+        playsInline
+        autoPlay
+        aria-hidden="true"
+        data-testid="video-camera-look"
+      />
       <div className="ucam-preview-wrap" hidden={!live}>
-        <video
-          ref={cameraVideoRef}
-          className="ucam-preview"
-          muted
-          playsInline
-          autoPlay
-          data-testid="video-camera-look"
-        />
         <p className="ucam-live-label">
           <span className="ucam-live-dot" aria-hidden="true" />
           📷 کیمرہ لائیو — یونیکا دیکھ رہی ہے

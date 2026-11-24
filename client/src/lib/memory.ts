@@ -8,15 +8,19 @@
  *  «تم نے کیا سیکھا؟»        → list the LEARNED facts (Round 5)
  *
  * Round 5 (learning memory): these commands govern BOTH stores — the
- * notes here and the learnings in lib/learnings (one shared brain).
+ * notes here and the learnings in lib/learnings (one brain PER
+ * PERSONA since 2026-11-25: Uniqa's original keys, Unique's
+ * '-unique' keys — see notesKeyFor / learningsKeyFor).
  * A taught note is also mined for learnings; a forget clears matching
  * entries from both; the full wipe clears both; the show command
  * lists what the team has learned about the person.
  *
  * Storage is the app's EXISTING notes store — localStorage key
- * 'unique-ai-notes', the same one ToolResults' NotesView reads and
- * writes (shape {id, text, createdAt}, newest first). The brain's
- * save_note / list_notes actions keep working on the same store.
+ * 'unique-ai-notes' for Uniqa (the default persona) and
+ * 'unique-ai-notes-unique' for Unique, the same ones ToolResults'
+ * NotesView reads and writes (shape {id, text, createdAt}, newest
+ * first). The brain's save_note / list_notes actions keep working
+ * on the same store — the ACTIVE persona's store.
  *
  * Anti-hijack discipline (same as the router gate): these commands
  * fire ONLY on command-shaped utterances. A long message that merely
@@ -36,20 +40,33 @@ import {
   clearLearnings,
   formatLearning,
   type Learning,
+  type MemoryPersona,
 } from './learnings';
 
 export type Note = { id: string; text: string; createdAt: string };
 
 export const NOTES_KEY = 'unique-ai-notes';
+/** Unique's own notes store (2026-11-25, per-persona memory).
+ *  Uniqa keeps the ORIGINAL key exactly as it was — all existing
+ *  memory stays hers, the default persona. No migration code is
+ *  needed: Unique's key simply starts empty. */
+export const NOTES_KEY_UNIQUE = 'unique-ai-notes-unique';
+
+export type { MemoryPersona };
+
+/** Which localStorage key holds this persona's notes. */
+export function notesKeyFor(persona: MemoryPersona = 'uniqa'): string {
+  return persona === 'unique' ? NOTES_KEY_UNIQUE : NOTES_KEY;
+}
 
 export type StorageLike = {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
 };
 
-export function loadNotes(storage: StorageLike): Note[] {
+export function loadNotes(storage: StorageLike, persona: MemoryPersona = 'uniqa'): Note[] {
   try {
-    const raw = storage.getItem(NOTES_KEY);
+    const raw = storage.getItem(notesKeyFor(persona));
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr)
       ? arr.filter((n) => n && typeof n.text === 'string')
@@ -59,9 +76,9 @@ export function loadNotes(storage: StorageLike): Note[] {
   }
 }
 
-export function saveNotes(storage: StorageLike, notes: Note[]): void {
+export function saveNotes(storage: StorageLike, notes: Note[], persona: MemoryPersona = 'uniqa'): void {
   try {
-    storage.setItem(NOTES_KEY, JSON.stringify(notes));
+    storage.setItem(notesKeyFor(persona), JSON.stringify(notes));
   } catch {
     // storage unavailable — memory just won't persist
   }
@@ -214,8 +231,9 @@ export type MemoryOutcome = {
 export function applyMemoryCommand(
   storage: StorageLike,
   cmd: MemoryCommand,
+  persona: MemoryPersona = 'uniqa',
 ): MemoryOutcome {
-  const notes = loadNotes(storage);
+  const notes = loadNotes(storage, persona);
   if (cmd.type === 'show') {
     // Display is the caller's job (it loads the learnings and formats
     // them); applying a show changes nothing.
@@ -223,30 +241,31 @@ export function applyMemoryCommand(
   }
   if (cmd.type === 'save') {
     const note = makeNote(cmd.note);
-    saveNotes(storage, [note, ...notes]);
+    saveNotes(storage, [note, ...notes], persona);
     // A taught note ALSO feeds the learning brain (Round 5): «یاد رکھو
     // میرا نام احمد ہے» teaches the team the name, not just the note.
-    const learned = learnFromText(storage, cmd.note, 'told');
+    const learned = learnFromText(storage, cmd.note, 'told', persona);
     return { affected: [note], learningsAffected: learned };
   }
   if (cmd.type === 'forget_all') {
-    saveNotes(storage, []);
-    // The wipe covers BOTH stores — notes and everything learned.
-    const learningsCleared = clearLearnings(storage);
+    saveNotes(storage, [], persona);
+    // The wipe covers BOTH stores — notes and everything learned —
+    // of THIS persona only. The other persona's memory is untouched.
+    const learningsCleared = clearLearnings(storage, persona);
     return { affected: [], clearedCount: notes.length, learningsCleared };
   }
   const targets = findNotesToForget(notes, cmd.query);
   if (targets.length) {
     const ids = new Set(targets.map((n) => n.id));
-    saveNotes(storage, notes.filter((n) => !ids.has(n.id)));
+    saveNotes(storage, notes.filter((n) => !ids.has(n.id)), persona);
   }
   // Learnings forget with the same order: a topic-named forget clears
   // it everywhere; a bare «یہ بھول جاؤ» touches a learning ONLY when
   // no note was deleted (one utterance, one deletion).
   let learningTargets: Learning[] = [];
   if (cmd.query !== null || !targets.length) {
-    learningTargets = findLearningsToForget(loadLearnings(storage), cmd.query);
-    if (learningTargets.length) removeLearnings(storage, learningTargets);
+    learningTargets = findLearningsToForget(loadLearnings(storage, persona), cmd.query);
+    if (learningTargets.length) removeLearnings(storage, learningTargets, persona);
   }
   return { affected: targets, learningsAffected: learningTargets };
 }

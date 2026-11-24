@@ -1,12 +1,14 @@
 /**
- * WorldPanel — the LEFT column of the front (2026-11-25, from the
- * Stonic front screenshot the user sent: Stonic AI v3.1.24).
+ * WorldPanel — the SLIM TOP STRIP of the front (2026-11-25, layout
+ * correction: the map goes on TOP, the agents below — not a left
+ * column for the map. Order: slim map strip (YOUR WORLD) at the top,
+ * the face/interface in the center, Agent Town below the face, chat
+ * on one side).
  *
- *   YOUR WORLD — a globe, "Three things for you today", news cards,
- *   and the weather where you are ("Around you").
- *
- * Own Unique brand and layout; nothing copies Stonic's code, name or
- * exact design. Everything here is REAL data or an honest empty state:
+ * Compact, one strip: small globe hint + date + three things short +
+ * weather one line + news capped short, and the button that opens
+ * the full-screen World Monitor. Everything here is REAL data or an
+ * honest empty state:
  *   - Three things: the app's real worldPicks (latest learning, today's
  *     completed work, latest note, today's message count).
  *   - News: real Google News headlines via the app's own /api/news
@@ -14,9 +16,10 @@
  *   - Weather: real Open-Meteo (free, no key) — the browser's location
  *     when allowed, otherwise Muscat; on failure it says so plainly.
  *   - When Awareness is OFF, the three things need it ON (Stonic's own
- *     rule: news under Your world appears "when Awareness is on") — so
- *     the panel shows the unawareness state and a button to turn it on.
- *     The AI never looks at the screen or camera on its own when off.
+ *     rule) — the strip shows that plainly with a button to turn it on.
+ *
+ * Own Unique brand and layout; nothing copies Stonic's code, name or
+ * exact design.
  */
 
 import { useEffect, useState } from 'react';
@@ -40,29 +43,27 @@ function wxLabel(code: number): string {
 
 type Wx = { temp: number; label: string; place: string };
 
-/** Stylized globe — our own drawing (wireframe Earth, violet/blue),
- *  not a copied asset and not a real map. */
-function Globe() {
+/** Small globe hint — our own drawing (wireframe Earth, violet/blue),
+ *  not a copied asset and not a real map. The real map lives in the
+ *  full-screen World Monitor. */
+function GlobeMini() {
   return (
-    <svg viewBox="0 0 120 120" role="img" aria-label="دنیا کا نقشہ — زمین" className="uworld-globe-svg">
+    <svg viewBox="0 0 120 120" role="img" aria-label="دنیا کا نقشہ — زمین" className="uworld-strip-globe">
       <defs>
-        <radialGradient id="uworld-globe-grad" cx="38%" cy="32%" r="75%">
+        <radialGradient id="uworld-strip-globe-grad" cx="38%" cy="32%" r="75%">
           <stop offset="0%" stopColor="#7dd3fc" />
           <stop offset="45%" stopColor="#38bdf8" />
           <stop offset="100%" stopColor="#1e1b4b" />
         </radialGradient>
       </defs>
-      <circle cx="60" cy="60" r="54" fill="url(#uworld-globe-grad)" />
+      <circle cx="60" cy="60" r="54" fill="url(#uworld-strip-globe-grad)" />
       <g fill="none" stroke="rgba(234, 249, 255, 0.55)" strokeWidth="1">
         <ellipse cx="60" cy="60" rx="54" ry="22" />
-        <ellipse cx="60" cy="60" rx="54" ry="42" />
         <ellipse cx="60" cy="60" rx="22" ry="54" />
-        <ellipse cx="60" cy="60" rx="42" ry="54" />
         <line x1="6" y1="60" x2="114" y2="60" />
       </g>
       <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(167, 139, 250, 0.7)" strokeWidth="1.5" />
-      <circle cx="76" cy="48" r="3.5" fill="#f9a8d4" className="uworld-globe-you" />
-      <circle cx="76" cy="48" r="7" fill="none" stroke="#f9a8d4" strokeWidth="1" opacity="0.6" />
+      <circle cx="76" cy="48" r="3.5" fill="#22d3ee" />
     </svg>
   );
 }
@@ -71,6 +72,7 @@ export default function WorldPanel({
   awarenessEnabled,
   picks,
   onEnableAwareness,
+  onOpenMonitor,
 }: {
   /** Awareness switch state — the three things need it ON. */
   awarenessEnabled: boolean;
@@ -78,6 +80,8 @@ export default function WorldPanel({
   picks: WorldPick[];
   /** Turn Awareness on (title-bar switch does the same). */
   onEnableAwareness: () => void;
+  /** Open the full-screen World Monitor. */
+  onOpenMonitor: () => void;
 }) {
   const [news, setNews] = useState<NewsItem[] | null>(null);
   const [wx, setWx] = useState<Wx | 'loading' | 'unavailable'>('loading');
@@ -144,84 +148,72 @@ export default function WorldPanel({
   }, []);
 
   return (
-    <div className="uworld-col" data-testid="world-panel">
-      <section className="uworld" dir="rtl" aria-label="تمہاری دنیا">
-        <div className="uworld-head">
-          <span className="uworld-title">🌍 تمہاری دنیا</span>
-          <span className="uworld-title-en">YOUR WORLD</span>
+    <div className="uworld-strip" data-testid="world-panel" dir="rtl">
+      <div className="uworld-strip-brand">
+        <GlobeMini />
+        <div className="uworld-strip-titles">
+          <span className="uworld-strip-title">🌍 تمہاری دنیا <span className="uworld-strip-title-en">YOUR WORLD</span></span>
+          <span className="uworld-strip-date">{today}</span>
         </div>
-        <p className="uworld-date">{today}</p>
-        <div className="uworld-globe">
-          <Globe />
-        </div>
+      </div>
 
-        <div className="uworld-sec">✨ آج آپ کے لیے تین چیزیں</div>
+      <div className="uworld-strip-sep" aria-hidden="true" />
+
+      <div className="uworld-strip-picks" aria-label="آج آپ کے لیے تین چیزیں">
         {!awarenessEnabled ? (
-          <div className="uworld-off" data-testid="world-unawareness">
-            <p className="uworld-note">
-              🙈 آگاہی بند ہے — تین چیزیں دیکھنے کے لیے Awareness آن کریں۔ آگاہی بند ہو تو یونیکا
-              خود کچھ نہیں دیکھتی اور صرف آپ کے بلانے پر بولتی ہے۔
-            </p>
-            <button type="button" className="uworld-btn" onClick={onEnableAwareness} data-testid="button-world-enable-awareness">
+          <span className="uworld-strip-note" data-testid="world-unawareness">
+            🙈 آگاہی بند ہے — تین چیزیں دیکھنے کے لیے Awareness آن کریں۔
+            <button type="button" className="uworld-strip-mini-btn" onClick={onEnableAwareness} data-testid="button-world-enable-awareness">
               👁️ Awareness آن کریں
             </button>
-          </div>
+          </span>
         ) : picks.length === 0 ? (
-          <p className="uworld-empty">
-            ابھی یہاں کچھ نہیں — جیسے ہی آپ مجھے کچھ سکھائیں گے، کوئی کام مکمل ہوگا یا کوئی یادداشت
-            بنے گی، وہ یہاں آ جائے گی۔
-          </p>
+          <span className="uworld-strip-note">ابھی یہاں کچھ نہیں — جیسے ہی کچھ سیکھوں گی، وہ یہاں آ جائے گا۔</span>
         ) : (
-          <ul className="uworld-picks">
-            {picks.map((p, i) => (
-              <li key={i} className="uworld-pick">
-                <span className="uworld-pick-title">{p.title}</span>
-                <span className="uworld-pick-detail">{p.detail}</span>
-                <span className="uworld-pick-source">{p.source} سے</span>
-              </li>
-            ))}
-          </ul>
+          picks.slice(0, 3).map((p, i) => (
+            <span key={i} className="uworld-strip-pick" title={`${p.title} — ${p.detail}`}>
+              <strong>{p.title}</strong> {p.detail}
+            </span>
+          ))
         )}
+      </div>
 
-        <div className="uworld-sec">📰 خبریں</div>
+      <div className="uworld-strip-sep" aria-hidden="true" />
+
+      <div className="uworld-strip-news" aria-label="خبریں">
         {news === null ? (
-          <p className="uworld-note">خبریں آ رہی ہیں…</p>
+          <span className="uworld-strip-note">📰 خبریں آ رہی ہیں…</span>
         ) : news.length === 0 ? (
-          <>
-            <p className="uworld-note">لائیو خبریں ابھی نہیں مل سکیں — کوئی جعلی سرخی نہیں دکھائی جا رہی۔</p>
-            <button
-              type="button"
-              className="uworld-btn"
-              onClick={() => window.open('https://news.google.com', '_blank', 'noopener')}
-              data-testid="button-world-news"
-            >
-              📰 Google News کھولیں
-            </button>
-          </>
+          <span className="uworld-strip-note">
+            📰 لائیو خبریں ابھی نہیں مل سکیں — کوئی جعلی سرخی نہیں۔
+          </span>
         ) : (
-          <ul className="uworld-news">
-            {news.map((n, i) => (
-              <li key={i} className="uworld-news-item">
-                <a href={n.link} target="_blank" rel="noopener noreferrer" dir="auto" className="uworld-news-title">
-                  {n.title}
-                </a>
-                <span className="uworld-news-src">{n.source}</span>
-              </li>
-            ))}
-          </ul>
+          news.slice(0, 2).map((n, i) => (
+            <a key={i} href={n.link} target="_blank" rel="noopener noreferrer" dir="auto" className="uworld-strip-news-item" title={n.title}>
+              📰 {n.title}
+            </a>
+          ))
         )}
+      </div>
 
-        <div className="uworld-sec">🌤️ آپ کے آس پاس — موسم</div>
-        {wx === 'loading' ? (
-          <p className="uworld-note">موسم آ رہا ہے…</p>
-        ) : wx === 'unavailable' ? (
-          <p className="uworld-note">موسم دستیاب نہیں — انٹرنیٹ چیک کریں۔</p>
-        ) : (
-          <p className="uworld-wx">
-            🌡️ {wx.temp}° — {wx.label} · {wx.place}
-          </p>
-        )}
-      </section>
+      <div className="uworld-strip-sep" aria-hidden="true" />
+
+      <span className="uworld-strip-wx" aria-label="موسم">
+        {wx === 'loading'
+          ? '🌤️ موسم آ رہا ہے…'
+          : wx === 'unavailable'
+            ? '🌤️ موسم دستیاب نہیں'
+            : `🌡️ ${wx.temp}° — ${wx.label} · ${wx.place}`}
+      </span>
+
+      <button
+        type="button"
+        className="uworld-strip-monitor-btn"
+        onClick={onOpenMonitor}
+        data-testid="button-open-world-monitor"
+      >
+        🗺️ ورلڈ مانیٹر
+      </button>
     </div>
   );
 }

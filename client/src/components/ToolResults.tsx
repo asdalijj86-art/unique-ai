@@ -1,32 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatAction } from '@/lib/api';
+import {
+  loadNotes,
+  saveNotes,
+  type Note,
+  type MemoryPersona,
+} from '@/lib/memory';
 
 // ---------------------------------------------------------------------------
 // ToolResults — renders professional toolbox action payloads in Urdu.
 // Timer and notes are executed client-side here.
+//
+// Notes (save_note / list_notes) read and write the ACTIVE persona's
+// notes store (2026-11-25, per-persona memory): the parent passes
+// which persona is speaking, defaulting to Uniqa, so a note Unique
+// saves never lands in Uniqa's memory and vice versa.
 // ---------------------------------------------------------------------------
-
-type Note = { id: string; text: string; createdAt: string };
-
-const NOTES_KEY = 'unique-ai-notes';
-
-function loadNotes(): Note[] {
-  try {
-    const raw = localStorage.getItem(NOTES_KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveNotes(notes: Note[]) {
-  try {
-    localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-  } catch {
-    // storage unavailable — notes just won't persist
-  }
-}
 
 function formatCountdown(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -84,8 +73,14 @@ function TimerView({ seconds, label, onDone }: { seconds: number; label: string;
   );
 }
 
-function NotesView({ initialText, mode }: { initialText?: string; mode: 'save' | 'list' }) {
-  const [notes, setNotes] = useState<Note[]>(() => loadNotes());
+function NotesView({ initialText, mode, persona = 'uniqa' }: { initialText?: string; mode: 'save' | 'list'; persona?: MemoryPersona }) {
+  const [notes, setNotes] = useState<Note[]>(() => {
+    try {
+      return loadNotes(window.localStorage, persona);
+    } catch {
+      return [];
+    }
+  });
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     if (mode === 'save' && initialText && !saved) {
@@ -94,8 +89,8 @@ function NotesView({ initialText, mode }: { initialText?: string; mode: 'save' |
         text: initialText,
         createdAt: new Date().toISOString(),
       };
-      const next = [note, ...loadNotes()];
-      saveNotes(next);
+      const next = [note, ...loadNotes(window.localStorage, persona)];
+      saveNotes(window.localStorage, next, persona);
       setNotes(next);
       setSaved(true);
     }
@@ -103,7 +98,7 @@ function NotesView({ initialText, mode }: { initialText?: string; mode: 'save' |
   }, [mode]);
   const removeNote = (id: string) => {
     const next = notes.filter((n) => n.id !== id);
-    saveNotes(next);
+    saveNotes(window.localStorage, next, persona);
     setNotes(next);
   };
   if (notes.length === 0) {
@@ -297,6 +292,7 @@ function BuildAppView({ jobId, title, onReady, onFailed, onSettled }: { jobId: s
 
 export default function ToolResults({
   action,
+  persona = 'uniqa',
   onClose,
   onTimerDone,
   onBuildReady,
@@ -304,6 +300,9 @@ export default function ToolResults({
   onBuildSettled,
 }: {
   action: ChatAction;
+  /** The persona speaking when this action ran — its notes store is
+   *  the one NotesView reads/writes. Defaults to Uniqa. */
+  persona?: MemoryPersona;
   onClose: () => void;
   onTimerDone: () => void;
   onBuildReady?: (title: string) => void;
@@ -415,8 +414,8 @@ export default function ToolResults({
           <TimerView seconds={action.seconds} label={action.label} onDone={onTimerDone} />
         )}
 
-        {action.type === 'save_note' && <NotesView mode="save" initialText={action.text} />}
-        {action.type === 'list_notes' && <NotesView mode="list" />}
+        {action.type === 'save_note' && <NotesView mode="save" initialText={action.text} persona={persona} />}
+        {action.type === 'list_notes' && <NotesView mode="list" persona={persona} />}
 
         {action.type === 'prayer_times' && (
           <div className="tool-prayer-card">

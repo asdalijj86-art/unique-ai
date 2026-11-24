@@ -5,7 +5,9 @@
  * the real thing — no decoration, no dead controls.
  *
  * MEMORY — the notes and learnings actually stored on this device
- * (unique-ai-notes / unique-ai-learnings), with real delete buttons.
+ * (unique-ai-notes / unique-ai-learnings for Uniqa, the '-unique'
+ * keys for Unique — per-persona since 2026-11-25), with real delete
+ * buttons and a switcher to view either persona's memory.
  * SKILLS — the five working studios plus the three focus views;
  * each button opens the real thing. No Video Maker: it was removed
  * by the user's order on 2026-10-31 and is still disabled in code.
@@ -15,7 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { AGENT_DEFS, agentLabel, type AgentTaskState } from '../lib/agent-team';
-import { loadLearnings, saveLearnings, type Learning } from '../lib/learnings';
+import { loadLearnings, saveLearnings, type Learning, type MemoryPersona } from '../lib/learnings';
 import { loadNotes, saveNotes, type Note } from '../lib/memory';
 import type { BoardEntry } from '../lib/task-board';
 
@@ -58,18 +60,30 @@ export function PanelDrawer({
 // MEMORY — real notes + learnings from this device, deletable.
 // ---------------------------------------------------------------------------
 
-export function MemoryPanel({ refreshSignal = 0 }: { refreshSignal?: number }) {
+export function MemoryPanel({
+  refreshSignal = 0,
+  persona = 'uniqa',
+}: {
+  refreshSignal?: number;
+  /** The persona currently speaking. The panel opens on THEIR memory;
+   *  the switcher below only changes what is VIEWED — never who is
+   *  speaking (2026-11-25, per-persona memory). */
+  persona?: MemoryPersona;
+}) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [learnings, setLearnings] = useState<Learning[]>([]);
+  /** Whose memory is being viewed. Starts on the speaking persona;
+   *  switching here is view-only — it never calls onPersonaChange. */
+  const [viewPersona, setViewPersona] = useState<MemoryPersona>(persona);
 
   const refresh = () => {
     try {
-      setNotes(loadNotes(window.localStorage));
+      setNotes(loadNotes(window.localStorage, viewPersona));
     } catch {
       setNotes([]);
     }
     try {
-      setLearnings(loadLearnings(window.localStorage));
+      setLearnings(loadLearnings(window.localStorage, viewPersona));
     } catch {
       setLearnings([]);
     }
@@ -79,22 +93,29 @@ export function MemoryPanel({ refreshSignal = 0 }: { refreshSignal?: number }) {
     refresh();
   }, []);
 
+  // When the speaking persona changes (summoned by name), the panel
+  // follows them — the viewed memory is theirs again.
+  useEffect(() => {
+    setViewPersona(persona);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persona]);
+
   // Core Memory (2026-11-24): the list updates as the conversation
   // goes — the parent bumps refreshSignal on every new message.
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshSignal]);
+  }, [refreshSignal, viewPersona]);
 
   const deleteNote = (id: string) => {
     const next = notes.filter((n) => n.id !== id);
-    saveNotes(window.localStorage, next);
+    saveNotes(window.localStorage, next, viewPersona);
     setNotes(next);
   };
 
   const deleteLearning = (id: string) => {
     const next = learnings.filter((l) => l.id !== id);
-    saveLearnings(window.localStorage, next);
+    saveLearnings(window.localStorage, next, viewPersona);
     setLearnings(next);
   };
 
@@ -102,6 +123,35 @@ export function MemoryPanel({ refreshSignal = 0 }: { refreshSignal?: number }) {
     <div className="upanel" data-testid="panel-memory" dir="rtl">
       <p className="upanel-intro">
         یہ وہی باتیں ہیں جو میں نے آپ سے سیکھیں — صرف اسی ڈیوائس پر محفوظ ہیں۔
+      </p>
+      {/* Whose memory is this? (2026-11-25, per-persona memory) */}
+      <div className="umem-who" dir="rtl" data-testid="memory-persona-switcher">
+        <span className="umem-who-label">
+          {viewPersona === 'uniqa' ? '💛 یونیکا کی میموری' : '💙 یونیک کی میموری'}
+        </span>
+        <span className="umem-who-btns" role="group" aria-label="کس کی میموری دیکھیں">
+          <button
+            type="button"
+            className={`umem-who-btn${viewPersona === 'uniqa' ? ' active' : ''}`}
+            onClick={() => setViewPersona('uniqa')}
+            aria-pressed={viewPersona === 'uniqa'}
+            data-testid="button-memory-view-uniqa"
+          >
+            💛 یونیکا
+          </button>
+          <button
+            type="button"
+            className={`umem-who-btn${viewPersona === 'unique' ? ' active' : ''}`}
+            onClick={() => setViewPersona('unique')}
+            aria-pressed={viewPersona === 'unique'}
+            data-testid="button-memory-view-unique"
+          >
+            💙 یونیک
+          </button>
+        </span>
+      </div>
+      <p className="umem-who-note">
+        صرف دیکھ رہے ہیں — بولنے والا {persona === 'uniqa' ? 'یونیکا' : 'یونیک'} ہی رہے گا۔
       </p>
       <div className="upanel-section-title">📌 یادداشت</div>
       {notes.length === 0 ? (
