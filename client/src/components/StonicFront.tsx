@@ -26,7 +26,7 @@ import AwarenessBubble from './AwarenessBubble';
 import { AGENT_DEFS, agentLabel, type AgentDef, type AgentTaskState } from '../lib/agent-team';
 import type { BoardEntry } from '../lib/task-board';
 
-export type FrontNodeKey = 'memory' | 'skills' | 'voices' | 'settings';
+export type FrontNodeKey = 'memory' | 'skills' | 'character' | 'settings';
 
 // ---------------------------------------------------------------------------
 // NodeDialog — a node panel as a centered dialog over the front.
@@ -142,7 +142,7 @@ export function VoicesPanel({
 const NODES: { key: FrontNodeKey; icon: string; label: string; urdu: string; color: string; testId: string }[] = [
   { key: 'memory', icon: '🧠', label: 'MEMORY', urdu: 'میموری', color: '#22d3ee', testId: 'button-panel-memory' },
   { key: 'skills', icon: '🛠️', label: 'SKILLS', urdu: 'مہارتیں', color: '#a78bfa', testId: 'button-panel-skills' },
-  { key: 'voices', icon: '🎙️', label: 'VOICES', urdu: 'آوازیں', color: '#f9a8d4', testId: 'button-panel-voices' },
+  { key: 'character', icon: '👤', label: 'CHARACTER', urdu: 'کردار', color: '#f9a8d4', testId: 'button-panel-character' },
   { key: 'settings', icon: '⚙️', label: 'SETTING', urdu: 'سیٹنگز', color: '#34d399', testId: 'button-panel-settings' },
 ];
 
@@ -212,10 +212,10 @@ export function FrontStage({
     <section className="ufront-stage" aria-label="فرنٹ">
       {/* Connector lines: each node joins the orb (desktop only). */}
       <svg className="ufront-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <line x1="11" y1="12" x2="50" y2="42" stroke="#22d3ee" />
-        <line x1="89" y1="12" x2="50" y2="42" stroke="#a78bfa" />
-        <line x1="11" y1="88" x2="50" y2="42" stroke="#f9a8d4" />
-        <line x1="89" y1="88" x2="50" y2="42" stroke="#34d399" />
+        <line x1="18" y1="12" x2="50" y2="42" stroke="#22d3ee" />
+        <line x1="82" y1="12" x2="50" y2="42" stroke="#a78bfa" />
+        <line x1="18" y1="88" x2="50" y2="42" stroke="#f9a8d4" />
+        <line x1="82" y1="88" x2="50" y2="42" stroke="#34d399" />
       </svg>
 
       {/* The four nodes — attached to the front, not side panels. */}

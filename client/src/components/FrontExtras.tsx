@@ -33,7 +33,9 @@ const PLAYER_PRESETS: { label: string; query: string }[] = [
 export function UniquePlayer() {
   const [query, setQuery] = useState('naat sharif');
   const [playingQuery, setPlayingQuery] = useState('naat sharif');
+  const [dialogOpen, setDialogOpen] = useState(false);
   const src = `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(playingQuery)}`;
+  const youtubeSearch = `https://www.youtube.com/results?search_query=${encodeURIComponent(playingQuery)}`;
   return (
     <div className="ustrip-card" data-testid="unique-player" dir="rtl">
       <div className="ustrip-title">🎵 Unique Player</div>
@@ -70,16 +72,66 @@ export function UniquePlayer() {
           </button>
         ))}
       </div>
-      <iframe
-        key={playingQuery}
-        className="uplayer-frame"
-        src={src}
-        title="Unique Player — YouTube موسیقی"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowFullScreen
-        data-testid="player-youtube-frame"
-      />
+      {!dialogOpen && (
+        <iframe
+          key={playingQuery}
+          className="uplayer-frame"
+          src={src}
+          title="Unique Player — YouTube موسیقی"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          data-testid="player-youtube-frame"
+        />
+      )}
+      <button
+        type="button"
+        className="uplayer-open-btn"
+        onClick={() => setDialogOpen(true)}
+        data-testid="button-open-player"
+      >
+        ▶ پلیئر کھولیں
+      </button>
       <p className="ustrip-note">YouTube سے چل رہا ہے — اگر کوئی ویڈیو نہ چلے تو تلاش بدلیں۔</p>
+      {dialogOpen && (
+        <div
+          className="ufront-dialog-overlay"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDialogOpen(false);
+          }}
+        >
+          <div className="ufront-dialog" role="dialog" aria-label="Unique Player">
+            <div className="ufront-dialog-head" dir="rtl">
+              <span className="ufront-dialog-title">🎵 Unique Player — {playingQuery}</span>
+              <button
+                type="button"
+                className="ufront-dialog-close"
+                onClick={() => setDialogOpen(false)}
+                aria-label="بند کریں"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="ufront-dialog-body">
+              <iframe
+                key={playingQuery}
+                className="uplayer-dialog-frame"
+                src={src}
+                title="Unique Player — YouTube موسیقی"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                data-testid="player-youtube-frame-dialog"
+              />
+              <p className="ustrip-note" style={{ display: 'block', marginTop: 8 }}>
+                اگر یہاں بھی ویڈیو نہ چلے تو{' '}
+                <a href={youtubeSearch} target="_blank" rel="noopener noreferrer" style={{ color: '#7dd3fc' }}>
+                  YouTube پر کھولیں
+                </a>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

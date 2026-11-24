@@ -4163,7 +4163,7 @@ export default function ChatPage() {
   const PANEL_TITLES: Record<Exclude<typeof activePanel, null>, string> = {
     memory: '🧠 میموری',
     skills: '🛠️ مہارتیں',
-    voices: '🎙️ آوازیں',
+    character: '👤 کردار',
     settings: '⚙️ سیٹنگز',
   };
 
@@ -4197,7 +4197,7 @@ export default function ChatPage() {
             onOpenFocus={(key: FocusViewKey) => { setActivePanel(null); setFocusView(key); }}
           />
         );
-      case 'voices':
+      case 'character':
         return (
           <VoicesPanel
             persona={persona}
@@ -4259,7 +4259,7 @@ export default function ChatPage() {
   // the user wants the face FRONT, Stonic-style — sizes raised so it
   // stays prominent even mid-conversation.)
   const hasMessages = (activeConversation?.messages.length ?? 0) > 0;
-  const orbSize = !hasMessages ? (isDesktop ? (shortScreen ? 230 : 320) : 232) : (isDesktop ? (shortScreen ? 150 : 190) : 132);
+  const orbSize = !hasMessages ? (isDesktop ? (shortScreen ? 230 : 320) : 232) : (isDesktop ? 190 : 132);
 
   return (
     <main className={`unique-shell${busy || isSpeaking ? ' working' : ''}`} lang="ur" data-theme={theme} data-testid="page-maira-chat">
