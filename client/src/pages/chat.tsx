@@ -47,6 +47,8 @@ import {
   applyMemoryCommand,
   memoryConfirmation,
   loadNotes,
+  makeNote,
+  saveNotes,
 } from '@/lib/memory';
 import {
   learnFromText,
@@ -121,6 +123,18 @@ import QuranReader from '@/components/QuranReader';
 // Phase 1 (2026-11-22): the new main screen — panels around the
 // living face, and Awareness (speaks first, thought bubble first).
 import { readAwarenessEnabled, saveAwarenessEnabled, useAwareness } from '@/lib/awareness';
+import {
+  readCameraPermission,
+  saveCameraPermission,
+  detectDriftSignal,
+  useCameraLook,
+  formatCameraNote,
+  pickDriftFollowUpLine,
+  pickNoFaceLine,
+  DRIFT_LOOK_COOLDOWN_MS,
+  type CameraObservation,
+  type DriftSignal,
+} from '@/lib/camera-look';
 import AwarenessBubble from '@/components/AwarenessBubble';
 import { MemoryPanel, SkillsPanel, type FocusViewKey, type StudioKey } from '@/components/HomePanels';
 import type { ChatAction } from '@/lib/api';
@@ -382,6 +396,26 @@ export default function ChatPage() {
   function toggleAwareness(next: boolean) {
     setAwarenessEnabled(next);
     saveAwarenessEnabled(window.localStorage, next);
+  }
+
+  // Camera permission (2026-11-25, user-approved in the voice call):
+  // Uniqa may turn the camera on HERSELF — no asking needed. Default
+  // ON because he approved it; the switch below (and the chips on the
+  // front + MEDIA LINK card) turn it off any time, and OFF means she
+  // never turns it on herself. The browser still asks once with its
+  // own prompt the first time the camera opens.
+  const [cameraPermission, setCameraPermission] = useState(() => readCameraPermission(window.localStorage));
+  const [lastCameraNote, setLastCameraNote] = useState<string | null>(null);
+
+  function toggleCameraPermission(next: boolean) {
+    setCameraPermission(next);
+    saveCameraPermission(window.localStorage, next);
+    if (!next) {
+      cameraLook.stopLook();
+      logActivity('کیمرہ اجازت بند — یونیکا خود آن نہیں کرے گی');
+    } else {
+      logActivity('کیمرہ اجازت آن — یونیکا خود دیکھ سکتی ہے');
+    }
   }
 
   useEffect(() => {
@@ -720,10 +754,13 @@ export default function ChatPage() {
     setActivityLog((prev) => [{ at: Date.now(), text }, ...prev].slice(0, 40));
   }, []);
 
-  // Phase 1 — Awareness (speaks first): work / time / silence only,
-  // NEVER the camera. It never interrupts a reply, speech, recording,
-  // typing, or an open studio/overlay. A fired line is appended as a
-  // normal assistant message and then spoken aloud.
+  // Phase 1 — Awareness (speaks first): work / time / silence only.
+  // The camera look (2026-11-25, user-approved) rides on it: when
+  // Awareness fires, Uniqa first takes one short look herself
+  // (onTrigger below), then speaks. It never interrupts a reply,
+  // speech, recording, typing, or an open studio/overlay. A fired
+  // line is appended as a normal assistant message and then spoken
+  // aloud.
   const awareness = useAwareness({
     enabled: awarenessEnabled,
     feminine: persona === 'uniqa',
@@ -731,10 +768,59 @@ export default function ChatPage() {
       busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
       libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
       focusView !== null || agentTeamSceneOpen || pairingOpen,
+    onTrigger: () => {
+      // Her own initiative: Awareness fired, so she looks first.
+      // Gated on Awareness ON + camera permission ON + Uniqa present.
+      if (cameraPermission && awarenessEnabled && persona === 'uniqa') {
+        cameraLook.startLook('awareness');
+      }
+    },
     onSpeak: (line) => {
       logActivity('Awareness — خود سے بولا');
       appendAssistantMessage(line);
       void playAssistantMessage(line);
+    },
+  });
+
+  // Camera look (2026-11-25, user-approved): Uniqa turns the camera
+  // on HERSELF — one short look (≤ 8 s), then it turns itself off.
+  // The observation note goes into Core Memory (visible in the MEMORY
+  // panel); no video is recorded, no photo is stored, nothing leaves
+  // the device. When the look ends she may speak about it — ONLY when
+  // the moment is free (same never-interrupt rule as Awareness), and
+  // ONLY about what his words said + what the camera actually
+  // measured (presence) — never a claimed face reading.
+  const lastDriftRef = useRef<DriftSignal | null>(null);
+  const lastDriftLookAtRef = useRef(0);
+  const cameraLook = useCameraLook({
+    onObservation: (obs: CameraObservation) => {
+      const note = formatCameraNote(obs);
+      setLastCameraNote(note);
+      try {
+        const notes = loadNotes(window.localStorage);
+        saveNotes(window.localStorage, [makeNote(note), ...notes]);
+        setMemoryCount(loadNotes(window.localStorage).length + loadLearnings(window.localStorage).length);
+      } catch {
+        // storage unavailable — the look still happened, the note just won't persist
+      }
+      logActivity(`کیمرہ — مشاہدہ: ${note}`);
+      const busyNow =
+        busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
+        libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
+        focusView !== null || agentTeamSceneOpen || pairingOpen;
+      if (busyNow) return;
+      if (obs.trigger === 'drift' && lastDriftRef.current) {
+        const line = pickDriftFollowUpLine(lastDriftRef.current, obs, persona === 'uniqa');
+        lastDriftRef.current = null;
+        appendAssistantMessage(line);
+        void playAssistantMessage(line);
+        return;
+      }
+      if (obs.trigger === 'awareness' && !obs.facePresent) {
+        const line = pickNoFaceLine(persona === 'uniqa');
+        appendAssistantMessage(line);
+        void playAssistantMessage(line);
+      }
     },
   });
 
@@ -1493,6 +1579,21 @@ export default function ChatPage() {
     // Phase 1: a sent message counts toward Awareness's long-work
     // stretch, and resets the quiet clock.
     awareness.recordMessage();
+    // Camera look (2026-11-25, user-approved): if his words carry a
+    // drift / low-mood signal, Uniqa looks herself — no bubble first.
+    // The look runs, the note is saved, and when it ends she speaks
+    // gently about what his words said and what the camera actually
+    // saw. Gated on Awareness ON + camera permission ON + Uniqa
+    // present; at most one drift look per 10 minutes.
+    const drift = detectDriftSignal(text);
+    if (drift && awarenessEnabled && cameraPermission && persona === 'uniqa') {
+      const now = Date.now();
+      if (now - lastDriftLookAtRef.current >= DRIFT_LOOK_COOLDOWN_MS) {
+        lastDriftLookAtRef.current = now;
+        lastDriftRef.current = drift;
+        cameraLook.startLook('drift');
+      }
+    }
     // Helper-agent team (Task D): predict whether this message asks
     // for SEVERAL data tools at once. If so, the team strip appears on
     // the chat screen with «کام کر رہا ہے…» cards — and is FINALIZED
@@ -4431,6 +4532,9 @@ export default function ChatPage() {
             onOpenCall={() => setCallPanelOpen(true)}
             awarenessEnabled={awarenessEnabled}
             onToggleAwareness={() => toggleAwareness(!awarenessEnabled)}
+            cameraLive={cameraLook.status === 'looking' || cameraLook.status === 'starting'}
+            cameraPermission={cameraPermission}
+            onToggleCamera={() => toggleCameraPermission(!cameraPermission)}
           />
 
           <AgentTown
@@ -4735,7 +4839,16 @@ export default function ChatPage() {
       {/* Bottom strip: player / media link / headlines / WhatsApp support */}
       <div className="unique-bottom-strip">
         <UniquePlayer />
-        <MediaLinkCard micLive={micLive} />
+        <MediaLinkCard
+          micLive={micLive}
+          cameraStatus={cameraLook.status}
+          cameraStatusMessage={cameraLook.statusMessage}
+          cameraPermission={cameraPermission}
+          onToggleCameraPermission={() => toggleCameraPermission(!cameraPermission)}
+          cameraVideoRef={cameraLook.videoRef}
+          lastCameraNote={lastCameraNote}
+          onStopCameraLook={() => cameraLook.stopLook()}
+        />
         <HeadlinesCard />
         <SupportButton supportNumber={supportNumber} onSaveNumber={setSupportNumber} />
       </div>

@@ -2299,6 +2299,33 @@ body {
 .uaware-chip.off {
   background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.45); color: #cbd5e1;
 }
+/* Camera — Uniqa's own look (2026-11-25, user-approved). Always
+   visible when live: a pulsing pill on the face + the preview in
+   the MEDIA LINK card. Never hidden, never recorded. */
+.uface-cam-live {
+  position: absolute; top: 8px; inset-inline-start: 8px;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
+  color: #fecdd3; background: rgba(190, 18, 60, 0.35);
+  border: 1px solid rgba(251, 113, 133, 0.6); border-radius: 999px; padding: 2px 8px;
+}
+.uface-cam-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #f43f5e;
+  animation: ucam-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ucam-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.6); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(244, 63, 94, 0); }
+}
+.ucam-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 8px; padding: 6px 14px;
+  border-radius: 999px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  background: rgba(244, 114, 182, 0.12); border: 1px solid rgba(244, 114, 182, 0.45); color: #fbcfe8;
+}
+.ucam-chip.off {
+  background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.45); color: #cbd5e1;
+}
 
 /* VisualHub collapsible wrapper — header button + hub below it. */
 .uhub-wrap {
@@ -2652,6 +2679,31 @@ body {
 .umedia-row strong { margin-inline-start: auto; color: #eaf9ff; font-size: 12.5px; }
 .umedia-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; flex-shrink: 0; }
 .umedia-dot.on { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9); }
+/* Camera look preview + controls in the MEDIA LINK card. */
+.ucam-preview-wrap { margin-top: 8px; }
+.ucam-preview {
+  width: 100%; max-width: 220px; aspect-ratio: 4 / 3; object-fit: cover;
+  border-radius: 10px; border: 1px solid rgba(251, 113, 133, 0.55);
+  background: #000; display: block;
+}
+.ucam-live-label {
+  display: flex; align-items: center; gap: 6px;
+  margin: 6px 0; font-size: 12.5px; font-weight: 700; color: #fecdd3;
+}
+.ucam-live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #f43f5e;
+  animation: ucam-pulse 1.2s ease-in-out infinite; flex-shrink: 0;
+}
+.ucam-stop, .ucam-perm {
+  padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  background: rgba(244, 114, 182, 0.14); border: 1px solid rgba(244, 114, 182, 0.5); color: #fbcfe8;
+}
+.ucam-perm { margin-top: 8px; }
+.ucam-perm.off {
+  background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.45); color: #cbd5e1;
+}
+.ucam-status { margin: 6px 0 0; font-size: 12.5px; color: #fda4af; }
+.ucam-note { margin: 6px 0 0; font-size: 12.5px; color: #a5e3f5; }
 .usupport-btn {
   padding: 8px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 700;
   background: rgba(37, 211, 102, 0.16); border: 1px solid rgba(37, 211, 102, 0.5); color: #bbf7d0;

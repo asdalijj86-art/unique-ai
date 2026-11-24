@@ -176,6 +176,11 @@ export function FrontStage({
   onStartAI,
   onTerminate,
   onOpenCall,
+  awarenessEnabled,
+  onToggleAwareness,
+  cameraLive,
+  cameraPermission,
+  onToggleCamera,
 }: {
   persona: 'unique' | 'uniqa';
   tone: 'neutral' | 'serious' | 'romantic';
@@ -211,6 +216,12 @@ export function FrontStage({
   awarenessEnabled: boolean;
   /** Toggle Awareness (same as the title-bar switch). */
   onToggleAwareness: () => void;
+  /** True while Uniqa's own camera look is running (LIVE pill). */
+  cameraLive: boolean;
+  /** Camera permission — her own look only runs while this is on. */
+  cameraPermission: boolean;
+  /** Toggle the camera permission (same as the MEDIA LINK switch). */
+  onToggleCamera: () => void;
 }) {
   return (
     <section className="ufront-stage" aria-label="فرنٹ">
@@ -269,6 +280,16 @@ export function FrontStage({
             data-testid="face-panel"
           >
             <span className="uface-panel-tag" aria-hidden="true">● LIVE</span>
+            {cameraLive && (
+              <span
+                className="uface-cam-live"
+                data-testid="camera-live-pill"
+                title="کیمرہ آن ہے — یونیکا دیکھ رہی ہے"
+              >
+                <span className="uface-cam-dot" aria-hidden="true" />
+                📷 کیمرہ لائیو
+              </span>
+            )}
             <AiOrb isSpeaking={isSpeaking} isThinking={isThinking} size={orbSize} persona={persona} />
             <div className={`uface-panel-state uface-state-${faceState}`} dir="rtl" data-testid="face-state">
               <span className="uface-state-dot" aria-hidden="true" />
@@ -324,6 +345,21 @@ export function FrontStage({
         title={awarenessEnabled ? 'آگاہی بند کرنے کے لیے دبائیں' : 'آگاہی آن کرنے کے لیے دبائیں'}
       >
         {awarenessEnabled ? '👁️ آگاہی آن ہے — یونیکا خود بولے گی' : '🙈 آگاہی بند ہے — یونیکا صرف بلانے پر بولے گی'}
+      </button>
+
+      {/* Camera permission, on the front itself (2026-11-25,
+          user-approved): when ON, Uniqa may turn the camera on
+          herself — a short look, never hidden, never recorded. When
+          OFF, she never turns it on. Awareness OFF also stops it. */}
+      <button
+        type="button"
+        className={`ucam-chip${cameraPermission ? '' : ' off'}`}
+        onClick={onToggleCamera}
+        aria-pressed={cameraPermission}
+        data-testid="button-camera-front"
+        title={cameraPermission ? 'کیمرہ اجازت بند کرنے کے لیے دبائیں — یونیکا پھر خود آن نہیں کرے گی' : 'کیمرہ اجازت آن کرنے کے لیے دبائیں'}
+      >
+        {cameraPermission ? '📷 کیمرہ اجازت آن ہے — یونیکا خود دیکھ سکتی ہے' : '📷 کیمرہ بند ہے — یونیکا خود آن نہیں کرے گی'}
       </button>
 
       {/* START AI / TERMINATE — the assistant's power pill. */}

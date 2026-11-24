@@ -17,7 +17,7 @@
  *     genuinely sent to the brain with every message.
  */
 
-import { useState } from 'react';
+import { useState, type RefObject } from 'react';
 
 // ---------------------------------------------------------------------------
 // UniquePlayer — YouTube music, own name, real playback.
@@ -137,18 +137,51 @@ export function UniquePlayer() {
 }
 
 // ---------------------------------------------------------------------------
-// MediaLinkCard — status only. Camera: OFFLINE, honestly.
+// MediaLinkCard — camera + mic, REAL status now (2026-11-25,
+// user-approved camera permission).
+//
+// Camera: Uniqa turns it on HERSELF when Awareness fires or his words
+// carry a drift signal — one short look (≤ 8 seconds), then it turns
+// itself off. While it is on, the LIVE pill on the face panel and the
+// preview here make it impossible to miss. No video is recorded, no
+// photo is stored, no video leaves the device — only a short note
+// goes into Core Memory. The permission switch here (and the chip on
+// the front) turns it off any time; when off, she never turns it on
+// herself. The browser still asks once with its own prompt the first
+// time — one Allow, remembered for this site.
 // ---------------------------------------------------------------------------
 
-export function MediaLinkCard({ micLive }: { micLive: boolean }) {
+export type CameraCardStatus = 'idle' | 'starting' | 'looking' | 'denied' | 'error';
+
+export function MediaLinkCard({
+  micLive,
+  cameraStatus,
+  cameraStatusMessage,
+  cameraPermission,
+  onToggleCameraPermission,
+  cameraVideoRef,
+  lastCameraNote,
+  onStopCameraLook,
+}: {
+  micLive: boolean;
+  cameraStatus: CameraCardStatus;
+  cameraStatusMessage: string;
+  cameraPermission: boolean;
+  onToggleCameraPermission: () => void;
+  /** The look's preview — always mounted, hidden until the camera is live. */
+  cameraVideoRef: RefObject<HTMLVideoElement | null>;
+  lastCameraNote: string | null;
+  onStopCameraLook: () => void;
+}) {
+  const live = cameraStatus === 'looking' || cameraStatus === 'starting';
   return (
     <div className="ustrip-card" data-testid="media-link" dir="rtl">
       <div className="ustrip-title">📡 MEDIA LINK</div>
       <div className="umedia-rows">
         <div className="umedia-row">
-          <span className="umedia-dot off" aria-hidden="true" />
+          <span className={`umedia-dot${live ? ' on' : ''}`} aria-hidden="true" />
           <span>کیمرا</span>
-          <strong>OFFLINE</strong>
+          <strong>{live ? 'LIVE' : cameraPermission ? 'تیار' : 'بند'}</strong>
         </div>
         <div className="umedia-row">
           <span className={`umedia-dot${micLive ? ' on' : ' off'}`} aria-hidden="true" />
@@ -156,7 +189,56 @@ export function MediaLinkCard({ micLive }: { micLive: boolean }) {
           <strong>{micLive ? 'LIVE' : 'بند'}</strong>
         </div>
       </div>
-      <p className="ustrip-note">کیمرا ابھی منسلک نہیں — کیمرا آگاہی بعد کی مرحلہ ہے، ابھی صرف حیثیت دکھائی جا رہی ہے۔</p>
+      {/* The preview is always mounted so the look can attach the
+          moment it starts; it is hidden until the camera is live. */}
+      <div className="ucam-preview-wrap" hidden={!live}>
+        <video
+          ref={cameraVideoRef}
+          className="ucam-preview"
+          muted
+          playsInline
+          autoPlay
+          data-testid="video-camera-look"
+        />
+        <p className="ucam-live-label">
+          <span className="ucam-live-dot" aria-hidden="true" />
+          📷 کیمرہ لائیو — یونیکا دیکھ رہی ہے
+        </p>
+        <button
+          type="button"
+          className="ucam-stop"
+          onClick={onStopCameraLook}
+          data-testid="button-stop-camera-look"
+        >
+          ⏹ کیمرہ بند کریں
+        </button>
+      </div>
+      {cameraStatus === 'denied' && (
+        <p className="ucam-status" role="alert">
+          کیمرے کی اجازت نہیں ملی — براؤزر کی سائٹ سیٹنگز میں کیمرہ Allow کریں، پھر دوبارہ کوشش کریں۔
+        </p>
+      )}
+      {cameraStatus === 'error' && cameraStatusMessage && (
+        <p className="ucam-status" role="alert">{cameraStatusMessage}</p>
+      )}
+      <button
+        type="button"
+        className={`ucam-perm${cameraPermission ? '' : ' off'}`}
+        onClick={onToggleCameraPermission}
+        aria-pressed={cameraPermission}
+        data-testid="button-camera-permission"
+        title={cameraPermission ? 'کیمرہ اجازت بند کریں — یونیکا پھر خود آن نہیں کرے گی' : 'کیمرہ اجازت آن کریں — یونیکا خود دیکھ سکے گی'}
+      >
+        {cameraPermission ? '📷 کیمرہ اجازت آن ہے' : '📷 کیمرہ اجازت بند ہے'}
+      </button>
+      {lastCameraNote && (
+        <p className="ucam-note" data-testid="text-last-camera-note">
+          آخری مشاہدہ: {lastCameraNote}
+        </p>
+      )}
+      <p className="ustrip-note">
+        یونیکا کیمرہ صرف خود دیکھنے کے لیے آن کرتی ہے — ویڈیو ریکارڈ نہیں ہوتی، تصویر محفوظ نہیں ہوتی، صرف ایک چھوٹا نوٹ میموری میں جاتا ہے۔ پہلی بار براؤزر اجازت مانگے گا — Allow دبائیں، پھر وہ خود آن کرے گی۔
+      </p>
     </div>
   );
 }

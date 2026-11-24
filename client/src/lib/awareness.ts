@@ -8,10 +8,15 @@
  * BEFORE it speaks.
  *
  * OUR rules, from the user's own words (2026-11-22 voice call):
- *  - REAL triggers only: work, clock time, silence. NEVER the
- *    camera — Stonic's own pages contradict each other on camera
- *    (changelog v3.0.2 says it was removed; the privacy page says it
- *    is on by default), so camera detection is never used here.
+ *  - REAL triggers only: work, clock time, silence. PLUS the camera
+ *    look (2026-11-25, user-approved in the voice call — «ہاں، کیمرہ
+ *    آن رکھو»): when Awareness fires, Uniqa first takes one short
+ *    look herself (lib/camera-look) — observation only, never a
+ *    recording, never a photo, gated on Awareness ON + camera
+ *    permission ON, with a visible LIVE indicator. The OLD "never
+ *    the camera" rule stood because Stonic's own pages contradicted
+ *    each other on camera; the user has now decided for Unique, so
+ *    the camera look is HIS permission, not a guess.
  *  - NEVER lie: the lines are our own honest Urdu lines. The
  *    "I miss you" / "where did you go" lines were never verified
  *    (TikTok audio could not be heard) and are NOT used.
@@ -196,6 +201,10 @@ export function useAwareness(opts: {
   /** Called when a bubble's line is actually spoken — the caller
    *  appends it as an assistant message and speaks it aloud. */
   onSpeak: (line: string, reason: AwarenessReason) => void;
+  /** Called the moment a bubble appears (before the line is
+   *  spoken) — the caller may start Uniqa's own camera look here
+   *  (lib/camera-look), so she looks first, then speaks. */
+  onTrigger?: (reason: AwarenessReason) => void;
 }): {
   bubble: AwarenessBubbleState | null;
   /** The user did something — reset the quiet clock, drop a bubble. */
@@ -257,6 +266,8 @@ export function useAwareness(opts: {
       setBubble(state);
       lastFiredRef.current = Date.now();
       if (reason === 'late-night') lastNightRef.current = new Date().toDateString();
+      // Her own initiative (2026-11-25): she looks first, then speaks.
+      optsRef.current.onTrigger?.(reason);
       bubbleTimerRef.current = window.setTimeout(() => {
         bubbleRef.current = null;
         setBubble(null);

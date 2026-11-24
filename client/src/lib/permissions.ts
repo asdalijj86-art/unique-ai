@@ -6,7 +6,10 @@
  *  - microphone: chat voice input (SpeechRecognition) — warming it via
  *    getUserMedia pre-grants the origin's mic permission, so voice
  *    starts later without a mid-conversation prompt.
- *  - camera: hand-gesture control (useGestures getUserMedia video).
+ *  - camera: hand-gesture control (useGestures getUserMedia video)
+ *    AND Uniqa's own look (useCameraLook, user-approved 2026-11-25):
+ *    she turns it on herself when Awareness fires or his words
+ *    carry a drift signal — observation only, no recording, no photo.
  *  - geolocation: the map's «میری جگہ» button (MapWidget).
  * Notifications are NOT used anywhere in the app, and downloads /
  * file picking / clipboard writes need no permission grant — so they
@@ -23,7 +26,7 @@ export type PermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported';
 
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   microphone: '🎙️ مائیکروفون (آواز کے لیے)',
-  camera: '📷 کیمرا (ہاتھ کے اشاروں کے لیے)',
+  camera: '📷 کیمرا (یونیکا کی نظر + ہاتھ کے اشاروں کے لیے)',
   geolocation: '📍 مقام (نقشے کے لیے)',
 };
 
