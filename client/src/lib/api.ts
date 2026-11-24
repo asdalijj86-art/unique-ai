@@ -488,7 +488,8 @@ export async function synthesizeEdgeSpeech({ text, voice }: { text: string; voic
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // voice:'uniqa' asks the server for HER Edge voice (Uzma); absent
-        // = Salman, Unique's voice — the default is never hers.
+        // = Salman, Unique's voice — used only on his turns now, since
+        // Uniqa is the default and her turns always send voice:'uniqa'.
         body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
         signal: ctrl.signal,
       });

@@ -59,9 +59,9 @@ const chipStyle = (active: boolean): React.CSSProperties => ({
 });
 
 /**
- * PersonaSelector (Phase 2) — who is "present": یونیک (the default
- * assistant) or یونیکا (the female companion, with her own voice). She
- * speaks only when picked here OR summoned by name («یونیکا کو بلاؤ»).
+ * PersonaSelector (Phase 2) — who is "present": یونیکا (the default
+ * assistant, with her own voice) or یونیک (the male assistant). He
+ * speaks only when picked here OR summoned by name («یونیک کو بلاؤ»).
  * The tone chips set the لہجہ until changed — independent of persona.
  */
 function PersonaSelector({ persona, onPersonaChange, tone, onToneChange }: {
@@ -71,8 +71,8 @@ function PersonaSelector({ persona, onPersonaChange, tone, onToneChange }: {
   onToneChange: (t: 'neutral' | 'serious' | 'romantic') => void;
 }) {
   const PERSONAS: { v: 'unique' | 'uniqa'; t: string }[] = [
-    { v: 'unique', t: '🤖 یونیک' },
     { v: 'uniqa', t: '💛 یونیکا' },
+    { v: 'unique', t: '🤖 یونیک' },
   ];
   const TONES: { v: 'neutral' | 'serious' | 'romantic'; t: string }[] = [
     { v: 'neutral', t: 'عام' },
@@ -97,7 +97,7 @@ function PersonaSelector({ persona, onPersonaChange, tone, onToneChange }: {
         ))}
       </div>
       <span style={{ fontSize: 11, opacity: 0.6 }}>
-        یونیکا صرف بلانے پر آتی ہے — آواز سے «یونیکا کو بلاؤ» یا یہاں سے چنیں۔
+        یونیک صرف بلانے پر آتا ہے — آواز سے «یونیک کو بلاؤ» یا یہاں سے چنیں۔
       </span>
       <span className="setting-label">🎭 لہجہ</span>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

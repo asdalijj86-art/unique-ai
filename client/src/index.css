@@ -1920,3 +1920,216 @@ body {
    bottom edge. The org line is deleted (org strip on top now)
    and the front-row plaques live at their zones' tops — see
    the .floor-zone-label rules in the floor section.) */
+
+/* ================================================================
+   FULL STONIC SCREEN (2026-11-24) — the user's order: the whole
+   visible screen, not just the face. Own Unique brand/layout
+   throughout; nothing here copies Stonic's code or exact design.
+   - Uniqa's orb: gold/rose ring, gold halo, flowing hair strands
+   - Face lines attached to the orb: thought bubble (tail down) +
+     live speech line (tail up)
+   - Visible listening / thinking / speaking states + Stop button
+   - Screen edges glow while work runs (.unique-shell.working)
+   - Visual Hub: flow diagram from real reply steps, Your World
+     picks, Gesture switch, session activity log
+   ================================================================ */
+
+/* ---- Screen edges glow while work runs (Stop is always in reach) ---- */
+.unique-shell.working {
+  box-shadow:
+    inset 0 0 0 2px rgba(34, 211, 238, 0.35),
+    inset 0 0 70px rgba(34, 211, 238, 0.10);
+  transition: box-shadow 0.4s ease;
+}
+
+/* ---- Uniqa's orb: gold/rose instead of Unique's blue/violet ---- */
+.ai-orb-uniqa .ai-orb-ring {
+  background: conic-gradient(from 0deg, #fbbf24, #f9a8d4, #fde68a, #fbbf24);
+}
+.ai-orb-uniqa .ai-orb-ring2 {
+  background: conic-gradient(from 180deg, transparent 20%, rgba(251, 191, 36, 0.9), transparent 80%);
+}
+.ai-orb-uniqa .ai-orb-core {
+  background:
+    radial-gradient(circle at 38% 32%, rgba(253, 230, 138, 0.5), transparent 45%),
+    radial-gradient(circle at 50% 55%, rgba(251, 191, 36, 0.35), rgba(26, 12, 4, 0.95) 70%);
+  border: 1px solid rgba(253, 224, 130, 0.4);
+  box-shadow: inset 0 0 30px rgba(251, 191, 36, 0.35), 0 0 34px rgba(251, 191, 36, 0.35);
+}
+.ai-orb-uniqa .ai-orb-halo {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.22), transparent 65%);
+}
+.ai-orb-uniqa.ai-orb-speaking .ai-orb-core {
+  box-shadow: inset 0 0 34px rgba(251, 191, 36, 0.6), 0 0 48px rgba(251, 191, 36, 0.6);
+}
+.ai-orb-uniqa.ai-orb-thinking .ai-orb-ring {
+  background: conic-gradient(from 0deg, #fbbf24, #f9a8d4, #ec4899, #fbbf24);
+}
+
+/* ---- Uniqa's flowing hair: golden-rose strands swaying around the globe ---- */
+.ai-orb-hair {
+  position: absolute; inset: -16px; pointer-events: none; z-index: 0;
+}
+.ai-orb-hair svg { width: 100%; height: 100%; overflow: visible; }
+.ai-orb-hair-strand {
+  stroke-width: 2.5; opacity: 0.8;
+  transform-origin: 100px 100px;
+  animation: hair-sway 5s ease-in-out infinite;
+}
+.ai-orb-hair-strand:nth-child(2) { animation-delay: -0.6s; }
+.ai-orb-hair-strand:nth-child(3) { animation-delay: -1.2s; }
+.ai-orb-hair-strand:nth-child(4) { animation-delay: -1.8s; }
+.ai-orb-hair-strand:nth-child(5) { animation-delay: -2.4s; }
+.ai-orb-hair-strand:nth-child(6) { animation-delay: -3s; }
+.ai-orb-hair-strand:nth-child(7) { animation-delay: -3.6s; }
+.ai-orb-hair-strand:nth-child(8) { animation-delay: -4.2s; }
+@keyframes hair-sway {
+  0%, 100% { transform: rotate(-2deg) translateY(0); }
+  50% { transform: rotate(2.5deg) translateY(-2px); }
+}
+
+/* ---- Thought bubble: attached to the orb with a tail pointing down ---- */
+.uaware-bubble { margin-bottom: 14px; }
+.uaware-bubble::after {
+  content: '';
+  position: absolute; left: 50%; bottom: -9px;
+  transform: translateX(-50%);
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 10px solid rgba(167, 139, 250, 0.45);
+}
+
+/* ---- Speech line attached under the face (tail points up to the orb) ---- */
+.uface-line {
+  position: relative;
+  width: 100%; max-width: 440px;
+  margin: 10px 0 2px;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 14px;
+  padding: 8px 12px 10px;
+}
+.uface-line::before {
+  content: '';
+  position: absolute; left: 50%; top: -9px;
+  transform: translateX(-50%);
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 10px solid rgba(56, 189, 248, 0.35);
+}
+.uface-line-uniqa {
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+.uface-line-uniqa::before { border-bottom-color: rgba(251, 191, 36, 0.4); }
+.uface-line-label { font-size: 11.5px; color: #7cc4e4; }
+.uface-line-uniqa .uface-line-label { color: #f0a6c8; }
+.uface-line-text {
+  margin: 4px 0 0; font-size: 14px; line-height: 1.9; color: #eaf9ff;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* ---- The face's visible state chip (listening / thinking / speaking / ready) ---- */
+.uface-state {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin-top: 8px; padding: 5px 12px; border-radius: 999px;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  font-size: 12.5px; color: #a5e3f5;
+}
+.uface-state-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #22d3ee; flex-shrink: 0;
+  animation: brand-pulse 1.6s ease-in-out infinite;
+}
+.uface-state-speaking { border-color: rgba(251, 191, 36, 0.5); background: rgba(251, 191, 36, 0.12); color: #fef3c7; }
+.uface-state-speaking .uface-state-dot { background: #fbbf24; animation-duration: 0.9s; }
+.uface-state-listening { border-color: rgba(52, 211, 153, 0.5); background: rgba(52, 211, 153, 0.1); color: #a7f3d0; }
+.uface-state-listening .uface-state-dot { background: #34d399; }
+.uface-state-thinking .uface-state-dot { background: #a855f7; }
+
+/* ---- Stop button, always in reach while speaking/working ---- */
+.ustop-btn {
+  display: inline-block; margin-top: 8px; padding: 7px 18px; border-radius: 999px;
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca; font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.ustop-btn:hover { background: rgba(239, 68, 68, 0.3); }
+
+/* ---- Stage name in gold when Uniqa is present ---- */
+.unique-name-text.uniqa { color: #fde68a; text-shadow: 0 0 14px rgba(251, 191, 36, 0.55); }
+
+/* ---- Visual Hub: tabs + flow diagram + world picks + activity ---- */
+.uhub {
+  flex-shrink: 0;
+  margin: 6px 12px 0;
+  background: rgba(8, 17, 33, 0.55);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.uhub-tabs { display: flex; gap: 4px; padding: 6px; border-bottom: 1px solid rgba(56, 189, 248, 0.15); }
+.uhub-tab {
+  flex: 1; padding: 7px 4px; border-radius: 9px;
+  border: 1px solid transparent; background: transparent;
+  color: #7cc4e4; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.uhub-tab.active { background: rgba(34, 211, 238, 0.14); border-color: rgba(56, 189, 248, 0.4); color: #eaf9ff; }
+.uhub-body { padding: 10px 12px 12px; }
+.uhub-status { margin: 0 0 8px; font-size: 13px; line-height: 1.8; color: #a5e3f5; }
+.uhub-hint { margin: 8px 0 0; font-size: 12px; line-height: 1.8; color: #7cc4e4; }
+.uhub-empty { margin: 0; font-size: 13px; line-height: 1.9; color: #7cc4e4; }
+.uhub-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.uhub-chip {
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(167, 139, 250, 0.5);
+  background: rgba(139, 92, 246, 0.16);
+  color: #ede9fe; font-size: 12.5px; font-weight: 600;
+}
+.uhub-chip:hover { background: rgba(139, 92, 246, 0.3); }
+/* Flow diagram: real steps from the latest reply, as nodes + connectors. */
+.uhub-flow { display: flex; flex-direction: column; }
+.uhub-flow-row { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; }
+.uhub-flow-num {
+  position: relative; flex-shrink: 0;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  color: #fde68a; font-size: 13px; font-weight: 800;
+}
+.uhub-flow-row:not(:last-child) .uhub-flow-num::after {
+  content: ''; position: absolute; top: 27px; left: 50%;
+  transform: translateX(-50%);
+  width: 2px; height: 14px;
+  background: linear-gradient(rgba(251, 191, 36, 0.6), rgba(251, 191, 36, 0.15));
+}
+.uhub-flow-text { font-size: 13.5px; line-height: 1.8; color: #eaf9ff; padding-top: 2px; }
+/* Your World picks. */
+.uhub-picks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.uhub-pick {
+  display: flex; flex-direction: column; gap: 2px;
+  background: rgba(251, 191, 36, 0.06);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 10px; padding: 8px 10px;
+}
+.uhub-pick-title { font-size: 12.5px; font-weight: 800; color: #fde68a; }
+.uhub-pick-detail { font-size: 13px; line-height: 1.8; color: #eaf9ff; }
+.uhub-pick-source { font-size: 11.5px; color: #7cc4e4; }
+/* Gesture tab. */
+.uhub-toggle {
+  padding: 8px 16px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(52, 211, 153, 0.5);
+  background: rgba(52, 211, 153, 0.14);
+  color: #d1fae5; font-size: 13px; font-weight: 700;
+}
+/* Activity log. */
+.uhub-activity { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+.uhub-activity-item { display: flex; gap: 10px; font-size: 13px; line-height: 1.7; color: #eaf9ff; }
+.uhub-activity-time { flex-shrink: 0; color: #7cc4e4; font-size: 12px; padding-top: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-orb-hair-strand { animation: none !important; }
+  .uface-state-dot { animation: none !important; }
+}

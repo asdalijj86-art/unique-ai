@@ -236,8 +236,8 @@ export function CharacterPanel({
   onOpenOffice: () => void;
 }) {
   const PERSONAS: { v: 'unique' | 'uniqa'; t: string; d: string }[] = [
-    { v: 'unique', t: '🤖 یونیک', d: 'آپ کا اصل معاون — ہر کام کا باس' },
-    { v: 'uniqa', t: '💛 یونیکا', d: 'آپ کی ساتھی — جب آپ بلائیں تو آتی ہے' },
+    { v: 'unique', t: '🤖 یونیک', d: 'آپ کا اصل معاون — صرف بلانے پر آتا ہے' },
+    { v: 'uniqa', t: '💛 یونیکا', d: 'آپ کی ساتھی — سامنے، سب سے پہلے' },
   ];
   const TONES: { v: 'neutral' | 'serious' | 'romantic'; t: string }[] = [
     { v: 'neutral', t: 'عام' },

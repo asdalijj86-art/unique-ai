@@ -31,10 +31,18 @@ type AiOrbProps = {
   isSpeaking?: boolean;
   isThinking?: boolean;
   size?: number;
+  /** Who is present: Unique (male, blue/violet) or Uniqa (female,
+   *  rose-gold, gold headband, flowing hair). Default Unique. */
+  persona?: 'unique' | 'uniqa';
 };
 
 /** The user's official avatar portrait (particle man on near-black). */
-const AVATAR_SRC = '/avatar.webp';
+const AVATAR_UNIQUE = '/avatar.webp';
+/** Uniqa's portrait — generated 2026-11-24 in the SAME particle style
+ *  (rose-gold dots, gold headband, flowing hair on near-black). It is
+ *  our own art for our own character: NOT a photo of a real person
+ *  and NOT Stonic's face. */
+const AVATAR_UNIQA = '/uniqa-avatar.webp';
 
 /* ---------------- framing + mouth remapping ----------------
  * Source photo is square. Measured landmarks (normalized 0–1):
@@ -52,9 +60,14 @@ const AVATAR_SRC = '/avatar.webp';
 const ZOOM = 1.25;
 const WIN_X = 0.15;
 const WIN_Y = 0.02;
-const MOUTH_SRC = { x: 0.552, y: 0.334 }; // in source-photo fractions
-const MOUTH_X = (MOUTH_SRC.x - WIN_X) * ZOOM; // 0.5025 — of wrapper width
-const MOUTH_Y = (MOUTH_SRC.y - WIN_Y) * ZOOM; // 0.3925 — of wrapper height
+/** Mouth centers, measured from each portrait (source-photo
+ *  fractions). Unique: 0.552, 0.334. Uniqa: 0.50, 0.51 — her face
+ *  sits lower in her frame, so the lip patch needs her own
+ *  landmarks; the display window is the same for both. */
+const MOUTH_SRC: Record<'unique' | 'uniqa', { x: number; y: number }> = {
+  unique: { x: 0.552, y: 0.334 },
+  uniqa: { x: 0.5, y: 0.51 },
+};
 
 /** Shared geometry for both photo layers (base + lip patch). */
 const frameStyle: CSSProperties = {
@@ -64,15 +77,18 @@ const frameStyle: CSSProperties = {
   top: `${-WIN_Y * ZOOM * 100}%`,
 };
 
-/** Feathered ellipse over the mouth — the only place the lip patch shows. */
-const mouthMask =
-  `radial-gradient(ellipse 12% 8.5% at ${MOUTH_X * 100}% ${MOUTH_Y * 100}%, ` +
-  '#000 48%, rgba(0,0,0,0.65) 62%, transparent 80%)';
-
-const lipsStyle: CSSProperties = {
-  WebkitMaskImage: mouthMask,
-  maskImage: mouthMask,
-};
+/** Feathered ellipse over the mouth — the only place the lip patch
+ *  shows. Per persona: each portrait's mouth lands at a different
+ *  wrapper fraction (Unique 0.5025/0.3925, Uniqa 0.4375/0.6125). */
+function mouthStyle(persona: 'unique' | 'uniqa'): CSSProperties {
+  const m = MOUTH_SRC[persona];
+  const mx = (m.x - WIN_X) * ZOOM;
+  const my = (m.y - WIN_Y) * ZOOM;
+  const mask =
+    `radial-gradient(ellipse 12% 8.5% at ${mx * 100}% ${my * 100}%, ` +
+    '#000 48%, rgba(0,0,0,0.65) 62%, transparent 80%)';
+  return { WebkitMaskImage: mask, maskImage: mask };
+}
 
 /**
  * Sparkling lights dancing around the globe's edge — gold, cyan and white
@@ -94,10 +110,45 @@ const SPARKS = [
   { x: 23, y: 1, d: '2s', s: 5, c: '#fde68a' },
 ] as const;
 
+/** Uniqa's sparks — gold, rose and white (her rose-gold palette). */
+const SPARKS_UNIQA = [
+  { x: 50, y: -4, d: '0s', s: 7, c: '#fde68a' },
+  { x: 78, y: 2, d: '0.7s', s: 5, c: '#fbbf24' },
+  { x: 97, y: 22, d: '1.3s', s: 6, c: '#f9a8d4' },
+  { x: 104, y: 50, d: '0.4s', s: 5, c: '#ffffff' },
+  { x: 96, y: 79, d: '1.8s', s: 7, c: '#fde68a' },
+  { x: 76, y: 99, d: '0.9s', s: 5, c: '#f9a8d4' },
+  { x: 50, y: 106, d: '1.5s', s: 6, c: '#fbbf24' },
+  { x: 24, y: 99, d: '0.2s', s: 5, c: '#ffffff' },
+  { x: 3, y: 79, d: '1.1s', s: 7, c: '#f9a8d4' },
+  { x: -4, y: 50, d: '1.6s', s: 5, c: '#fde68a' },
+  { x: 3, y: 21, d: '0.5s', s: 6, c: '#fbbf24' },
+  { x: 23, y: 1, d: '2s', s: 5, c: '#ffffff' },
+] as const;
+
+/** Uniqa's flowing hair — golden-rose strands that sway around the
+ *  globe (2026-11-24, the user's Stonic-video order: "her hair
+ *  flowing"). Pure SVG + CSS animation, drawn around the orb's edge
+ *  only; the portrait itself already carries her long particle hair.
+ *  Unique gets no hair overlay. */
+const HAIR_STRANDS = [
+  'M100 6 C 78 16, 54 34, 40 62',
+  'M70 10 C 52 22, 34 44, 24 72',
+  'M130 10 C 148 22, 166 44, 176 72',
+  'M26 58 C 12 76, 6 100, 12 124',
+  'M174 58 C 188 76, 194 100, 188 124',
+  'M100 2 C 100 -6, 100 -10, 100 -14',
+  'M56 188 C 50 196, 46 202, 44 208',
+  'M144 188 C 150 196, 154 202, 156 208',
+] as const;
+
 /* ---------------- component ---------------- */
 
-export default function AiOrb({ isSpeaking = false, isThinking = false, size = 212 }: AiOrbProps) {
+export default function AiOrb({ isSpeaking = false, isThinking = false, size = 212, persona = 'unique' }: AiOrbProps) {
   const state = isSpeaking ? 'speaking' : isThinking ? 'thinking' : 'idle';
+  const avatarSrc = persona === 'uniqa' ? AVATAR_UNIQA : AVATAR_UNIQUE;
+  const sparks = persona === 'uniqa' ? SPARKS_UNIQA : SPARKS;
+  const mouth = MOUTH_SRC[persona];
   const speakingRef = useRef(isSpeaking);
   speakingRef.current = isSpeaking;
   const lipsFrameRef = useRef<HTMLSpanElement | null>(null);
@@ -165,25 +216,43 @@ export default function AiOrb({ isSpeaking = false, isThinking = false, size = 2
 
   return (
     <div
-      className={`ai-orb ai-orb-${state}`}
+      className={`ai-orb ai-orb-${state} ai-orb-${persona}`}
       style={{ width: size, height: size }}
       role="img"
-      aria-label="Unique AI"
+      aria-label={persona === 'uniqa' ? 'یونیکا — Unique AI' : 'یونیک — Unique AI'}
     >
+      {persona === 'uniqa' && (
+        <span className="ai-orb-hair" aria-hidden="true">
+          <svg viewBox="0 0 200 200">
+            <defs>
+              <linearGradient id="uniqa-hair-grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#fde68a" />
+                <stop offset="55%" stopColor="#f9a8d4" />
+                <stop offset="100%" stopColor="#fbbf24" />
+              </linearGradient>
+            </defs>
+            <g fill="none" stroke="url(#uniqa-hair-grad)" strokeLinecap="round">
+              {HAIR_STRANDS.map((d, i) => (
+                <path key={i} className="ai-orb-hair-strand" d={d} />
+              ))}
+            </g>
+          </svg>
+        </span>
+      )}
       <span className="ai-orb-ring" aria-hidden="true" />
       <span className="ai-orb-ring2" aria-hidden="true" />
       <span className="ai-orb-core" aria-hidden="true">
         <span className="ai-orb-photo">
           <span className="ai-orb-frame" style={frameStyle}>
-            <img src={AVATAR_SRC} alt="" draggable={false} />
+            <img src={avatarSrc} alt="" draggable={false} />
           </span>
-          <span className="ai-orb-lips" style={lipsStyle}>
+          <span className="ai-orb-lips" style={mouthStyle(persona)}>
             <span
               className="ai-orb-frame ai-orb-lips-frame"
-              style={{ ...frameStyle, transformOrigin: `${MOUTH_SRC.x * 100}% ${MOUTH_SRC.y * 100}%` }}
+              style={{ ...frameStyle, transformOrigin: `${mouth.x * 100}% ${mouth.y * 100}%` }}
               ref={lipsFrameRef}
             >
-              <img src={AVATAR_SRC} alt="" draggable={false} />
+              <img src={avatarSrc} alt="" draggable={false} />
             </span>
           </span>
         </span>
@@ -191,7 +260,7 @@ export default function AiOrb({ isSpeaking = false, isThinking = false, size = 2
       </span>
       <span className="ai-orb-halo" aria-hidden="true" />
       <span className="ai-orb-shimmer" aria-hidden="true" />
-      {SPARKS.map((sp, i) => (
+      {sparks.map((sp, i) => (
         <span
           key={i}
           className="ai-orb-sparkle"

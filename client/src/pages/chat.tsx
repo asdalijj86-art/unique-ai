@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Mic,
   MicOff,
@@ -103,6 +103,8 @@ import IslamicStudio, { isIslamicStudioOrder } from '@/components/IslamicStudio'
 import GameStudio, { isGameStudioOrder } from '@/components/GameStudio';
 // PAPERSTUDIO DELETED 2026-10-31 on user order, before master plan.
 import AiOrb from '@/components/AiOrb';
+import FaceLine from '@/components/FaceLine';
+import VisualHub from '@/components/VisualHub';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import StatusPanel from '@/components/StatusPanel';
 import MapWidget from '@/components/MapWidget';
@@ -259,10 +261,10 @@ export default function ChatPage() {
     try { return localStorage.getItem('unique-ai-chat-lang') || 'auto'; }
     catch { return 'auto'; }
   });
-  // PERSONAS (Master Plan Phase 2): who is "present" — Unique (male,
-  // the default, Salman voice) or Uniqa (female companion, her own
-  // voice). She speaks ONLY when summoned by name or picked in
-  // Settings; the default on first run is Unique. Tone (لہجہ) is
+  // PERSONAS (Master Plan Phase 2): who is "present" — Uniqa (female
+  // companion, her own voice, the default) or Unique (male, Salman
+  // voice). He speaks ONLY when summoned by name or picked in
+  // Settings; the default on first run is Uniqa. Tone (لہجہ) is
   // independent: serious/romantic until changed. Both persist.
   const [persona, setPersona] = useState<Persona>(() => readStoredPersona());
   const [tone, setTone] = useState<ToneMode>(() => readStoredTone());
@@ -274,6 +276,7 @@ export default function ChatPage() {
   function changePersona(next: Persona) {
     personaRef.current = next;
     setPersona(next);
+    logActivity(next === 'uniqa' ? 'یونیکا سامنے آئی' : 'یونیک سامنے آیا');
     try { localStorage.setItem(PERSONA_STORAGE_KEY, next); } catch { /* ignore */ }
   }
   function changeTone(next: ToneMode) {
@@ -604,6 +607,17 @@ export default function ChatPage() {
   conversationsRef.current = conversations;
   activeIdRef.current = activeId;
 
+  // Face lines (2026-11-24, full Stonic screen): the text currently
+  // being SPOKEN, shown attached to the face — real reply text only,
+  // set in playAssistantMessage, cleared when speech ends or stops.
+  const [speakingText, setSpeakingText] = useState<string | null>(null);
+  // Session activity log — real events only (message sent, reply
+  // spoken, studio opened, persona changed, Awareness fired).
+  const [activityLog, setActivityLog] = useState<{ at: number; text: string }[]>([]);
+  const logActivity = useCallback((text: string) => {
+    setActivityLog((prev) => [{ at: Date.now(), text }, ...prev].slice(0, 40));
+  }, []);
+
   // Phase 1 — Awareness (speaks first): work / time / silence only,
   // NEVER the camera. It never interrupts a reply, speech, recording,
   // typing, or an open studio/overlay. A fired line is appended as a
@@ -616,6 +630,7 @@ export default function ChatPage() {
       libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
       focusView !== null || agentTeamSceneOpen || pairingOpen,
     onSpeak: (line) => {
+      logActivity('Awareness — خود سے بولا');
       appendAssistantMessage(line);
       void playAssistantMessage(line);
     },
@@ -628,6 +643,18 @@ export default function ChatPage() {
     awareness.recordActivity();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageCount, libraryOpen, documentStudioOpen, mediaStudioOpen, islamicStudioOpen, gameStudioOpen, focusView]);
+
+  // Esc stops speech/work at once (Stonic screen rule: Stop is always
+  // in reach, Esc stops the work) — the orb tap does the same.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape' && (isSpeaking || busy || isPreparingVoice)) {
+        interruptSpeech();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isSpeaking, busy, isPreparingVoice]);
 
   // Hand gestures (Phase 2): camera-based commands, all client-side.
   const {
@@ -1242,6 +1269,7 @@ export default function ChatPage() {
   async function sendMessage(textValue: string, fromVoice = false) {
     let text = textValue.trim();
     if (!text && !attachedImage) return;
+    logActivity('پیغام بھیجا گیا');
     // CALL (Phase 4): while THIS device is the CALLER in a live call,
     // everything said or typed here is a spoken turn for the OTHER
     // device's Unique — never a local message. It is appended to this
@@ -2033,6 +2061,7 @@ export default function ChatPage() {
     stopSpeaking();
     ttsActiveRef.current = false;
     currentSpeechTextRef.current = '';
+    setSpeakingText(null); // the face line clears when speech is stopped
     setSpeechReplayText(null); // a stop is not a failure — no stale replay offer
     lastSpokenRef.current = null; // the interrupted reply may be replayed fresh later
     if (reason && wasAudible) setSpeechNotice(interruptReasonText(reason));
@@ -2641,6 +2670,7 @@ export default function ChatPage() {
     // chunks are still being synthesized (the on/off cycling fix).
     ttsActiveRef.current = true;
     currentSpeechTextRef.current = text;
+    setSpeakingText(text); // the face line shows this exact reply while it speaks
     // From this moment, in live mode, the barge-in listener watches for
     // the user starting to speak over the reply (it also (re)starts on
     // the first chunk's onplaying and for the browser-voice path).
@@ -2659,6 +2689,10 @@ export default function ChatPage() {
     // never the sole record of a voice failure any more.
     const finish = (outcome: VoiceOutcome) => {
       setIsPreparingVoice(false);
+      setSpeakingText(null); // the face line clears with the voice
+      if (outcome.terminal === 'spoken') {
+        logActivity('جواب بولا گیا');
+      }
       if (outcome.terminal === 'stopped') {
         // The user (or a newer reply) stopped it. interruptSpeech
         // already set a labelled banner if audio had actually
@@ -3964,6 +3998,67 @@ export default function ChatPage() {
           ? 'سوچ رہا ہوں…'
           : 'میں آپ کے ساتھ ہوں';
 
+  // The face's visible state (Stonic screen rule: listening /
+  // thinking / feeling states are SHOWN on screen, not hidden) —
+  // derived from the real app state only, feminine when Uniqa is
+  // present, masculine when Unique is.
+  const faceState: 'listening' | 'thinking' | 'speaking' | 'ready' =
+    awareness.bubble ? 'thinking'
+    : recording || continuousVoice ? 'listening'
+    : isSpeaking ? 'speaking'
+    : busy || isPreparingVoice ? 'thinking'
+    : 'ready';
+  const faceStateLabel = persona === 'uniqa'
+    ? {
+        listening: '👂 سن رہی ہے…',
+        thinking: '💭 سوچ رہی ہے…',
+        speaking: '💛 بول رہی ہے…',
+        ready: '✨ تیار ہے — میں آپ کے ساتھ ہوں',
+      }[faceState]
+    : {
+        listening: '👂 سن رہا ہے…',
+        thinking: '💭 سوچ رہا ہے…',
+        speaking: '🤖 بول رہا ہے…',
+        ready: '✨ تیار ہے — میں آپ کے ساتھ ہوں',
+      }[faceState];
+
+  // Your World picks — 3 real items from THIS device only (latest
+  // learning, today's completed work, latest note, today's message
+  // count). No web news: the client has no news feed, so nothing
+  // here is invented — an empty list renders an honest empty state.
+  const worldPicks = useMemo(() => {
+    const picks: { title: string; detail: string; source: string }[] = [];
+    try {
+      const learnings = loadLearnings(window.localStorage);
+      const last = learnings[learnings.length - 1];
+      if (last) picks.push({ title: 'آپ نے مجھے یہ سکھایا', detail: last.text, source: 'سیکھا ہوا' });
+    } catch { /* ignore */ }
+    try {
+      const today = new Date().toDateString();
+      const doneToday = boardEntries.filter((e) => {
+        try { return new Date(e.at).toDateString() === today; } catch { return false; }
+      });
+      if (doneToday.length > 0) {
+        const latest = doneToday[doneToday.length - 1];
+        picks.push({ title: `آج ${doneToday.length} کام مکمل`, detail: latest.label, source: 'آج کے کام' });
+      }
+    } catch { /* ignore */ }
+    try {
+      const notes = loadNotes(window.localStorage);
+      const last = notes[notes.length - 1];
+      if (last) picks.push({ title: 'یادداشت', detail: last.text, source: 'میموری' });
+    } catch { /* ignore */ }
+    if (picks.length < 3 && messageCount > 0) {
+      picks.push({ title: 'آج کی گفتگو', detail: `آج آپ نے ${messageCount} پیغام بھیجے`, source: 'آج' });
+    }
+    return picks.slice(0, 3);
+  }, [messageCount, boardEntries]);
+
+  // Latest assistant reply — the Visual Hub draws its steps.
+  const lastAssistant = [...(activeConversation?.messages ?? [])]
+    .reverse()
+    .find((m) => m.role === 'assistant');
+
   // Phase 1 — the four panels around the living face. The panel
   // content is shared by the laptop inline dock and the phone
   // bottom sheet; every button inside opens the real thing.
@@ -3975,6 +4070,11 @@ export default function ChatPage() {
   };
 
   function openStudio(key: StudioKey) {
+    const labels: Record<StudioKey, string> = {
+      library: 'لائبریری', document: 'ڈاکومنٹ اسٹوڈیو', media: 'میڈیا اسٹوڈیو',
+      islamic: 'اسلامی اسٹوڈیو', game: 'گیم اسٹوڈیو',
+    };
+    logActivity(`${labels[key]} کھلا`);
     if (key === 'library') setLibraryOpen(true);
     else if (key === 'document') setDocumentStudioOpen(true);
     else if (key === 'media') setMediaStudioOpen(true);
@@ -4051,12 +4151,14 @@ export default function ChatPage() {
   }
 
   // The living face: big when the screen is fresh, compact once the
-  // conversation starts — always visible, always animated.
+  // conversation starts — always visible, always animated. (2026-11-24:
+  // the user wants the face FRONT, Stonic-style — sizes raised so it
+  // stays prominent even mid-conversation.)
   const hasMessages = (activeConversation?.messages.length ?? 0) > 0;
-  const orbSize = !hasMessages ? (isDesktop ? 300 : 208) : (isDesktop ? 160 : 104);
+  const orbSize = !hasMessages ? (isDesktop ? 320 : 232) : (isDesktop ? 190 : 132);
 
   return (
-    <main className="unique-shell" lang="ur" data-testid="page-maira-chat">
+    <main className={`unique-shell${busy || isSpeaking ? ' working' : ''}`} lang="ur" data-testid="page-maira-chat">
       {/* ======= TOP BAR: brand + Awareness switch + live status ======= */}
       <header className="unique-topbar">
         <div className="unique-brand" data-testid="brand-maira">
@@ -4246,13 +4348,20 @@ export default function ChatPage() {
               }}
               title={isSpeaking || isPreparingVoice ? 'رکنے کے لیے دبائیں' : undefined}
             >
-              <AiOrb isSpeaking={isSpeaking} isThinking={busy || isPreparingVoice} size={orbSize} />
+              <AiOrb isSpeaking={isSpeaking} isThinking={busy || isPreparingVoice} size={orbSize} persona={persona} />
             </div>
+            {speakingText && (isSpeaking || isPreparingVoice) && (
+              <FaceLine
+                text={speakingText}
+                label={persona === 'uniqa' ? '💛 یونیکا بول رہی ہے…' : '🤖 یونیک بول رہا ہے…'}
+                persona={persona}
+              />
+            )}
             <div className="unique-name">
-              <span className="unique-name-text">Unique AI</span>
-              {/* Persona indicator (Phase 2): who is "present" right now.
-                  Defaults to Unique; shows Uniqa (and the tone, when set)
-                  only while she is the active companion. */}
+              <span className={`unique-name-text${persona === 'uniqa' ? ' uniqa' : ''}`}>{persona === 'uniqa' ? 'یونیکا' : 'یونیک'}</span>
+              {/* Persona indicator: who is "present" right now.
+                  Uniqa is front and first by default (2026-11-24);
+                  Unique appears only when called by name. */}
               <span
                 className="unique-name-sub"
                 dir="rtl"
@@ -4262,6 +4371,25 @@ export default function ChatPage() {
                 {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
               </span>
               <span className="unique-name-sub" dir="rtl" data-testid="text-avatar-status">{heroStatus}</span>
+              {/* The face's live state, shown on screen (Stonic rule):
+                  listening / thinking / speaking / ready — real state,
+                  feminine when Uniqa is present. */}
+              <span className={`uface-state uface-state-${faceState}`} dir="rtl" data-testid="face-state">
+                <span className="uface-state-dot" aria-hidden="true" />
+                {faceStateLabel}
+              </span>
+              {(isSpeaking || busy || isPreparingVoice) && (
+                <button
+                  type="button"
+                  className="ustop-btn"
+                  onClick={() => interruptSpeech()}
+                  data-testid="button-stop-speech"
+                  aria-label="بولنا یا کام روکیں"
+                  title="رکو — Esc بھی یہی کرتا ہے"
+                >
+                  ⏹ رکو
+                </button>
+              )}
             </div>
             <div className="unique-wave">
               <VoiceWaveform mode={waveMode} height={56} />
@@ -4293,6 +4421,25 @@ export default function ChatPage() {
           </section>
 
           <AgentsStrip tasks={agentTeam} boardEntries={boardEntries} onOpenOffice={() => setAgentTeamSceneOpen(true)} />
+
+          {/* Visual Hub + Your World + Gesture + Activity (2026-11-24,
+              full Stonic screen): the hub draws real reply steps, the
+              world shows 3 real picks from this device, gestures toggle
+              the real switch, activity logs real session events. */}
+          <VisualHub
+            latestAssistantText={lastAssistant?.content ?? null}
+            latestAt={lastAssistant ? Date.parse(lastAssistant.createdAt) || null : null}
+            onSendPrompt={(prompt) => { void sendMessage(prompt); }}
+            gesturesOn={gesturesEnabled}
+            onToggleGestures={() => {
+              const next = !gesturesEnabled;
+              setGesturesEnabled(next);
+              setAppSettings((s: any) => ({ ...s, gesturesEnabled: next }));
+              logActivity(next ? 'اشارے آن کیے گئے' : 'اشارے بند کیے گئے');
+            }}
+            worldPicks={worldPicks}
+            activity={activityLog}
+          />
 
           <section className="unique-chat" aria-label="گفتگو">
             <div className="unique-chat-scroll">

@@ -2,14 +2,15 @@
  * Persona + tone system (Master Plan Phase 2 «فیلنگ انجن + یونیکا»).
  *
  * The app has TWO personas:
- *  - UNIQUE (male) — the default assistant. His voice lock is absolute:
- *    Salman primary, strict male-only fallbacks, NEVER a female voice.
- *  - UNIQA (female companion) — she speaks ONLY when summoned: a
- *    name-call («یونیکا», «یونیکا کو بلاؤ») or the romantic-companion
- *    pick in Settings. She has her OWN female voice chain; no leg of
- *    it can ever produce Salman's voice, and no leg of Unique's chain
- *    can ever produce hers (the pickers below are provably separate —
- *    see scripts/test-persona.mjs).
+ *  - UNIQA (female companion) — the default assistant. Her voice lock
+ *    is absolute: her OWN female voice chain; no leg of it can ever
+ *    produce a male voice, and no leg of Unique's chain can ever
+ *    produce hers (the pickers below are provably separate — see
+ *    scripts/test-persona.mjs).
+ *  - UNIQUE (male) — he speaks ONLY when summoned: a name-call
+ *    («یونیک», «یونیک کو بلاؤ») or the assistant pick in Settings.
+ *    His voice lock is absolute: Salman primary, strict male-only
+ *    fallbacks, NEVER a female voice.
  *
  * Tone (لہجہ) is independent of persona: «سیریس ہو کے بات کرو» switches
  * the tone until changed; «رومینٹک ہو جاؤ» never summons Uniqa by
@@ -28,9 +29,9 @@ export const TONE_STORAGE_KEY = 'unique-ai-tone';
 
 export function readStoredPersona(): Persona {
   try {
-    return window.localStorage.getItem(PERSONA_STORAGE_KEY) === 'uniqa' ? 'uniqa' : 'unique';
+    return window.localStorage.getItem(PERSONA_STORAGE_KEY) === 'unique' ? 'unique' : 'uniqa';
   } catch {
-    return 'unique';
+    return 'uniqa';
   }
 }
 
