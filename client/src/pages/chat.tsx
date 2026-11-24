@@ -77,6 +77,7 @@ import {
   type BackupSummary,
 } from '@/lib/backup';
 import DevicePairing, { type ConversationHandover, type RemoteCommand, type CallUiState, type CallControl } from '@/components/DevicePairing';
+import CallIntoUnique, { type CallLinkState } from '@/components/CallIntoUnique';
 import { queryAllPermissions, requestAllPermissions } from '@/lib/permissions';
 import { registerAudioStop, stopOtherAudio } from '@/lib/audio-bus';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
@@ -84,12 +85,13 @@ import { useGestures } from '@/hooks/useGestures';
 import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
 import AppBuilder from '@/components/AppBuilder';
 import ToolResults from '@/components/ToolResults';
-import { AgentTeamStrip, AgentTeamScene, AgentOfficePanel } from '@/components/AgentTeam';
+import { AgentTeamStrip, AgentTeamScene } from '@/components/AgentTeam';
 import {
   detectAgentTasks,
   workingCards,
   finalizeCards,
   agentForActionType,
+  agentLabel,
   AGENT_DEFS,
   type AgentDef,
   type AgentTaskState,
@@ -102,9 +104,12 @@ import MediaStudio, { isMediaStudioOrder } from '@/components/MediaStudio';
 import IslamicStudio, { isIslamicStudioOrder } from '@/components/IslamicStudio';
 import GameStudio, { isGameStudioOrder } from '@/components/GameStudio';
 // PAPERSTUDIO DELETED 2026-10-31 on user order, before master plan.
-import AiOrb from '@/components/AiOrb';
-import FaceLine from '@/components/FaceLine';
 import VisualHub from '@/components/VisualHub';
+// Front 2.0 (2026-11-24, Stonic-video build): the front is the orb
+// with attached nodes + Agent Town; panels open as dialogs over it.
+import { FrontStage, AgentTown, AgentWorkView, NodeDialog, VoicesPanel, type FrontNodeKey, type AgentWorkSubject } from '@/components/StonicFront';
+import { UniquePlayer, MediaLinkCard, HeadlinesCard, SupportButton, readSupportNumber, SkillsDialog } from '@/components/FrontExtras';
+import { loadCustomSkills, addCustomSkill, deleteCustomSkill, formatCustomSkills, type CustomSkill } from '@/lib/custom-skills';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import StatusPanel from '@/components/StatusPanel';
 import MapWidget from '@/components/MapWidget';
@@ -114,7 +119,7 @@ import QuranReader from '@/components/QuranReader';
 // living face, and Awareness (speaks first, thought bubble first).
 import { readAwarenessEnabled, saveAwarenessEnabled, useAwareness } from '@/lib/awareness';
 import AwarenessBubble from '@/components/AwarenessBubble';
-import { AgentsStrip, CharacterPanel, MemoryPanel, PanelDrawer, SkillsPanel, type FocusViewKey, type StudioKey } from '@/components/HomePanels';
+import { MemoryPanel, SkillsPanel, type FocusViewKey, type StudioKey } from '@/components/HomePanels';
 import type { ChatAction } from '@/lib/api';
 
 type ChatRole = 'user' | 'assistant';
@@ -135,6 +140,7 @@ function buildTeamBlock(
   entries: BoardEntry[],
   team: AgentTaskState[] | null,
   build: { title: string; startedAt: number } | null,
+  customSkills?: string,
 ): string | undefined {
   const duties = AGENT_DEFS.map((d) => `${d.person} (${d.duty}): ${d.blurb}`).join(' | ');
   const parts = [`Team: ${duties}`];
@@ -149,6 +155,7 @@ function buildTeamBlock(
     }
   }
   if (build) parts.push(`Builder ka jaari kaam: ${build.title}`);
+  if (customSkills) parts.push(`User ki banai maharatein (custom skills): ${customSkills}`);
   return parts.join(' || ');
 }
 
@@ -347,7 +354,23 @@ export default function ChatPage() {
   // the living face, and Awareness (speaks first). On phones the
   // panel is a bottom sheet; on laptops it docks inline on the left.
   const [awarenessEnabled, setAwarenessEnabled] = useState(() => readAwarenessEnabled(window.localStorage));
-  const [activePanel, setActivePanel] = useState<null | 'memory' | 'skills' | 'character' | 'settings'>(null);
+  const [activePanel, setActivePanel] = useState<null | FrontNodeKey>(null);
+
+  // Front 2.0 (2026-11-24, Stonic-video build): theme, chat tabs,
+  // agent work view, custom skills, support number, short screens.
+  const [theme, setTheme] = useState(() => {
+    try { return window.localStorage.getItem('unique-ai-theme') || 'unique'; }
+    catch { return 'unique'; }
+  });
+  const [chatTab, setChatTab] = useState<'voice' | 'agent' | 'notes'>('voice');
+  const [hubOpen, setHubOpen] = useState(() => !window.matchMedia('(max-height: 820px)').matches);
+  const [workView, setWorkView] = useState<AgentWorkSubject | null>(null);
+  const [skillsDialogOpen, setSkillsDialogOpen] = useState(false);
+  const [customSkills, setCustomSkills] = useState<CustomSkill[]>(() => {
+    try { return loadCustomSkills(window.localStorage); } catch { return []; }
+  });
+  const [supportNumber, setSupportNumber] = useState(() => readSupportNumber());
+  const [shortScreen, setShortScreen] = useState(() => window.matchMedia('(max-height: 820px)').matches);
   const [memoryCount, setMemoryCount] = useState(0);
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1100px)').matches);
 
@@ -362,6 +385,75 @@ export default function ChatPage() {
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
+
+  // Short laptop screens (e.g. 1366x768): shrink the orb so the
+  // whole front stays visible — nothing hidden, nothing cut off.
+  useEffect(() => {
+    const mq = window.matchMedia('(max-height: 820px)');
+    const onChange = () => setShortScreen(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // Front 2.0 helpers: theme, START/TERMINATE, agent work view.
+  function changeTheme(next: string) {
+    setTheme(next);
+    try { window.localStorage.setItem('unique-ai-theme', next); } catch { /* ignore */ }
+  }
+  function handleStartAI() {
+    logActivity('START AI — یونیکا چالو');
+    if (!continuousVoice) toggleContinuousVoice();
+  }
+  function handleTerminate() {
+    interruptSpeech();
+    if (recording) toggleRecording();
+    if (continuousVoice) toggleContinuousVoice();
+    logActivity('TERMINATE — کام روکا گیا');
+  }
+  function openAgentWork(key: string) {
+    if (key === 'uniqa') {
+      setWorkView({
+        key: 'uniqa',
+        icon: '💛',
+        label: 'یونیکا — مینیجر',
+        blurb: 'سات ایجنٹوں کی مینیجر — سب کے کام پر نظر رکھتی ہے۔',
+        detail: heroStatus,
+        status: isSpeaking || busy ? 'working' : 'idle',
+      });
+      return;
+    }
+    const def = AGENT_DEFS.find((d) => d.key === key);
+    if (!def) return;
+    const state = agentTeam?.find((t) => t.key === key);
+    setWorkView({
+      key: def.key,
+      icon: def.icon,
+      label: agentLabel(def),
+      blurb: def.blurb,
+      detail: state?.detail,
+      status: state?.status ?? 'idle',
+    });
+  }
+  // When an agent STARTS working, open its own live work view
+  // automatically (the Stonic-video behaviour).
+  const prevWorkingRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const working = (agentTeam ?? []).filter((t) => t.status === 'working').map((t) => t.key);
+    const prev = prevWorkingRef.current;
+    const fresh = working.filter((k) => !prev.has(k));
+    prevWorkingRef.current = new Set(working);
+    if (fresh.length > 0) openAgentWork(fresh[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentTeam]);
+  // Keep an open work view's status/detail in step with the team.
+  useEffect(() => {
+    if (!workView || workView.key === 'uniqa') return;
+    const state = agentTeam?.find((t) => t.key === workView.key);
+    if (state && (state.status !== workView.status || state.detail !== workView.detail)) {
+      setWorkView((prev) => (prev ? { ...prev, status: state.status, detail: state.detail } : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentTeam]);
 
   // The MEMORY tab's badge counts the real notes + learnings on
   // this device; refresh it whenever a panel opens or closes.
@@ -378,6 +470,11 @@ export default function ChatPage() {
   // via a scanned QR link (?pair=CODE), pre-filled for one-tap joining.
   const [pairingOpen, setPairingOpen] = useState(false);
   const [pairingJoinCode, setPairingJoinCode] = useState('');
+  // Call into Unique (2026-11-24, Stonic Remote-style): front panel
+  // visibility + the link/call state mirrored from DevicePairing.
+  const [callPanelOpen, setCallPanelOpen] = useState(false);
+  const [linkState, setLinkState] = useState<CallLinkState>({ linked: false, peerName: '', peerOnline: false });
+  const [callUiState, setCallUiState] = useState<CallUiState>({ phase: 'idle', role: null, peerName: '' });
   // One-time contextual permissions offer (Task 7): shown once when a
   // capability the app uses is still un-granted, so the user can allow
   // everything in one tap instead of meeting prompts tool by tool.
@@ -852,6 +949,7 @@ export default function ChatPage() {
 
   function handleCallStateChange(state: CallUiState) {
     callUiRef.current = state;
+    setCallUiState(state);
     const prev = prevCallPhaseRef.current;
     prevCallPhaseRef.current = state.phase;
     // Spoken transitions (voice-first user may not be looking): once
@@ -1453,7 +1551,7 @@ export default function ChatPage() {
           // Team-work context (2026-10-24): today's real team state so
           // any member asked about their work can answer in full
           // spoken detail from facts, never invention or refusal.
-          team: buildTeamBlock(boardEntries, agentTeam, buildLive),
+          team: buildTeamBlock(boardEntries, agentTeam, buildLive, customSkills.length ? formatCustomSkills(customSkills) : undefined),
           onDelta: (delta: string) => {
             // Append streamed text to the placeholder message in real time
             updateConversation(id, (item) => ({
@@ -4065,7 +4163,7 @@ export default function ChatPage() {
   const PANEL_TITLES: Record<Exclude<typeof activePanel, null>, string> = {
     memory: '🧠 میموری',
     skills: '🛠️ مہارتیں',
-    character: '💛 کردار',
+    voices: '🎙️ آوازیں',
     settings: '⚙️ سیٹنگز',
   };
 
@@ -4085,24 +4183,30 @@ export default function ChatPage() {
   function renderPanelContent() {
     switch (activePanel) {
       case 'memory':
-        return <MemoryPanel />;
+        return <MemoryPanel refreshSignal={messageCount} />;
       case 'skills':
         return (
           <SkillsPanel
+            customSkills={customSkills}
+            onNewSkill={() => { setActivePanel(null); setSkillsDialogOpen(true); }}
+            onDeleteSkill={(id) => {
+              try { setCustomSkills(deleteCustomSkill(window.localStorage, id)); }
+              catch { setCustomSkills((s) => s.filter((x) => x.id !== id)); }
+            }}
             onOpenStudio={(key: StudioKey) => { setActivePanel(null); openStudio(key); }}
             onOpenFocus={(key: FocusViewKey) => { setActivePanel(null); setFocusView(key); }}
           />
         );
-      case 'character':
+      case 'voices':
         return (
-          <CharacterPanel
+          <VoicesPanel
             persona={persona}
             onPersonaChange={changePersona}
             tone={tone}
             onToneChange={changeTone}
-            tasks={agentTeam}
-            boardEntries={boardEntries}
-            onOpenOffice={() => { setActivePanel(null); setAgentTeamSceneOpen(true); }}
+            onTestVoice={() => {
+              void playAssistantMessage('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
+            }}
           />
         );
       case 'settings':
@@ -4155,10 +4259,10 @@ export default function ChatPage() {
   // the user wants the face FRONT, Stonic-style — sizes raised so it
   // stays prominent even mid-conversation.)
   const hasMessages = (activeConversation?.messages.length ?? 0) > 0;
-  const orbSize = !hasMessages ? (isDesktop ? 320 : 232) : (isDesktop ? 190 : 132);
+  const orbSize = !hasMessages ? (isDesktop ? (shortScreen ? 230 : 320) : 232) : (isDesktop ? (shortScreen ? 150 : 190) : 132);
 
   return (
-    <main className={`unique-shell${busy || isSpeaking ? ' working' : ''}`} lang="ur" data-testid="page-maira-chat">
+    <main className={`unique-shell${busy || isSpeaking ? ' working' : ''}`} lang="ur" data-theme={theme} data-testid="page-maira-chat">
       {/* ======= TOP BAR: brand + Awareness switch + live status ======= */}
       <header className="unique-topbar">
         <div className="unique-brand" data-testid="brand-maira">
@@ -4173,9 +4277,18 @@ export default function ChatPage() {
             {persona === 'uniqa' ? '💛 یونیکا' : 'یونیک'}
           </span>
         </div>
+        <label className="unique-theme" title="تھیم بدلیں">
+          <span aria-hidden="true">🎨</span>
+          <select value={theme} onChange={(e) => changeTheme(e.target.value)} aria-label="تھیم" data-testid="select-theme">
+            <option value="unique">Unique</option>
+            <option value="midnight">آدھی رات</option>
+            <option value="emerald">زمرد</option>
+            <option value="rose">گلابی</option>
+          </select>
+        </label>
         {/* Language selection moved into Settings (Phase سادگی): the
-            top bar carries the brand, the Awareness switch, and the
-            live status. */}
+            top bar carries the brand, the theme, the Awareness switch,
+            and the live status. */}
         <div className="unique-top-right">
           <button
             type="button"
@@ -4246,353 +4359,375 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* ======= MAIN: panels | living face + chat | office (desktop) ======= */}
+      {/* ======= MAIN: front (nodes + orb + town) | chat panel ======= */}
       <div className="unique-main">
-        {/* LEFT: the four panels — inline dock on laptops, tabs only on phones */}
-        <div className="unique-left">
-          <nav className="unique-panel-tabs" aria-label="پینل">
-            <button
-              type="button"
-              className={`unique-panel-tab${activePanel === 'memory' ? ' active' : ''}`}
-              onClick={() => setActivePanel(activePanel === 'memory' ? null : 'memory')}
-              aria-pressed={activePanel === 'memory'}
-              data-testid="button-panel-memory"
-            >
-              <span aria-hidden="true">🧠</span>
-              <span>میموری</span>
-              {memoryCount > 0 && <span className="unique-panel-badge">{memoryCount}</span>}
-            </button>
-            <button
-              type="button"
-              className={`unique-panel-tab${activePanel === 'skills' ? ' active' : ''}`}
-              onClick={() => setActivePanel(activePanel === 'skills' ? null : 'skills')}
-              aria-pressed={activePanel === 'skills'}
-              data-testid="button-panel-skills"
-            >
-              <span aria-hidden="true">🛠️</span>
-              <span>مہارتیں</span>
-            </button>
-            <button
-              type="button"
-              className={`unique-panel-tab${activePanel === 'character' ? ' active' : ''}`}
-              onClick={() => setActivePanel(activePanel === 'character' ? null : 'character')}
-              aria-pressed={activePanel === 'character'}
-              data-testid="button-panel-character"
-            >
-              <span aria-hidden="true">💛</span>
-              <span>کردار</span>
-            </button>
-            <button
-              type="button"
-              className={`unique-panel-tab${activePanel === 'settings' ? ' active' : ''}`}
-              onClick={() => setActivePanel(activePanel === 'settings' ? null : 'settings')}
-              aria-pressed={activePanel === 'settings'}
-              data-testid="button-panel-settings"
-            >
-              <span aria-hidden="true">⚙️</span>
-              <span>سیٹنگز</span>
-            </button>
-            <button
-              type="button"
-              className="unique-panel-tab"
-              onClick={() => startNewChat()}
-              data-testid="button-new-chat"
-            >
-              <span aria-hidden="true">➕</span>
-              <span>نئی گفتگو</span>
-            </button>
-            <button
-              type="button"
-              className="unique-panel-tab"
-              onClick={() => setShowHistory((v) => !v)}
-              data-testid="button-mobile-history"
-            >
-              <span aria-hidden="true">🕘</span>
-              <span>تاریخ</span>
-            </button>
-            <button
-              type="button"
-              className={`unique-panel-tab${continuousVoice ? ' active' : ''}`}
-              onClick={() => toggleContinuousVoice()}
-              aria-pressed={continuousVoice}
-              data-testid="button-continuous-voice"
-            >
-              <span aria-hidden="true">🎙️</span>
-              <span>مسلسل آواز</span>
-            </button>
-          </nav>
-          {activePanel && isDesktop && (
-            <div className="unique-panel-inline" data-testid="panel-inline">
-              {renderPanelContent()}
-            </div>
-          )}
-        </div>
-
-        {/* CENTER: living face, agents, chat, composer */}
-        <div className="unique-center">
-          <section className="unique-stage" aria-label="Unique AI">
-            {awareness.bubble && (
-              <AwarenessBubble
-                line={awareness.bubble.line}
-                thinkingLabel={persona === 'uniqa' ? '💭 یونیکا سوچ رہی ہے…' : '💭 یونیک سوچ رہا ہے…'}
-                onSpeakNow={awareness.speakNow}
-                onDismiss={awareness.dismissBubble}
-              />
-            )}
-            <div
-              className={`unique-orb-wrap${isSpeaking || isPreparingVoice ? ' tappable' : ''}`}
-              onClick={() => {
-                // Tap the orb while it speaks = "stop, listen to me" —
-                // works even where recognition barge-in is unavailable.
-                if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
-              }}
-              title={isSpeaking || isPreparingVoice ? 'رکنے کے لیے دبائیں' : undefined}
-            >
-              <AiOrb isSpeaking={isSpeaking} isThinking={busy || isPreparingVoice} size={orbSize} persona={persona} />
-            </div>
-            {speakingText && (isSpeaking || isPreparingVoice) && (
-              <FaceLine
-                text={speakingText}
-                label={persona === 'uniqa' ? '💛 یونیکا بول رہی ہے…' : '🤖 یونیک بول رہا ہے…'}
-                persona={persona}
-              />
-            )}
-            <div className="unique-name">
-              <span className={`unique-name-text${persona === 'uniqa' ? ' uniqa' : ''}`}>{persona === 'uniqa' ? 'یونیکا' : 'یونیک'}</span>
-              {/* Persona indicator: who is "present" right now.
-                  Uniqa is front and first by default (2026-11-24);
-                  Unique appears only when called by name. */}
-              <span
-                className="unique-name-sub"
-                dir="rtl"
-                style={{ color: persona === 'uniqa' ? '#f0a6c8' : undefined }}
-              >
-                {persona === 'uniqa' ? '💛 یونیکا حاضر ہے' : 'یونیک حاضر ہے'}
-                {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
-              </span>
-              <span className="unique-name-sub" dir="rtl" data-testid="text-avatar-status">{heroStatus}</span>
-              {/* The face's live state, shown on screen (Stonic rule):
-                  listening / thinking / speaking / ready — real state,
-                  feminine when Uniqa is present. */}
-              <span className={`uface-state uface-state-${faceState}`} dir="rtl" data-testid="face-state">
-                <span className="uface-state-dot" aria-hidden="true" />
-                {faceStateLabel}
-              </span>
-              {(isSpeaking || busy || isPreparingVoice) && (
-                <button
-                  type="button"
-                  className="ustop-btn"
-                  onClick={() => interruptSpeech()}
-                  data-testid="button-stop-speech"
-                  aria-label="بولنا یا کام روکیں"
-                  title="رکو — Esc بھی یہی کرتا ہے"
-                >
-                  ⏹ رکو
-                </button>
-              )}
-            </div>
-            <div className="unique-wave">
-              <VoiceWaveform mode={waveMode} height={56} />
-            </div>
-            {(continuousVoice && voiceStatus) || recording ? (
-              <div className="unique-voice-status" dir="rtl" data-testid="status-continuous-voice">
-                <span className="unique-voice-pulse" aria-hidden="true" />
-                <span>{recording ? `ریکارڈ ہو رہا ہے · ${durationLabel}` : voiceStatus}</span>
-              </div>
-            ) : null}
-            {attachedImage ? (
-              <div className="unique-attach-preview" dir="ltr">
-                {attachedImage.startsWith('data:video/') ? (
-                  <video src={attachedImage} className="unique-attach-thumb" muted />
-                ) : (
-                  <img src={attachedImage} alt="منسلک فائل" className="unique-attach-thumb" />
-                )}
-                <button
-                  type="button"
-                  className="unique-attach-remove"
-                  onClick={() => setAttachedImage(null)}
-                  aria-label="فائل ہٹائیں"
-                >
-                  ✕
-                </button>
-                <span className="unique-attach-hint">{attachedImage.startsWith('data:video/') ? 'ویڈیو تیار ہے — سوال لکھیں یا بھیج دیں 🎬' : 'تصویر تیار ہے — سوال لکھیں یا بھیج دیں 📷'}</span>
-              </div>
-            ) : null}
-          </section>
-
-          <AgentsStrip tasks={agentTeam} boardEntries={boardEntries} onOpenOffice={() => setAgentTeamSceneOpen(true)} />
-
-          {/* Visual Hub + Your World + Gesture + Activity (2026-11-24,
-              full Stonic screen): the hub draws real reply steps, the
-              world shows 3 real picks from this device, gestures toggle
-              the real switch, activity logs real session events. */}
-          <VisualHub
-            latestAssistantText={lastAssistant?.content ?? null}
-            latestAt={lastAssistant ? Date.parse(lastAssistant.createdAt) || null : null}
-            onSendPrompt={(prompt) => { void sendMessage(prompt); }}
-            gesturesOn={gesturesEnabled}
-            onToggleGestures={() => {
-              const next = !gesturesEnabled;
-              setGesturesEnabled(next);
-              setAppSettings((s: any) => ({ ...s, gesturesEnabled: next }));
-              logActivity(next ? 'اشارے آن کیے گئے' : 'اشارے بند کیے گئے');
+        {/* FRONT: nodes attached to the face, orb, Agent Town, hub */}
+        <div className="ufront-col">
+          <FrontStage
+            persona={persona}
+            tone={tone}
+            orbSize={orbSize}
+            isSpeaking={isSpeaking}
+            isThinking={busy || isPreparingVoice}
+            isPreparingVoice={isPreparingVoice}
+            isActive={busy || isSpeaking || isPreparingVoice || recording || continuousVoice}
+            faceState={faceState}
+            faceStateLabel={faceStateLabel}
+            heroStatus={heroStatus}
+            speakingText={speakingText}
+            waveMode={waveMode}
+            recording={recording}
+            recordingLabel={durationLabel}
+            voiceStatus={voiceStatus}
+            attachedImage={attachedImage}
+            onClearAttach={() => setAttachedImage(null)}
+            awarenessBubble={awareness.bubble}
+            awarenessThinkingLabel={persona === 'uniqa' ? '💭 یونیکا سوچ رہی ہے…' : '💭 یونیک سوچ رہا ہے…'}
+            onAwarenessSpeakNow={awareness.speakNow}
+            onAwarenessDismiss={awareness.dismissBubble}
+            memoryCount={memoryCount}
+            activeNode={activePanel}
+            onOpenNode={(key) => setActivePanel(activePanel === key ? null : key)}
+            onOrbClick={() => {
+              if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
             }}
-            worldPicks={worldPicks}
-            activity={activityLog}
+            onStopSpeech={() => interruptSpeech()}
+            onStartAI={handleStartAI}
+            onTerminate={handleTerminate}
+            onOpenCall={() => setCallPanelOpen(true)}
           />
 
-          <section className="unique-chat" aria-label="گفتگو">
-            <div className="unique-chat-scroll">
-              {storageError && (
-                <div className="jarvis-alert" role="status" dir="rtl" data-testid="status-storage-error">
-                  <span>Browser storage دستیاب نہیں، اس لیے جانے کے بعد یہ گفتگو محفوظ نہ رہ سکے گی۔</span>
-                  <button onClick={() => setStorageError(false)}>بند کریں</button>
+          <AgentTown
+            tasks={agentTeam}
+            boardEntries={boardEntries}
+            persona={persona}
+            uniqaStatus={heroStatus}
+            onOpenAgent={openAgentWork}
+            onOpenOffice={() => setAgentTeamSceneOpen(true)}
+          />
+
+          <section className="uhub-wrap" data-testid="visual-hub-wrap" aria-label="بصری مرکز">
+            <button
+              type="button"
+              className="uhub-wrap-head"
+              onClick={() => setHubOpen((v) => !v)}
+              aria-expanded={hubOpen}
+              data-testid="button-toggle-hub"
+            >
+              <span>🎨 بصری مرکز</span>
+              <span aria-hidden="true">{hubOpen ? '▾' : '▸'}</span>
+            </button>
+            {hubOpen && (
+              <VisualHub
+                latestAssistantText={lastAssistant?.content ?? null}
+                latestAt={lastAssistant ? Date.parse(lastAssistant.createdAt) || null : null}
+                onSendPrompt={(prompt) => { void sendMessage(prompt); }}
+                gesturesOn={gesturesEnabled}
+                onToggleGestures={() => {
+                  const next = !gesturesEnabled;
+                  setGesturesEnabled(next);
+                  setAppSettings((s: any) => ({ ...s, gesturesEnabled: next }));
+                  logActivity(next ? 'اشارے آن کیے گئے' : 'اشارے بند کیے گئے');
+                }}
+                worldPicks={worldPicks}
+                activity={activityLog}
+              />
+            )}
+          </section>
+        </div>
+
+        {/* CHAT PANEL (right): VOICE / AGENT / NOTES + composer */}
+        <div className="uchat-col">
+          <div className="uchat-panel" dir="rtl">
+            <div className="uchat-tabs" role="tablist" aria-label="گفتگو کے ٹیب">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={chatTab === 'voice'}
+                className={`uchat-tab${chatTab === 'voice' ? ' active' : ''}`}
+                onClick={() => setChatTab('voice')}
+                data-testid="chat-tab-voice"
+              >
+                🎙️ آواز
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={chatTab === 'agent'}
+                className={`uchat-tab${chatTab === 'agent' ? ' active' : ''}`}
+                onClick={() => setChatTab('agent')}
+                data-testid="chat-tab-agent"
+              >
+                🤖 ایجنٹ
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={chatTab === 'notes'}
+                className={`uchat-tab${chatTab === 'notes' ? ' active' : ''}`}
+                onClick={() => setChatTab('notes')}
+                data-testid="chat-tab-notes"
+              >
+                📝 نوٹس
+              </button>
+              <div className="uchat-tab-actions">
+                <button
+                  type="button"
+                  className="uchat-mini-btn"
+                  onClick={() => startNewChat()}
+                  data-testid="button-new-chat"
+                >
+                  ➕ نئی گفتگو
+                </button>
+                <button
+                  type="button"
+                  className="uchat-mini-btn"
+                  onClick={() => setShowHistory((v) => !v)}
+                  data-testid="button-mobile-history"
+                >
+                  🕘 تاریخ
+                </button>
+                <button
+                  type="button"
+                  className={`uchat-mini-btn${continuousVoice ? ' active' : ''}`}
+                  onClick={() => toggleContinuousVoice()}
+                  aria-pressed={continuousVoice}
+                  data-testid="button-continuous-voice"
+                >
+                  🎙️ مسلسل آواز
+                </button>
+              </div>
+            </div>
+
+            <div className="uchat-body">
+              {chatTab === 'voice' && (
+                <section className="unique-chat" aria-label="گفتگو">
+                  <div className="unique-chat-scroll">
+                    {storageError && (
+                      <div className="jarvis-alert" role="status" dir="rtl" data-testid="status-storage-error">
+                        <span>Browser storage دستیاب نہیں، اس لیے جانے کے بعد یہ گفتگو محفوظ نہ رہ سکے گی۔</span>
+                        <button onClick={() => setStorageError(false)}>بند کریں</button>
+                      </div>
+                    )}
+                    {!activeConversation || activeConversation.messages.length === 0 ? (
+                      <div className="unique-welcome" data-testid="section-welcome">
+                        <div className="unique-welcome-eyebrow" dir="rtl">جب چاہیں، تھوڑی سی مدد</div>
+                        <h1 dir="rtl">السلام علیکم۔<br /><span>میں Unique AI ہوں۔</span></h1>
+                        <p dir="rtl">آپ اردو، رومن اردو، انگریزی یا عربی میں بات کر سکتے ہیں۔</p>
+                        <div className="unique-suggestions">
+                          {suggestions.map((suggestion, index) => (
+                            <button key={suggestion} className="unique-suggestion" dir="auto" onClick={() => void sendMessage(suggestion)} data-testid={`button-suggestion-${index}`}>
+                              {suggestion}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="jarvis-messages" data-testid="list-messages">
+                        {activeConversation.messages.map((message) => (
+                          <article key={message.id} className={`jmsg ${message.role}`} data-testid={`message-${message.role}-${message.id}`}>
+                            <div className="jmsg-bubble" dir="auto" data-testid={`text-message-content-${message.id}`}>
+                              {message.image ? (
+                                message.image.startsWith('data:video/') ? (
+                                  <video src={message.image} controls className="jmsg-image" />
+                                ) : (
+                                  <img src={message.image} alt="بھیجی گئی فائل" className="jmsg-image" />
+                                )
+                              ) : null}
+                              {renderMessageContent(message.content)}
+                            </div>
+                            {message.role === 'assistant' ? (
+                              <button
+                                className="jmsg-speak"
+                                onClick={() => void playAssistantMessage(message.content)}
+                                data-testid={`button-speak-${message.id}`}
+                                aria-label="جواب سنیں"
+                              >
+                                <Volume2 size={12} />
+                                <span dir="rtl">سنیں</span>
+                              </button>
+                            ) : (
+                              <div className="jmsg-meta" dir="rtl">آپ</div>
+                            )}
+                          </article>
+                        ))}
+                        {busy && (
+                          <div className="jmsg assistant" data-testid="status-thinking">
+                            <div className="jmsg-thinking" dir="rtl">
+                              <span>سوچ رہا ہوں</span>
+                              <span className="jmsg-dots" aria-hidden="true"><i /><i /><i /></span>
+                            </div>
+                          </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+              {chatTab === 'agent' && (
+                <div className="uchat-scroll" dir="rtl">
+                  <div className="umodule-rows">
+                    <div className="umodule-row">
+                      <strong>Module: {persona === 'uniqa' ? 'یونیکا' : 'یونیک'}</strong>
+                      <span>{persona === 'uniqa' ? 'ساتھی — سامنے' : 'معاون — صرف بلانے پر'}</span>
+                      <span className={`umodule-status ${isSpeaking || busy ? 'working' : 'idle'}`}>{isSpeaking || busy ? 'چل رہا ہے' : 'تیار'}</span>
+                    </div>
+                    {buildLive && (
+                      <div className="umodule-row">
+                        <strong>Module: بلڈر — احمد</strong>
+                        <span>{buildLive.title}</span>
+                        <span className="umodule-status working">چل رہا ہے</span>
+                      </div>
+                    )}
+                    {AGENT_DEFS.map((def) => {
+                      const state = agentTeam?.find((t) => t.key === def.key);
+                      const status = state?.status ?? 'idle';
+                      const doneToday = boardEntries.filter((e) => e.agentKey === def.key).length;
+                      return (
+                        <div key={def.key} className="umodule-row">
+                          <strong>Module: {def.duty}</strong>
+                          <span>{def.person}{state?.detail ? ` — ${state.detail}` : doneToday > 0 ? ` — آج ${doneToday} مکمل` : ''}</span>
+                          <span className={`umodule-status ${status}`}>{status === 'working' ? 'چل رہا ہے' : status === 'done' ? 'مکمل' : status === 'failed' ? 'ناکام' : 'فارغ'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="upanel-section-title">📋 اس سیشن کی سرگرمی</div>
+                  {activityLog.length === 0 ? (
+                    <p className="upanel-empty">ابھی کوئی سرگرمی نہیں — جیسے ہی کچھ ہوگا، یہاں لکھا جائے گا۔</p>
+                  ) : (
+                    <ul className="upanel-list">
+                      {activityLog.slice(0, 20).map((e, i) => (
+                        <li key={i} className="upanel-item">
+                          <span className="upanel-item-text">{e.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <button type="button" className="upanel-refresh" onClick={() => setAgentTeamSceneOpen(true)} data-testid="button-open-office-agent-tab">
+                    🏢 دفتر کا بڑا منظر دیکھیں
+                  </button>
                 </div>
               )}
-              {!activeConversation || activeConversation.messages.length === 0 ? (
-                <div className="unique-welcome" data-testid="section-welcome">
-                  <div className="unique-welcome-eyebrow" dir="rtl">جب چاہیں، تھوڑی سی مدد</div>
-                  <h1 dir="rtl">السلام علیکم۔<br /><span>میں Unique AI ہوں۔</span></h1>
-                  <p dir="rtl">آپ اردو، رومن اردو، انگریزی یا عربی میں بات کر سکتے ہیں۔</p>
-                  <div className="unique-suggestions">
-                    {suggestions.map((suggestion, index) => (
-                      <button key={suggestion} className="unique-suggestion" dir="auto" onClick={() => void sendMessage(suggestion)} data-testid={`button-suggestion-${index}`}>
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="jarvis-messages" data-testid="list-messages">
-                  {activeConversation.messages.map((message) => (
-                    <article key={message.id} className={`jmsg ${message.role}`} data-testid={`message-${message.role}-${message.id}`}>
-                      <div className="jmsg-bubble" dir="auto" data-testid={`text-message-content-${message.id}`}>
-                        {message.image ? (
-                          message.image.startsWith('data:video/') ? (
-                            <video src={message.image} controls className="jmsg-image" />
-                          ) : (
-                            <img src={message.image} alt="بھیجی گئی فائل" className="jmsg-image" />
-                          )
-                        ) : null}
-                        {renderMessageContent(message.content)}
-                      </div>
-                      {message.role === 'assistant' ? (
-                        <button
-                          className="jmsg-speak"
-                          onClick={() => void playAssistantMessage(message.content)}
-                          data-testid={`button-speak-${message.id}`}
-                          aria-label="جواب سنیں"
-                        >
-                          <Volume2 size={12} />
-                          <span dir="rtl">سنیں</span>
-                        </button>
-                      ) : (
-                        <div className="jmsg-meta" dir="rtl">آپ</div>
-                      )}
-                    </article>
-                  ))}
-                  {busy && (
-                    <div className="jmsg assistant" data-testid="status-thinking">
-                      <div className="jmsg-thinking" dir="rtl">
-                        <span>سوچ رہا ہوں</span>
-                        <span className="jmsg-dots" aria-hidden="true"><i /><i /><i /></span>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
+              {chatTab === 'notes' && (
+                <div className="uchat-scroll" dir="rtl">
+                  <MemoryPanel refreshSignal={messageCount} />
                 </div>
               )}
             </div>
-          </section>
 
-          <div className="unique-composer">
-            <button
-              className={`unique-mic${recording ? ' recording' : ''}`}
-              onClick={() => {
-                // While the AI speaks, the mic button is the interrupt:
-                // silence it instantly and take the user's new turn.
-                // (During streaming `busy` is true, so the button must
-                // stay enabled exactly while speech is in flight.)
-                if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
-                else void toggleRecording();
-              }}
-              disabled={busy && !isSpeaking && !isPreparingVoice}
-              aria-label={recording ? 'ریکارڈنگ روکیں' : 'آواز ریکارڈ کریں'}
-              data-testid="button-microphone"
-            >
-              {recording ? <MicOff size={17} /> : <Mic size={17} />}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,video/*"
-              style={{ display: 'none' }}
-              onChange={handleImagePick}
-              aria-label="تصویر یا ویڈیو لگائیں"
-              data-testid="input-image-attach"
-            />
-            <button
-              className="unique-attach"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
-              aria-label="تصویر یا ویڈیو بھیجیں"
-              data-testid="button-attach-image"
-              title="تصویر یا ویڈیو بھیجیں 📷"
-            >
-              📎
-            </button>
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              dir="auto"
-              onChange={(event) => {
-                setDraft(event.target.value);
-                event.currentTarget.style.height = 'auto';
-                event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
-              }}
-              onKeyDown={onComposerKeyDown}
-              onPaste={handleComposerPaste}
-              placeholder="Type a message…"
-              aria-label="Unique AI کو پیغام لکھیں"
-              rows={1}
-              data-testid="input-message"
-            />
-            <button
-              className="unique-send"
-              onClick={() => void sendMessage(draft)}
-              disabled={(!draft.trim() && !attachedImage) || busy}
-              aria-label="پیغام بھیجیں"
-              data-testid="button-send-message"
-            >
-              <Send size={16} />
-            </button>
-          </div>
-          <div className="unique-caption" dir="rtl" data-testid="text-composer-caption">
-            Unique AI سے غلطی ہو سکتی ہے۔ جو مددگار لگے، وہ لے لیں۔
+            <div className="uchat-composer">
+              <div className="unique-composer">
+                <button
+                  className={`unique-mic${recording ? ' recording' : ''}`}
+                  onClick={() => {
+                    if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
+                    else void toggleRecording();
+                  }}
+                  disabled={busy && !isSpeaking && !isPreparingVoice}
+                  aria-label={recording ? 'ریکارڈنگ روکیں' : 'آواز ریکارڈ کریں'}
+                  data-testid="button-microphone"
+                >
+                  {recording ? <MicOff size={17} /> : <Mic size={17} />}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  style={{ display: 'none' }}
+                  onChange={handleImagePick}
+                  aria-label="تصویر یا ویڈیو لگائیں"
+                  data-testid="input-image-attach"
+                />
+                <button
+                  className="unique-attach"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={busy}
+                  aria-label="تصویر یا ویڈیو بھیجیں"
+                  data-testid="button-attach-image"
+                  title="تصویر یا ویڈیو بھیجیں 📷"
+                >
+                  📎
+                </button>
+                <textarea
+                  ref={textareaRef}
+                  value={draft}
+                  dir="auto"
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    event.currentTarget.style.height = 'auto';
+                    event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
+                  }}
+                  onKeyDown={onComposerKeyDown}
+                  onPaste={handleComposerPaste}
+                  placeholder="Type a message…"
+                  aria-label="Unique AI کو پیغام لکھیں"
+                  rows={1}
+                  data-testid="input-message"
+                />
+                <button
+                  className="unique-send"
+                  onClick={() => void sendMessage(draft)}
+                  disabled={(!draft.trim() && !attachedImage) || busy}
+                  aria-label="پیغام بھیجیں"
+                  data-testid="button-send-message"
+                >
+                  <Send size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="unique-caption uchat-caption" dir="rtl" data-testid="text-composer-caption">
+              Unique AI سے غلطی ہو سکتی ہے۔ جو مددگار لگے، وہ لے لیں۔
+            </div>
           </div>
         </div>
-
-        {/* RIGHT: the development office ON the main screen (user
-            decision, 2026-10-23) — visible on laptops; on phones the
-            office opens as the big scene from the agents strip. */}
-        {isDesktop && (
-          <div className="unique-right">
-            <AgentOfficePanel
-              tasks={agentTeam}
-              persona={persona}
-              boardEntries={boardEntries}
-              buildLive={buildLive}
-              onExpand={() => setAgentTeamSceneOpen(true)}
-            />
-          </div>
-        )}
       </div>
 
-      {/* Phone panel sheet — the same four panels, as a bottom sheet. */}
-      {activePanel && !isDesktop && (
-        <PanelDrawer title={PANEL_TITLES[activePanel]} onClose={() => setActivePanel(null)} testId={`drawer-panel-${activePanel}`}>
+      {/* Bottom strip: player / media link / headlines / WhatsApp support */}
+      <div className="unique-bottom-strip">
+        <UniquePlayer />
+        <MediaLinkCard micLive={micLive} />
+        <HeadlinesCard />
+        <SupportButton supportNumber={supportNumber} onSaveNumber={setSupportNumber} />
+      </div>
+
+      {/* Node panel — a dialog over the front (not a side panel). */}
+      {activePanel && (
+        <NodeDialog title={PANEL_TITLES[activePanel]} onClose={() => setActivePanel(null)} testId={`dialog-panel-${activePanel}`}>
           {renderPanelContent()}
-        </PanelDrawer>
+        </NodeDialog>
+      )}
+
+      {/* Call into Unique — front panel (Stonic Remote-style). */}
+      {callPanelOpen && (
+        <NodeDialog title="📞 کال — کہیں سے بھی" onClose={() => setCallPanelOpen(false)} testId="dialog-panel-call">
+          <CallIntoUnique
+            linkState={linkState}
+            callState={callUiState}
+            onStartCall={() => { callControlRef.current?.startCall(); }}
+            onOpenPairing={() => { setCallPanelOpen(false); setPairingOpen(true); }}
+          />
+        </NodeDialog>
+      )}
+
+      {/* Create-skill dialog (from the SKILLS node). */}
+      {skillsDialogOpen && (
+        <SkillsDialog
+          onClose={() => setSkillsDialogOpen(false)}
+          onSave={(skill) => {
+            try {
+              setCustomSkills(addCustomSkill(window.localStorage, skill));
+            } catch { /* storage unavailable — list stays in memory only */ }
+            setSkillsDialogOpen(false);
+            logActivity(`نئی مہارت بنائی: ${skill.name}`);
+          }}
+        />
+      )}
+
+      {/* An agent's own live work view. */}
+      {workView && (
+        <AgentWorkView subject={workView} boardEntries={boardEntries} onClose={() => setWorkView(null)} />
       )}
 
       {/* ======= FOCUS VIEW: one thing at a time fills the whole screen ======= */}
@@ -4686,8 +4821,8 @@ export default function ChatPage() {
       {/* OLD TOOLS DELETED: MediaTools render removed completely. */}
       {/* Device pairing: stays mounted while linked so incoming
           conversations/commands arrive even with the panel closed.
-          Its entry point lives in Settings (📱 ڈیوائس جوڑیں) — the
-          only settings button on the screen — plus ?pair=CODE links. */}
+          Entry points: Settings (📱 ڈیوائس جوڑیں), the front
+          «📞 کال — کہیں سے بھی» panel, plus ?pair=CODE links. */}
       <DevicePairing
         open={pairingOpen}
         onClose={() => setPairingOpen(false)}
@@ -4699,6 +4834,7 @@ export default function ChatPage() {
         onCallUtterance={handleCallUtterance}
         onCallReply={handleCallReply}
         onCallStateChange={handleCallStateChange}
+        onLinkStateChange={setLinkState}
         callControlRef={callControlRef}
       />
 

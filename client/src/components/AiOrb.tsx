@@ -110,27 +110,29 @@ const SPARKS = [
   { x: 23, y: 1, d: '2s', s: 5, c: '#fde68a' },
 ] as const;
 
-/** Uniqa's sparks — gold, rose and white (her rose-gold palette). */
+/** Uniqa's sparks — violet, rose and white (her violet/rose palette,
+ *  2026-11-24: no gold — the user wants her SIMPLE, not yellow-gold). */
 const SPARKS_UNIQA = [
-  { x: 50, y: -4, d: '0s', s: 7, c: '#fde68a' },
-  { x: 78, y: 2, d: '0.7s', s: 5, c: '#fbbf24' },
+  { x: 50, y: -4, d: '0s', s: 7, c: '#c4b5fd' },
+  { x: 78, y: 2, d: '0.7s', s: 5, c: '#a78bfa' },
   { x: 97, y: 22, d: '1.3s', s: 6, c: '#f9a8d4' },
   { x: 104, y: 50, d: '0.4s', s: 5, c: '#ffffff' },
-  { x: 96, y: 79, d: '1.8s', s: 7, c: '#fde68a' },
+  { x: 96, y: 79, d: '1.8s', s: 7, c: '#c4b5fd' },
   { x: 76, y: 99, d: '0.9s', s: 5, c: '#f9a8d4' },
-  { x: 50, y: 106, d: '1.5s', s: 6, c: '#fbbf24' },
+  { x: 50, y: 106, d: '1.5s', s: 6, c: '#a78bfa' },
   { x: 24, y: 99, d: '0.2s', s: 5, c: '#ffffff' },
   { x: 3, y: 79, d: '1.1s', s: 7, c: '#f9a8d4' },
-  { x: -4, y: 50, d: '1.6s', s: 5, c: '#fde68a' },
-  { x: 3, y: 21, d: '0.5s', s: 6, c: '#fbbf24' },
-  { x: 23, y: 1, d: '2s', s: 5, c: '#ffffff' },
+  { x: -4, y: 50, d: '1.6s', s: 5, c: '#c4b5fd' },
+  { x: 3, y: 21, d: '0.5s', s: 6, c: '#ffffff' },
+  { x: 23, y: 1, d: '2s', s: 5, c: '#a78bfa' },
 ] as const;
 
-/** Uniqa's flowing hair — golden-rose strands that sway around the
+/** Uniqa's flowing hair — violet-rose strands that sway around the
  *  globe (2026-11-24, the user's Stonic-video order: "her hair
- *  flowing"). Pure SVG + CSS animation, drawn around the orb's edge
- *  only; the portrait itself already carries her long particle hair.
- *  Unique gets no hair overlay. */
+ *  flowing"; 2026-11-24 gold removal: violet/rose, no gold). Pure SVG
+ *  + CSS animation, drawn around the orb's edge only; the portrait
+ *  itself already carries her long particle hair. Unique gets no
+ *  hair overlay. */
 const HAIR_STRANDS = [
   'M100 6 C 78 16, 54 34, 40 62',
   'M70 10 C 52 22, 34 44, 24 72',
@@ -226,9 +228,9 @@ export default function AiOrb({ isSpeaking = false, isThinking = false, size = 2
           <svg viewBox="0 0 200 200">
             <defs>
               <linearGradient id="uniqa-hair-grad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#fde68a" />
+                <stop offset="0%" stopColor="#c4b5fd" />
                 <stop offset="55%" stopColor="#f9a8d4" />
-                <stop offset="100%" stopColor="#fbbf24" />
+                <stop offset="100%" stopColor="#a78bfa" />
               </linearGradient>
             </defs>
             <g fill="none" stroke="url(#uniqa-hair-grad)" strokeLinecap="round">

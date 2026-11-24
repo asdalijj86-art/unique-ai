@@ -58,7 +58,7 @@ export function PanelDrawer({
 // MEMORY — real notes + learnings from this device, deletable.
 // ---------------------------------------------------------------------------
 
-export function MemoryPanel() {
+export function MemoryPanel({ refreshSignal = 0 }: { refreshSignal?: number }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [learnings, setLearnings] = useState<Learning[]>([]);
 
@@ -78,6 +78,13 @@ export function MemoryPanel() {
   useEffect(() => {
     refresh();
   }, []);
+
+  // Core Memory (2026-11-24): the list updates as the conversation
+  // goes — the parent bumps refreshSignal on every new message.
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
   const deleteNote = (id: string) => {
     const next = notes.filter((n) => n.id !== id);
@@ -171,9 +178,17 @@ const FOCUS_VIEWS: { key: FocusViewKey; icon: string; label: string; desc: strin
 export function SkillsPanel({
   onOpenStudio,
   onOpenFocus,
+  customSkills = [],
+  onNewSkill,
+  onDeleteSkill,
 }: {
   onOpenStudio: (key: StudioKey) => void;
   onOpenFocus: (key: FocusViewKey) => void;
+  /** User-created skills (lib/custom-skills) — listed here, created
+   *  from the «نئی مہارت بنائیں» button. */
+  customSkills?: { id: string; name: string; description: string; instructions: string }[];
+  onNewSkill?: () => void;
+  onDeleteSkill?: (id: string) => void;
 }) {
   return (
     <div className="upanel" data-testid="panel-skills" dir="rtl">
@@ -194,6 +209,37 @@ export function SkillsPanel({
           </button>
         ))}
       </div>
+      <div className="upanel-section-title">✨ میری بنائی ہوئی مہارتیں</div>
+      {customSkills.length === 0 ? (
+        <p className="upanel-empty">ابھی کوئی اپنی مہارت نہیں بنائی — نیچے والے بٹن سے بنائیں۔</p>
+      ) : (
+        <ul className="upanel-list">
+          {customSkills.map((s) => (
+            <li key={s.id} className="upanel-item">
+              <span className="upanel-item-text">
+                <strong>{s.name}</strong>
+                {s.description ? ` — ${s.description}` : ''}
+              </span>
+              {onDeleteSkill && (
+                <button
+                  type="button"
+                  className="upanel-item-delete"
+                  onClick={() => onDeleteSkill(s.id)}
+                  aria-label="یہ مہارت مٹائیں"
+                  data-testid={`button-delete-skill-${s.id}`}
+                >
+                  🗑️
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {onNewSkill && (
+        <button type="button" className="upanel-refresh" onClick={onNewSkill} data-testid="button-new-skill">
+          ＋ نئی مہارت بنائیں
+        </button>
+      )}
       <div className="upanel-section-title">📍 دیگر سہولتیں</div>
       <div className="uskills-grid">
         {FOCUS_VIEWS.map((f) => (

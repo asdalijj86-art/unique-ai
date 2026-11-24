@@ -38,11 +38,17 @@ export type CallPhase = 'idle' | 'calling' | 'ringing' | 'active';
 export type CallRole = 'caller' | 'callee';
 export type CallUiState = { phase: CallPhase; role: CallRole | null; peerName: string };
 /** What chat.tsx can do to the call: send one spoken turn (caller
- *  side) or hang up. Filled by this component while linked. */
+ *  side), start a call (either side can ring the other — this is how
+ *  Uniqa calls him back), or hang up. Filled by this component while
+ *  linked. */
 export type CallControl = {
   sendUtterance: (text: string) => boolean;
+  startCall: () => void;
   endCall: () => void;
 };
+
+/** Link status mirrored up to chat.tsx (the Call panel shows it). */
+export type LinkState = { linked: boolean; peerName: string; peerOnline: boolean };
 
 type Phase = 'idle' | 'waiting' | 'linked';
 
@@ -60,6 +66,7 @@ export default function DevicePairing({
   onCallUtterance,
   onCallReply,
   onCallStateChange,
+  onLinkStateChange,
   callControlRef,
 }: {
   open: boolean;
@@ -79,7 +86,9 @@ export default function DevicePairing({
   /** Mirrors the call state into chat.tsx (mic turns reroute into
    *  the call while it is active and this device is the caller). */
   onCallStateChange?: (state: CallUiState) => void;
-  /** Filled with { sendUtterance, endCall } while linked. */
+  /** Mirrors the link state into chat.tsx (the Call panel shows it). */
+  onLinkStateChange?: (state: LinkState) => void;
+  /** Filled with { sendUtterance, startCall, endCall } while linked. */
   callControlRef?: React.MutableRefObject<CallControl | null>;
 }) {
   const identityRef = useRef(getDeviceIdentity());
@@ -296,9 +305,22 @@ export default function DevicePairing({
     onCallStateChange?.({ phase: callPhase, role: callRole, peerName: peer?.name || '' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callPhase, callRole, peer?.name]);
+
+  // Mirror the link state up to chat.tsx (the Call panel shows it).
+  // Guarded by a key so the 4s poll doesn't re-render chat.tsx
+  // with an identical state object.
+  const linkStateKeyRef = useRef('');
+  useEffect(() => {
+    const key = `${phase}|${peer?.name || ''}|${peer?.online ? 1 : 0}`;
+    if (linkStateKeyRef.current === key) return;
+    linkStateKeyRef.current = key;
+    onLinkStateChange?.({ linked: phase === 'linked', peerName: peer?.name || '', peerOnline: !!peer?.online });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, peer]);
+
   useEffect(() => {
     if (callControlRef) {
-      callControlRef.current = { sendUtterance, endCall };
+      callControlRef.current = { sendUtterance, startCall, endCall };
     }
     return () => {
       if (callControlRef) callControlRef.current = null;

@@ -4,11 +4,11 @@
  * It shows the ACTUAL reply text currently being spoken — the same
  * text the voice is reading — never invented or decorative text. It
  * appears only while speech is active and clears the moment speech
- * ends or is stopped. The tail points up to the orb; the thought
- * bubble (AwarenessBubble) points down to it from above, so the
- * face carries both lines, Stonic-style.
+ * ends or is stopped.
+ *
+ * 2026-11-24 correction (user): the line goes in a SMALL SIDE BOX so
+ * the FULL message shows — no truncation, the box scrolls internally.
  */
-
 export default function FaceLine({
   text,
   label,
@@ -20,7 +20,6 @@ export default function FaceLine({
   label: string;
   persona: 'unique' | 'uniqa';
 }) {
-  const shown = text.length > 160 ? `${text.slice(0, 160).trim()}…` : text;
   return (
     <div
       className={`uface-line uface-line-${persona}`}
@@ -30,7 +29,7 @@ export default function FaceLine({
       data-testid="face-line"
     >
       <span className="uface-line-label">{label}</span>
-      <p className="uface-line-text">{shown}</p>
+      <p className="uface-line-text">{text}</p>
     </div>
   );
 }

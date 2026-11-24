@@ -1925,7 +1925,8 @@ body {
    FULL STONIC SCREEN (2026-11-24) — the user's order: the whole
    visible screen, not just the face. Own Unique brand/layout
    throughout; nothing here copies Stonic's code or exact design.
-   - Uniqa's orb: gold/rose ring, gold halo, flowing hair strands
+   - Uniqa's orb: violet/rose ring, violet halo, flowing hair strands
+     (no gold — the user wants her SIMPLE, not yellow-gold)
    - Face lines attached to the orb: thought bubble (tail down) +
      live speech line (tail up)
    - Visible listening / thinking / speaking states + Stop button
@@ -1942,28 +1943,29 @@ body {
   transition: box-shadow 0.4s ease;
 }
 
-/* ---- Uniqa's orb: gold/rose instead of Unique's blue/violet ---- */
+/* ---- Uniqa's orb: violet/rose instead of Unique's blue/violet ----
+   (2026-11-24: NO gold — the user wants her SIMPLE, not yellow-gold) */
 .ai-orb-uniqa .ai-orb-ring {
-  background: conic-gradient(from 0deg, #fbbf24, #f9a8d4, #fde68a, #fbbf24);
+  background: conic-gradient(from 0deg, #a78bfa, #f9a8d4, #c4b5fd, #a78bfa);
 }
 .ai-orb-uniqa .ai-orb-ring2 {
-  background: conic-gradient(from 180deg, transparent 20%, rgba(251, 191, 36, 0.9), transparent 80%);
+  background: conic-gradient(from 180deg, transparent 20%, rgba(167, 139, 250, 0.9), transparent 80%);
 }
 .ai-orb-uniqa .ai-orb-core {
   background:
-    radial-gradient(circle at 38% 32%, rgba(253, 230, 138, 0.5), transparent 45%),
-    radial-gradient(circle at 50% 55%, rgba(251, 191, 36, 0.35), rgba(26, 12, 4, 0.95) 70%);
-  border: 1px solid rgba(253, 224, 130, 0.4);
-  box-shadow: inset 0 0 30px rgba(251, 191, 36, 0.35), 0 0 34px rgba(251, 191, 36, 0.35);
+    radial-gradient(circle at 38% 32%, rgba(196, 181, 253, 0.5), transparent 45%),
+    radial-gradient(circle at 50% 55%, rgba(139, 92, 246, 0.35), rgba(12, 8, 26, 0.95) 70%);
+  border: 1px solid rgba(196, 181, 253, 0.4);
+  box-shadow: inset 0 0 30px rgba(139, 92, 246, 0.35), 0 0 34px rgba(139, 92, 246, 0.35);
 }
 .ai-orb-uniqa .ai-orb-halo {
-  background: radial-gradient(circle, rgba(251, 191, 36, 0.22), transparent 65%);
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.22), transparent 65%);
 }
 .ai-orb-uniqa.ai-orb-speaking .ai-orb-core {
-  box-shadow: inset 0 0 34px rgba(251, 191, 36, 0.6), 0 0 48px rgba(251, 191, 36, 0.6);
+  box-shadow: inset 0 0 34px rgba(139, 92, 246, 0.6), 0 0 48px rgba(139, 92, 246, 0.6);
 }
 .ai-orb-uniqa.ai-orb-thinking .ai-orb-ring {
-  background: conic-gradient(from 0deg, #fbbf24, #f9a8d4, #ec4899, #fbbf24);
+  background: conic-gradient(from 0deg, #a78bfa, #f9a8d4, #ec4899, #a78bfa);
 }
 
 /* ---- Uniqa's flowing hair: golden-rose strands swaying around the globe ---- */
@@ -2018,10 +2020,10 @@ body {
   border-bottom: 10px solid rgba(56, 189, 248, 0.35);
 }
 .uface-line-uniqa {
-  background: rgba(251, 191, 36, 0.08);
-  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: rgba(139, 92, 246, 0.10);
+  border: 1px solid rgba(167, 139, 250, 0.45);
 }
-.uface-line-uniqa::before { border-bottom-color: rgba(251, 191, 36, 0.4); }
+.uface-line-uniqa::before { border-bottom-color: rgba(167, 139, 250, 0.45); }
 .uface-line-label { font-size: 11.5px; color: #7cc4e4; }
 .uface-line-uniqa .uface-line-label { color: #f0a6c8; }
 .uface-line-text {
@@ -2042,7 +2044,7 @@ body {
   animation: brand-pulse 1.6s ease-in-out infinite;
 }
 .uface-state-speaking { border-color: rgba(251, 191, 36, 0.5); background: rgba(251, 191, 36, 0.12); color: #fef3c7; }
-.uface-state-speaking .uface-state-dot { background: #fbbf24; animation-duration: 0.9s; }
+.uface-state-speaking .uface-state-dot { background: #a78bfa; animation-duration: 0.9s; }
 .uface-state-listening { border-color: rgba(52, 211, 153, 0.5); background: rgba(52, 211, 153, 0.1); color: #a7f3d0; }
 .uface-state-listening .uface-state-dot { background: #34d399; }
 .uface-state-thinking .uface-state-dot { background: #a855f7; }
@@ -2056,8 +2058,8 @@ body {
 }
 .ustop-btn:hover { background: rgba(239, 68, 68, 0.3); }
 
-/* ---- Stage name in gold when Uniqa is present ---- */
-.unique-name-text.uniqa { color: #fde68a; text-shadow: 0 0 14px rgba(251, 191, 36, 0.55); }
+/* ---- Stage name in soft rose when Uniqa is present (no gold) ---- */
+.unique-name-text.uniqa { color: #f0a6c8; text-shadow: 0 0 14px rgba(249, 168, 212, 0.55); }
 
 /* ---- Visual Hub: tabs + flow diagram + world picks + activity ---- */
 .uhub {
@@ -2132,4 +2134,542 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .ai-orb-hair-strand { animation: none !important; }
   .uface-state-dot { animation: none !important; }
+}
+
+/* ================================================================
+   FRONT 2.0 (2026-11-24, Stonic-video build) — the front rebuilt
+   from the video the user showed, in Unique's OWN name/brand.
+   - Nodes ATTACHED to the front (no side panels): MEMORY / SKILLS /
+     VOICES / SETTING pills with lines into the orb.
+   - Agent Town bottom-centre; agent work view overlay.
+   - Bottom strip: Unique Player, Media Link, Headlines, WhatsApp
+     Support. Chat panel on the RIGHT with VOICE / AGENT / NOTES.
+   - Themes via data-theme on .unique-shell. Accent var --uq-accent.
+   - Laptop fit: the whole front fits 1366x768 — nothing hidden.
+   ================================================================ */
+
+.unique-shell { --uq-accent: #8b5cf6; }
+.unique-shell[data-theme="midnight"] {
+  --uq-accent: #38bdf8;
+  background:
+    radial-gradient(1100px 500px at 50% -8%, rgba(14, 165, 233, 0.20), transparent 60%),
+    radial-gradient(800px 600px at 85% 110%, rgba(2, 132, 199, 0.16), transparent 60%),
+    #010409;
+}
+.unique-shell[data-theme="emerald"] {
+  --uq-accent: #34d399;
+  background:
+    radial-gradient(1100px 500px at 50% -8%, rgba(16, 185, 129, 0.18), transparent 60%),
+    radial-gradient(800px 600px at 85% 110%, rgba(5, 150, 105, 0.14), transparent 60%),
+    #02120c;
+}
+.unique-shell[data-theme="rose"] {
+  --uq-accent: #fb7185;
+  background:
+    radial-gradient(1100px 500px at 50% -8%, rgba(244, 114, 182, 0.16), transparent 60%),
+    radial-gradient(800px 600px at 85% 110%, rgba(190, 24, 93, 0.14), transparent 60%),
+    #12040a;
+}
+
+/* ---- Theme select in the top bar ---- */
+.unique-theme {
+  display: flex; align-items: center; gap: 6px;
+  color: #a5e3f5; font-size: 12.5px; flex-shrink: 0;
+}
+.unique-theme select {
+  background: rgba(34, 211, 238, 0.07);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  color: #eaf9ff; border-radius: 999px; padding: 4px 8px;
+  font-size: 12.5px; cursor: pointer; outline: none;
+}
+.unique-theme select option { background: #0a1426; color: #eaf9ff; }
+
+/* ---- Desktop dashboard: front | chat, strip below ---- */
+@media (min-width: 1100px) {
+  .unique-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 12px;
+    padding: 10px 14px 8px;
+  }
+  .ufront-col {
+    display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden; gap: 8px;
+  }
+  .uchat-col {
+    display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden;
+  }
+}
+
+/* ---- Front stage: nodes around the orb ---- */
+.ufront-stage {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 4px 8px 2px;
+  flex-shrink: 0;
+}
+.ufront-lines {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none; z-index: 0;
+}
+.ufront-lines line { stroke-width: 1.2; opacity: 0.45; }
+.ufront-nodes {
+  position: absolute; inset: 0;
+  pointer-events: none; z-index: 2;
+}
+.ufront-node {
+  position: absolute;
+  pointer-events: auto;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  min-width: 86px;
+  padding: 7px 10px 6px;
+  border-radius: 14px;
+  background: rgba(8, 17, 33, 0.78);
+  border: 1px solid var(--node-color, #22d3ee);
+  color: #eaf9ff;
+  cursor: pointer;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--node-color, #22d3ee) 25%, transparent);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.ufront-node:hover { transform: translateY(-1px); }
+.ufront-node.active {
+  box-shadow: 0 0 18px color-mix(in srgb, var(--node-color, #22d3ee) 60%, transparent);
+  background: rgba(20, 32, 54, 0.9);
+}
+.ufront-node-memory { top: 4px; left: 6px; }
+.ufront-node-skills { top: 4px; right: 6px; }
+.ufront-node-voices { bottom: 4px; left: 6px; }
+.ufront-node-settings { bottom: 4px; right: 6px; }
+.ufront-node-icon { font-size: 16px; line-height: 1; }
+.ufront-node-label { font-size: 11.5px; font-weight: 800; letter-spacing: 1px; color: var(--node-color, #22d3ee); }
+.ufront-node-urdu { font-size: 11px; color: #a5e3f5; }
+.ufront-node-badge {
+  position: absolute; top: -7px; inset-inline-start: -7px;
+  background: var(--uq-accent); color: #fff;
+  font-size: 11px; font-weight: 700;
+  border-radius: 999px; padding: 1px 7px;
+}
+
+/* VisualHub collapsible wrapper — header button + hub below it. */
+.uhub-wrap {
+  flex-shrink: 0;
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.uhub-wrap-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: #7dd3fc;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.uhub-wrap .uhub {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+/* Orb row: orb + the SMALL SIDE BOX for the speaking line. */
+.ufront-orb-row {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  width: 100%;
+}
+.ufront-orb-row .uface-line {
+  width: 230px; max-width: 230px;
+  margin: 0;
+  max-height: 150px;
+  overflow-y: auto;
+  flex-shrink: 0;
+  text-align: right;
+}
+.ufront-orb-row .uface-line::before {
+  /* Tail points LEFT toward the orb, not up. */
+  left: -9px; top: 50%;
+  transform: translateY(-50%);
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-bottom-color: transparent;
+  border-right: 10px solid rgba(56, 189, 248, 0.35);
+  border-left: none;
+}
+.ufront-orb-row .uface-line-uniqa::before {
+  border-right-color: rgba(167, 139, 250, 0.45);
+  border-bottom-color: transparent;
+}
+.ufront-orb-row .uface-line-text {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  font-size: 13px;
+}
+.ufront-orb-row .uface-line::-webkit-scrollbar { width: 5px; }
+.ufront-orb-row .uface-line::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.3); border-radius: 3px; }
+
+/* START AI / TERMINATE power pill. */
+.ufront-power {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 8px; padding: 7px 20px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.18);
+  border: 1px solid var(--uq-accent);
+  color: #ede9fe; font-size: 13px; font-weight: 800; letter-spacing: 1.5px;
+  cursor: pointer;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--uq-accent) 35%, transparent);
+}
+.ufront-power.active {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fecaca;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.3);
+}
+
+/* 📞 کال — کہیں سے بھی: second pill under the power pill, same shape,
+   calmer green so it reads as «call», not as power. */
+.ufront-call {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 8px; padding: 7px 20px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(74, 222, 128, 0.55);
+  color: #bbf7d0; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;
+  cursor: pointer;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.22);
+}
+.ufront-call:hover { background: rgba(34, 197, 94, 0.22); }
+
+/* ---- Agent Town (bottom-centre of the front) ---- */
+.utown {
+  flex-shrink: 0;
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 16px;
+  padding: 8px 10px;
+}
+.utown-title { font-size: 12.5px; font-weight: 700; color: #7dd3fc; margin-bottom: 6px; }
+.utown-bubbles { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.utown-bubble {
+  display: flex; gap: 6px; align-items: baseline;
+  font-size: 12.5px; line-height: 1.7; color: #eaf9ff;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 10px; padding: 4px 9px;
+}
+.utown-quiet { font-size: 12.5px; line-height: 1.8; color: #7c93a8; margin: 0 0 6px; }
+.utown-chips { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.utown-chips::-webkit-scrollbar { display: none; }
+.utown-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 10px; border-radius: 999px;
+  background: rgba(34, 211, 238, 0.05);
+  border: 1px solid rgba(56, 189, 248, 0.16);
+  color: #a5e3f5; font-size: 12.5px; white-space: nowrap;
+  cursor: pointer; flex-shrink: 0;
+}
+.utown-chip.working { border-color: rgba(34, 197, 94, 0.55); color: #bbf7d0; }
+.utown-manager { border-color: rgba(167, 139, 250, 0.5); color: #ede9fe; }
+.utown-dot { width: 7px; height: 7px; border-radius: 50%; background: #475569; flex-shrink: 0; }
+.utown-dot.working {
+  background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+  animation: brand-pulse 1.2s ease-in-out infinite;
+}
+.utown-name { font-weight: 600; }
+.utown-state { font-size: 11.5px; opacity: 0.75; }
+.utown-office {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px;
+  background: rgba(139, 92, 246, 0.16);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: #ede9fe; font-size: 12.5px; white-space: nowrap;
+  cursor: pointer; flex-shrink: 0;
+}
+
+/* ---- Node dialog (panel over the front) ---- */
+.ufront-dialog-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(2, 6, 16, 0.72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.ufront-dialog {
+  width: min(560px, calc(100vw - 24px));
+  max-height: 84dvh;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  background: rgba(6, 14, 28, 0.97);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+.ufront-dialog-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.16);
+}
+.ufront-dialog-title { font-size: 15px; font-weight: 700; color: #eaf9ff; }
+.ufront-dialog-close {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(239, 68, 68, 0.12); color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.ufront-dialog-body { padding: 14px 16px 18px; overflow-y: auto; min-height: 0; }
+
+/* ---- Agent work view (an agent's own live screen) ---- */
+.uwork-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(2, 6, 16, 0.78);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.uwork-panel {
+  width: min(680px, calc(100vw - 24px));
+  max-height: 86dvh;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  background: rgba(6, 14, 28, 0.97);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+.uwork-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(34, 197, 94, 0.2);
+}
+.uwork-title { font-size: 15px; font-weight: 700; color: #eaf9ff; flex: 1; min-width: 0; }
+.uwork-status { font-size: 12px; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.uwork-status-working { background: rgba(34, 197, 94, 0.16); color: #bbf7d0; border: 1px solid rgba(34, 197, 94, 0.45); }
+.uwork-status-done { background: rgba(34, 211, 238, 0.12); color: #bae6fd; border: 1px solid rgba(56, 189, 248, 0.4); }
+.uwork-status-failed { background: rgba(239, 68, 68, 0.12); color: #fecaca; border: 1px solid rgba(239, 68, 68, 0.4); }
+.uwork-status-idle { background: rgba(148, 163, 184, 0.12); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.35); }
+.uwork-close {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(239, 68, 68, 0.12); color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.uwork-body { padding: 14px 16px 18px; overflow-y: auto; min-height: 0; }
+.uwork-task { font-size: 13.5px; line-height: 1.9; color: #eaf9ff; margin: 0 0 10px; }
+.uwork-search { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.uwork-search input {
+  flex: 1; min-width: 160px;
+  background: rgba(10, 20, 38, 0.8); border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 10px; padding: 8px 12px; color: #eaf9ff; font-size: 14px; outline: none;
+}
+.uwork-search button {
+  padding: 8px 14px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 700;
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd;
+}
+.uwork-search button:disabled { opacity: 0.5; cursor: default; }
+.uwork-empty { font-size: 13px; line-height: 1.9; color: #7c93a8; margin: 6px 0; }
+.uwork-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.uwork-result {
+  display: flex; flex-direction: column; gap: 2px;
+  background: rgba(34, 211, 238, 0.05); border: 1px solid rgba(56, 189, 248, 0.16);
+  border-radius: 10px; padding: 9px 12px;
+}
+.uwork-result a { color: #7dd3fc; font-size: 14px; font-weight: 600; text-decoration: none; }
+.uwork-result a:hover { text-decoration: underline; }
+.uwork-result-desc { font-size: 12.5px; line-height: 1.8; color: #a5e3f5; }
+.uwork-result-src { font-size: 11px; color: #4e6f8a; }
+.uwork-done { margin-top: 12px; }
+.uwork-note { font-size: 12.5px; line-height: 1.9; color: #7c93a8; margin: 12px 0 0; }
+
+/* ---- Bottom strip: player / media link / headlines / support ---- */
+.unique-bottom-strip {
+  position: relative; z-index: 4;
+  display: grid;
+  grid-template-columns: 1.5fr 0.8fr 0.8fr 0.9fr;
+  gap: 10px;
+  padding: 0 14px 12px;
+  flex-shrink: 0;
+}
+.ustrip-card {
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 14px;
+  padding: 9px 12px;
+  min-width: 0;
+  display: flex; flex-direction: column; gap: 6px;
+  overflow: hidden;
+}
+.ustrip-title { font-size: 12.5px; font-weight: 700; color: #7dd3fc; }
+.ustrip-note { font-size: 12px; line-height: 1.8; color: #7c93a8; margin: 0; }
+.ustrip-btn {
+  padding: 7px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 700;
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd;
+}
+.uplayer-search { display: flex; gap: 6px; }
+.uplayer-search input {
+  flex: 1; min-width: 0;
+  background: rgba(10, 20, 38, 0.8); border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 9px; padding: 6px 10px; color: #eaf9ff; font-size: 13px; outline: none;
+}
+.uplayer-search button {
+  padding: 6px 12px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 700;
+  background: rgba(139, 92, 246, 0.3); border: 1px solid rgba(167, 139, 250, 0.5); color: #fff;
+  white-space: nowrap;
+}
+.uplayer-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.uplayer-preset {
+  padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.2); color: #a5e3f5;
+}
+.uplayer-preset.active { background: rgba(139, 92, 246, 0.3); border-color: var(--uq-accent); color: #fff; }
+.uplayer-frame { width: 100%; height: 96px; border: none; border-radius: 10px; background: #000; }
+.umedia-rows { display: flex; flex-direction: column; gap: 6px; }
+.umedia-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #a5e3f5; }
+.umedia-row strong { margin-inline-start: auto; color: #eaf9ff; font-size: 12.5px; }
+.umedia-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; flex-shrink: 0; }
+.umedia-dot.on { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9); }
+.usupport-btn {
+  padding: 8px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 700;
+  background: rgba(37, 211, 102, 0.16); border: 1px solid rgba(37, 211, 102, 0.5); color: #bbf7d0;
+}
+.usupport-form { display: flex; flex-direction: column; gap: 6px; }
+.usupport-form input {
+  background: rgba(10, 20, 38, 0.8); border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 9px; padding: 7px 10px; color: #eaf9ff; font-size: 13px; outline: none;
+}
+.usupport-form button {
+  padding: 6px 12px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 700;
+  background: rgba(37, 211, 102, 0.16); border: 1px solid rgba(37, 211, 102, 0.5); color: #bbf7d0;
+}
+
+/* ---- Chat panel (right): VOICE / AGENT / NOTES ---- */
+.uchat-panel {
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0;
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 18px;
+  overflow: hidden;
+}
+.uchat-tabs {
+  display: flex; gap: 4px; align-items: center;
+  padding: 8px 10px 0;
+  flex-shrink: 0;
+}
+.uchat-tab {
+  padding: 7px 14px; border-radius: 10px 10px 0 0; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-bottom: none;
+  color: #7cc4e4; font-size: 13px; font-weight: 700;
+}
+.uchat-tab.active {
+  background: rgba(34, 211, 238, 0.1);
+  border-color: rgba(56, 189, 248, 0.25);
+  color: #fff;
+}
+.uchat-tab-actions { margin-inline-start: auto; display: flex; gap: 6px; }
+.uchat-mini-btn {
+  padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.2); color: #a5e3f5;
+  white-space: nowrap;
+}
+.uchat-mini-btn.active { background: rgba(34, 211, 238, 0.22); color: #fff; }
+.uchat-body {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  border-top: 1px solid rgba(56, 189, 248, 0.14);
+}
+.uchat-body .unique-chat {
+  margin: 0; border: none; border-radius: 0;
+  background: transparent; box-shadow: none; backdrop-filter: none;
+}
+.uchat-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 12px 14px;
+}
+.uchat-scroll::-webkit-scrollbar { width: 6px; }
+.uchat-scroll::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.25); border-radius: 3px; }
+.uchat-composer { padding: 8px 10px 4px; flex-shrink: 0; }
+.uchat-composer .unique-composer { margin: 0; }
+.uchat-caption { padding: 2px 12px 8px; }
+
+/* Module status rows (AGENT tab). */
+.umodule-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.umodule-row {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(34, 211, 238, 0.05); border: 1px solid rgba(56, 189, 248, 0.16);
+  border-radius: 10px; padding: 8px 11px; font-size: 13px; color: #a5e3f5;
+}
+.umodule-row strong { color: #eaf9ff; }
+.umodule-row .umodule-status { margin-inline-start: auto; font-size: 12px; white-space: nowrap; }
+.umodule-row .umodule-status.working { color: #4ade80; }
+.umodule-row .umodule-status.done { color: #7dd3fc; }
+.umodule-row .umodule-status.failed { color: #fca5a5; }
+.umodule-row .umodule-status.idle { color: #7c93a8; }
+
+/* ---- Create-skill form ---- */
+.uskill-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.uskill-field > span { font-size: 13px; font-weight: 700; color: #7dd3fc; }
+.uskill-field input, .uskill-field textarea {
+  background: rgba(10, 20, 38, 0.8); border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 10px; padding: 9px 12px; color: #eaf9ff; font-size: 14px; outline: none;
+  font-family: inherit; resize: vertical;
+}
+.uskill-error { color: #fca5a5; font-size: 13px; margin: 0 0 10px; }
+.uskill-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+.uskill-cancel {
+  padding: 8px 18px; border-radius: 10px; cursor: pointer; font-size: 13.5px; font-weight: 700;
+  background: transparent; border: 1px solid rgba(148, 163, 184, 0.4); color: #cbd5e1;
+}
+.uskill-save {
+  padding: 8px 22px; border-radius: 10px; cursor: pointer; font-size: 13.5px; font-weight: 700;
+  background: rgba(139, 92, 246, 0.35); border: 1px solid var(--uq-accent); color: #fff;
+}
+
+/* ---- Short laptop screens (1366x768): tighten so nothing hides ---- */
+@media (min-width: 1100px) and (max-height: 820px) {
+  .unique-topbar { padding: 6px 14px; }
+  .unique-main { padding: 8px 12px 6px; gap: 10px; }
+  .ufront-stage { padding-top: 0; }
+  .unique-wave { max-height: 44px; overflow: hidden; }
+  .uplayer-frame { height: 84px; }
+  .unique-bottom-strip { padding-bottom: 8px; }
+  .ustrip-note { display: none; }
+  .utown-quiet { display: none; }
+  .uplayer-presets { display: none; }
+}
+
+/* ---- Mobile: nodes as a row, columns stack, page scrolls ---- */
+@media (max-width: 1099px) {
+  .unique-shell { height: auto; min-height: 100dvh; overflow-y: auto; overflow-x: hidden; }
+  .unique-main { display: flex; flex-direction: column; overflow: visible; }
+  .ufront-col { overflow: visible; }
+  .ufront-lines { display: none; }
+  .ufront-nodes {
+    position: static; pointer-events: auto;
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    margin-bottom: 10px;
+  }
+  .ufront-node { position: static; min-width: 0; flex: 1 1 40%; }
+  .ufront-orb-row { flex-direction: column; }
+  .ufront-orb-row .uface-line { width: 100%; max-width: 440px; }
+  .ufront-orb-row .uface-line::before {
+    left: 50%; top: -9px; transform: translateX(-50%);
+    border-left: 9px solid transparent; border-right: 9px solid transparent;
+    border-bottom: 10px solid rgba(56, 189, 248, 0.35); border-right-color: transparent;
+  }
+  .uchat-col { overflow: visible; }
+  .uchat-panel { min-height: 68dvh; }
+  .unique-bottom-strip {
+    grid-template-columns: 1fr;
+    padding: 10px 12px 16px;
+  }
+  .uplayer-frame { height: 180px; }
+  .ustrip-note { display: block; }
 }
