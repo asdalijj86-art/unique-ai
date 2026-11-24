@@ -4,6 +4,11 @@
  * random single-use 6-digit codes (10 min), no accounts, nothing
  * persisted server-side. Locally we only remember this device's id +
  * display name so the user doesn't retype them.
+ *
+ * SECURITY (2026-11-25): /api/pair/create needs a logged-in account
+ * — postJson sends the session token (authFetch). Join/check/poll/
+ * send/leave stay code/session-scoped; the 6-digit code itself is
+ * their credential, with a 5-wrong-tries-per-IP limit on the server.
  */
 
 export type PairDevice = { deviceId: string; name: string; type: string };
@@ -81,8 +86,10 @@ export function saveDeviceName(name: string) {
   } catch { /* ignore */ }
 }
 
+import { authFetch } from "./auth";
+
 async function postJson(path: string, body: unknown): Promise<any> {
-  const res = await fetch(path, {
+  const res = await authFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),

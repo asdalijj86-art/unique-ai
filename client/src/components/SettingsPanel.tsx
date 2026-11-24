@@ -7,10 +7,13 @@
  * backup (🧠 دماغ کا بیک اپ — Phase 4) and chat clearing. Toggles
  * wired to chat.tsx state via props.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, MapPin, Mic, Hand, Volume2, Trash2, Smartphone } from 'lucide-react';
-import { testGeminiKey, parseGeminiKeys } from '../lib/api';
+import { testGeminiKey } from '../lib/api';
+import { changePassword, deleteOwnKey, getOwnKeyStatus, saveOwnKey } from '../lib/auth';
+import { rekeyVault } from '../lib/secure-app-storage';
+import { secureAppStorage } from '../lib/secure-app-storage';
 import { describeDeviceVoices, pickUrduMaleVoiceFrom, pickUrduFemaleVoiceFrom } from '../lib/persona';
 import PermissionsWarmup from './PermissionsWarmup';
 
@@ -192,12 +195,12 @@ function Toggle({
  * 2. Charon — گہری مردانہ آواز (deep masculine, Gemini)
  * 3. Fenrir — دوسری مردانہ آواز (second masculine voice, Gemini)
  * (Google female voice REMOVED per user demand 2026-10-19 — no female voice.)
- * Stored in localStorage; sent with TTS requests.
+ * Stored per-account (secure-app-storage); sent with TTS requests.
  */
 function VoiceSelector() {
   const [voice, setVoice] = useState(() => {
     try {
-      const stored = localStorage.getItem('unique-ai-voice');
+      const stored = secureAppStorage.getItem('unique-ai-voice');
       // A stale 'Google' selection (female, removed) shows as Salman.
       return stored === 'Google' ? 'Salman' : (stored || 'Salman');
     } catch { return 'Salman'; }
@@ -205,7 +208,7 @@ function VoiceSelector() {
 
   const select = (v: string) => {
     setVoice(v);
-    try { localStorage.setItem('unique-ai-voice', v); } catch { /* ignore */ }
+    try { secureAppStorage.setItem('unique-ai-voice', v); } catch { /* ignore */ }
   };
 
   const options = [
@@ -330,97 +333,80 @@ function DeviceVoiceDiagnostic() {
 }
 
 /**
- * ApiKeySetting — lets the user save their own free Gemini API key
- * (from aistudio.google.com) for voice. Stored only in this browser's
- * localStorage; sent with TTS requests so their personal quota is used.
+ * ApiKeySetting — the user's OWN free Gemini API key (from
+ * aistudio.google.com).
+ *
+ * SECURITY (2026-11-25): the key is NEVER stored in this browser.
+ * It goes to the server once (POST /api/auth/key), where it is
+ * AES-256-GCM encrypted at rest under this account only. The server
+ * uses ONLY the logged-in account's key — a guest with no key gets
+ * the honest no-key answer, never the owner's key. The UI shows only
+ * the masked tail (…last4), never the full key.
  */
 function ApiKeySetting() {
-  const [key, setKey] = useState(() => {
-    try { return localStorage.getItem('unique-ai-gemini-key') || ''; }
-    catch { return ''; }
-  });
-  const [saved, setSaved] = useState(() => {
-    try { return !!localStorage.getItem('unique-ai-gemini-key'); }
-    catch { return false; }
-  });
-  const [testing, setTesting] = useState(false);
-  const [testMsg, setTestMsg] = useState('');
+  const [key, setKey] = useState('');
+  const [status, setStatus] = useState<{ hasKey: boolean; keyLast4: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    getOwnKeyStatus().then(setStatus).catch(() => { /* key status unavailable */ });
+  }, []);
 
   const save = async () => {
+    const trimmed = key.trim();
+    if (!trimmed) { setMsg('پہلے key لکھیں۔'); return; }
+    setBusy(true);
+    setMsg('چیک ہو رہی ہے…');
     try {
-      const trimmed = key.trim();
-      if (!trimmed) {
-        localStorage.removeItem('unique-ai-gemini-key');
-        setSaved(false);
-        setTestMsg('');
+      const test = await testGeminiKey(trimmed);
+      if (!test.ok) {
+        setMsg(
+          test.errorType === 'quota' ? '⚠️ اس key کا کوٹہ ختم ہے — دوسری key لگائیں۔'
+          : test.errorType === 'auth' ? '❌ یہ key غلط/نامکمل ہے۔'
+          : '❓ key چیک نہ ہو سکی — نیٹ چیک کر کے دوبارہ کوشش کریں۔',
+        );
         return;
       }
-      // User may paste SEVERAL keys (one per line) — validate each, keep all.
-      // The app rotates between them when one's quota runs out.
-      // parseGeminiKeys also repairs keys that got line-wrapped while copying.
-      const keys = parseGeminiKeys(trimmed);
-      if (!keys.length) {
-        setTestMsg('❌ درست key نہیں ملی۔');
-        return;
-      }
-      setTesting(true);
-      setTestMsg(`${keys.length} keys چیک ہو رہی ہیں…`);
-      // Test all keys IN PARALLEL — sequential testing made the user wait
-      // out each key's full round-trip (up to ~12s apiece) one by one.
-      // Result labels and their Key 1/2/3 order are unchanged.
-      const results = await Promise.all(keys.map((k) => testGeminiKey(k).catch(() => null)));
-      let okCount = 0;
-      let firstOkIdx = -1;
-      const perKey: string[] = [];
-      results.forEach((result, i) => {
-        if (result?.ok) {
-          okCount++;
-          if (firstOkIdx < 0) firstOkIdx = i;
-          perKey.push(`Key ${i + 1}: ✅ ٹھیک`);
-        } else if (result?.errorType === 'quota') {
-          perKey.push(`Key ${i + 1}: ⚠️ کوٹہ ختم`);
-        } else if (result?.errorType === 'auth') {
-          perKey.push(`Key ${i + 1}: ❌ غلط/نامکمل`);
-        } else {
-          perKey.push(`Key ${i + 1}: ❓ چیک نہ ہو سکی`);
-        }
-      });
-      setTesting(false);
-      localStorage.setItem('unique-ai-gemini-key', keys.join('\n'));
-      // Start rotation at the first key that actually WORKED in the test
-      // above — not blindly at Key 1, which may be quota-dead and would
-      // otherwise be retried first on every single reply.
-      localStorage.setItem('unique-ai-gemini-key-index', String(firstOkIdx >= 0 ? firstOkIdx : 0));
-      setKey(keys.join('\n'));
-      setSaved(true);
-      setTestMsg(
-        (okCount > 0
-          ? `✅ ${keys.length} keys محفوظ — ${okCount} کام کر رہی ہیں۔ ایک ختم ہو تو app خود دوسری پر چلی جائے گی۔`
-          : '⚠️ Keys محفوظ ہیں مگر ابھی کوئی کام نہیں کر رہی۔')
-        + '\n' + perKey.join(' | ')
-      );
-    } catch { setTesting(false); }
+      const saved = await saveOwnKey(trimmed);
+      setStatus({ hasKey: true, keyLast4: saved.keyLast4 });
+      setKey('');
+      setMsg('✅ آپ کی key خفیہ کر کے محفوظ ہو گئی — صرف آپ کی درخواستیں اسے استعمال کریں گی۔');
+    } catch (e: any) {
+      setMsg(e?.message || 'محفوظ نہیں ہو سکی۔');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const clear = () => {
+  const clear = async () => {
+    setBusy(true);
     try {
-      localStorage.removeItem('unique-ai-gemini-key');
-      localStorage.removeItem('unique-ai-gemini-key-index');
-    } catch { /* ignore */ }
-    setKey('');
-    setSaved(false);
+      await deleteOwnKey();
+      setStatus({ hasKey: false, keyLast4: null });
+      setMsg('key ہٹا دی گئی — اب AI جواب نہیں دے گا جب تک نئی key نہ لگائیں۔');
+    } catch (e: any) {
+      setMsg(e?.message || 'نہیں ہٹ سکی۔');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-      <span className="setting-label">🔑 اپنی Gemini Keys (آواز کے لیے)</span>
-      <span style={{ fontSize: 11, opacity: 0.6 }}>ایک یا زیادہ keys — ہر نئی line میں ایک key۔ ایک ختم ہو تو app خود دوسری پر چلی جائے گی۔</span>
-      <textarea
+      <span className="setting-label">🔑 اپنی Gemini Key (آواز + چیٹ کے لیے)</span>
+      <span style={{ fontSize: 11, opacity: 0.6 }}>
+        {status?.hasKey
+          ? `محفوظ ہے — …${status.keyLast4} (مکمل key کبھی دکھائی نہیں دیتی)`
+          : 'ابھی کوئی key محفوظ نہیں — key کے بغیر AI جواب نہیں دے گا۔'}
+      </span>
+      <input
         value={key}
-        onChange={(e) => { setKey(e.target.value); setSaved(false); }}
-        placeholder={"aistudio.google.com سے free keys\nایک line میں ایک key"}
+        onChange={(e) => { setKey(e.target.value); }}
+        placeholder="aistudio.google.com سے free key"
         dir="ltr"
-        rows={3}
+        type="password"
+        autoComplete="off"
         style={{
           background: 'rgba(255,255,255,0.08)',
           border: '1px solid rgba(255,255,255,0.15)',
@@ -431,13 +417,13 @@ function ApiKeySetting() {
           width: '100%',
           boxSizing: 'border-box',
         }}
-        aria-label="Gemini API keys"
+        aria-label="Gemini API key"
       />
       <div style={{ display: 'flex', gap: 8 }}>
         <button
           type="button"
           onClick={save}
-          disabled={testing}
+          disabled={busy}
           style={{
             background: 'rgba(255,255,255,0.12)',
             border: '1px solid rgba(255,255,255,0.15)',
@@ -445,16 +431,17 @@ function ApiKeySetting() {
             padding: '4px 12px',
             color: 'inherit',
             fontSize: 13,
-            cursor: testing ? 'wait' : 'pointer',
-            opacity: testing ? 0.6 : 1,
+            cursor: busy ? 'wait' : 'pointer',
+            opacity: busy ? 0.6 : 1,
           }}
         >
-          {testing ? '⏳ چیک ہو رہی…' : saved ? '✅ محفوظ ہے' : 'محفوظ کریں'}
+          {busy ? '⏳ چیک ہو رہی…' : 'محفوظ کریں'}
         </button>
-        {saved && (
+        {status?.hasKey && (
           <button
             type="button"
             onClick={clear}
+            disabled={busy}
             style={{
               background: 'transparent',
               border: '1px solid rgba(255,100,100,0.3)',
@@ -472,8 +459,89 @@ function ApiKeySetting() {
       <span style={{ fontSize: 11, opacity: 0.6 }}>
         Free key: aistudio.google.com → Get API Key
       </span>
-      {testMsg && (
-        <span style={{ fontSize: 12, opacity: 0.9, whiteSpace: 'pre-line' }} dir="rtl">{testMsg}</span>
+      {msg && (
+        <span style={{ fontSize: 12, opacity: 0.9, whiteSpace: 'pre-line' }} dir="rtl">{msg}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * PasswordSection — change MY OWN password. The vault is rekeyed
+ * FIRST (memory re-encrypted with the new password); only then does
+ * the server password change. If the rekey fails (wrong old password
+ * / locked vault), NOTHING changes — fail closed, never orphan the
+ * memory.
+ */
+function PasswordSection() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const change = async () => {
+    if (next.length < 8) { setMsg('نیا پاسورڈ کم از کم 8 حرف کا ہو۔'); return; }
+    if (next !== confirm) { setMsg('دونوں نئے پاسورڈ ایک جیسے نہیں ہیں۔'); return; }
+    setBusy(true);
+    setMsg('');
+    try {
+      const rekeyed = await rekeyVault(current, next);
+      if (!rekeyed) {
+        setMsg('پرانا پاسورڈ غلط ہے یا میموری بند ہے — پاسورڈ نہیں بدلا۔');
+        return;
+      }
+      await changePassword(current, next);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      setMsg('✅ پاسورڈ بدل گیا — آپ کی خفیہ میموری اب نئے پاسورڈ سے کھلتی ہے۔');
+    } catch (e: any) {
+      setMsg(e?.message || 'پاسورڈ نہیں بدلا۔');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inputStyle = {
+    background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    padding: '6px 10px',
+    color: 'inherit',
+    fontSize: 13,
+    width: '100%',
+    boxSizing: 'border-box' as const,
+  };
+
+  return (
+    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+      <span className="setting-label">🔒 اپنا پاسورڈ بدلیں</span>
+      <span style={{ fontSize: 11, opacity: 0.6 }}>پاسورڈ ہی آپ کی خفیہ میموری کی چابی ہے — بدلنے پر میموری بھی نئے پاسورڈ سے خفیہ ہو جائے گی۔</span>
+      <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="پرانا پاسورڈ" autoComplete="current-password" style={inputStyle} />
+      <input type="password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="نیا پاسورڈ (8+ حرف)" autoComplete="new-password" style={inputStyle} />
+      <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="نیا پاسورڈ دوبارہ" autoComplete="new-password" style={inputStyle} />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          type="button"
+          onClick={change}
+          disabled={busy}
+          style={{
+            background: 'rgba(255,255,255,0.12)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 8,
+            padding: '4px 12px',
+            color: 'inherit',
+            fontSize: 13,
+            cursor: busy ? 'wait' : 'pointer',
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          {busy ? '…رک جائیں' : 'پاسورڈ بدلیں'}
+        </button>
+      </div>
+      {msg && (
+        <span style={{ fontSize: 12, opacity: 0.9, whiteSpace: 'pre-line' }} dir="rtl">{msg}</span>
       )}
     </div>
   );
@@ -583,6 +651,7 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
             </>
           )}
           <ApiKeySetting />
+          <PasswordSection />
           <VoiceSelector />
           <DeviceVoiceDiagnostic />
           <div className="settings-group">کنٹرول</div>

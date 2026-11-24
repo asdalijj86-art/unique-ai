@@ -18,6 +18,7 @@
  */
 
 import { useState, type RefObject } from 'react';
+import { secureAppStorage } from '@/lib/secure-app-storage';
 
 // ---------------------------------------------------------------------------
 // UniquePlayer — YouTube music, own name, real playback.
@@ -314,7 +315,7 @@ export function SupportButton({
             const digits = draft.replace(/\D/g, '');
             if (!digits) return;
             try {
-              window.localStorage.setItem(SUPPORT_NUMBER_KEY, digits);
+              secureAppStorage.setItem(SUPPORT_NUMBER_KEY, digits);
             } catch { /* ignore */ }
             onSaveNumber(digits);
             setAsking(false);
@@ -356,7 +357,7 @@ export function SupportButton({
 
 export function readSupportNumber(): string {
   try {
-    return window.localStorage.getItem(SUPPORT_NUMBER_KEY) || '';
+    return secureAppStorage.getItem(SUPPORT_NUMBER_KEY) || '';
   } catch {
     return '';
   }

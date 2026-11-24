@@ -3,6 +3,7 @@
 // in Urdu + download buttons for index.html / manifest.json / sw.js.
 
 import { useEffect, useState } from 'react';
+import { authFetch } from '@/lib/auth';
 import { Download, Loader2, Smartphone, X } from 'lucide-react';
 
 type Props = {
@@ -26,7 +27,7 @@ type BuildAppResult = {
 };
 
 async function buildApp({ description }: { description: string }): Promise<BuildAppResult> {
-  const res = await fetch('/api/build-app', {
+  const res = await authFetch('/api/build-app', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ description }),

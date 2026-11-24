@@ -5,6 +5,7 @@
 // تمام UI اردو میں۔
 
 import { useRef, useState } from 'react';
+import { authFetch } from '@/lib/auth';
 import { Loader2 } from 'lucide-react';
 
 type VideoPackage = {
@@ -143,7 +144,7 @@ export default function VideoUpload() {
         if (isFinite(e) && e > s) return ` (ویڈیو کا حصہ ${fmtDuration(s)} سے ${fmtDuration(e)} تک استعمال کریں)`;
         return '';
       })();
-      const res = await fetch('/api/create-video', {
+      const res = await authFetch('/api/create-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idea: idea.trim() + trimNote, platform, language }),

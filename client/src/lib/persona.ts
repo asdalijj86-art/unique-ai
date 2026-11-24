@@ -19,7 +19,11 @@
  * Everything in this module is PURE (no window/localStorage access at
  * import time) so the routing can be unit-tested headlessly with the
  * real code — the same standard as surah-names / voice-commands.
+ * (The two readStored* helpers below are the exception: they read the
+ * per-account namespaced store via secure-app-storage, 2026-11-25.)
  */
+
+import { secureAppStorage } from "./secure-app-storage";
 
 export type Persona = 'unique' | 'uniqa';
 export type ToneMode = 'neutral' | 'serious' | 'romantic';
@@ -29,7 +33,9 @@ export const TONE_STORAGE_KEY = 'unique-ai-tone';
 
 export function readStoredPersona(): Persona {
   try {
-    return window.localStorage.getItem(PERSONA_STORAGE_KEY) === 'unique' ? 'unique' : 'uniqa';
+    // SECURITY (2026-11-25): per-account namespaced storage — one
+    // account's persona never leaks into another's.
+    return secureAppStorage.getItem(PERSONA_STORAGE_KEY) === 'unique' ? 'unique' : 'uniqa';
   } catch {
     return 'uniqa';
   }
@@ -37,7 +43,7 @@ export function readStoredPersona(): Persona {
 
 export function readStoredTone(): ToneMode {
   try {
-    const t = window.localStorage.getItem(TONE_STORAGE_KEY);
+    const t = secureAppStorage.getItem(TONE_STORAGE_KEY);
     return t === 'serious' || t === 'romantic' ? t : 'neutral';
   } catch {
     return 'neutral';

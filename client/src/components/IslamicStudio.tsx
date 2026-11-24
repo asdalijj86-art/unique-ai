@@ -21,6 +21,7 @@
 //    Surah:Ayah or general collection reference; no hadith
 //    numbers are invented.
 import { useEffect, useState } from 'react';
+import { secureAppStorage } from '@/lib/secure-app-storage';
 import { X } from 'lucide-react';
 
 export function isIslamicStudioOrder(text: string): boolean {
@@ -85,7 +86,7 @@ export default function IslamicStudio({ onClose }: { onClose: () => void }) {
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState<number | null>(null);
   const [repeatAyah, setRepeatAyah] = useState(false);
-  const [bookmarks, setBookmarks] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('unique-ai-quran-bookmarks') || '[]'); } catch { return []; } });
+  const [bookmarks, setBookmarks] = useState<string[]>(() => { try { return JSON.parse(secureAppStorage.getItem('unique-ai-quran-bookmarks') || '[]'); } catch { return []; } });
   const [tafsir, setTafsir] = useState('');
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -104,7 +105,7 @@ export default function IslamicStudio({ onClose }: { onClose: () => void }) {
       const j = await r.json(); if (j.code !== 200) throw new Error('surah load failed');
       const [ar, ur, en] = j.data; setSurahName(`${ar.englishName} — ${ar.name}`);
       setAyahs(ar.ayahs.map((a: any, i: number) => ({ number: a.number, inSurah: a.numberInSurah, arabic: a.text, urdu: ur.ayahs[i]?.text || '', english: en.ayahs[i]?.text || '' })));
-      localStorage.setItem('unique-ai-quran-progress', JSON.stringify({ surah: n, at: Date.now() }));
+      secureAppStorage.setItem('unique-ai-quran-progress', JSON.stringify({ surah: n, at: Date.now() }));
     } catch { setError('This Surah could not be loaded from the free Quran API. Please retry.'); }
     setLoading('');
   }
@@ -152,7 +153,7 @@ export default function IslamicStudio({ onClose }: { onClose: () => void }) {
   }
   function toggleBookmark(key: string) {
     const next = bookmarks.includes(key) ? bookmarks.filter((b) => b !== key) : [...bookmarks, key];
-    setBookmarks(next); localStorage.setItem('unique-ai-quran-bookmarks', JSON.stringify(next));
+    setBookmarks(next); secureAppStorage.setItem('unique-ai-quran-bookmarks', JSON.stringify(next));
   }
   function answerQa() {
     const q = qa.toLowerCase();

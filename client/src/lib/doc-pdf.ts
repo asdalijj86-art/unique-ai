@@ -10,10 +10,13 @@
  * result is a REAL .pdf file download on Android Chrome and ChromeOS
  * alike — no server, no external file hosting, no print dialog.
  *
- * The module also remembers the LAST generated document (localStorage)
+ * The module also remembers the LAST generated document
+ * (per-account namespaced storage, 2026-11-25)
  * so the chat can answer «ڈاؤن لوڈ لنک دو» / «PDF دو» with an actual
  * download card instead of the old dead end ("permission نہیں ہے").
  */
+
+import { secureAppStorage } from "./secure-app-storage";
 
 export type SavedDocument = {
   kind: 'resume' | 'invoice' | 'assignment';
@@ -31,7 +34,8 @@ const LAST_DOC_KEY = 'unique-ai-last-document';
 export function saveLastDocument(doc: Omit<SavedDocument, 'savedAt'>): void {
   try {
     const full: SavedDocument = { ...doc, savedAt: Date.now() };
-    localStorage.setItem(LAST_DOC_KEY, JSON.stringify(full));
+    // SECURITY (2026-11-25): per-account namespaced storage.
+    secureAppStorage.setItem(LAST_DOC_KEY, JSON.stringify(full));
   } catch {
     // Storage full/blocked — the in-tool download buttons still work;
     // only the chat shortcut loses its memory.
@@ -40,7 +44,7 @@ export function saveLastDocument(doc: Omit<SavedDocument, 'savedAt'>): void {
 
 export function loadLastDocument(): SavedDocument | null {
   try {
-    const raw = localStorage.getItem(LAST_DOC_KEY);
+    const raw = secureAppStorage.getItem(LAST_DOC_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SavedDocument;
     if (!parsed || typeof parsed.html !== 'string' || !parsed.html) return null;

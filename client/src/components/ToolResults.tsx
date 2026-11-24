@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { secureAppStorage } from '@/lib/secure-app-storage';
+import { authFetch, getAuthToken } from '@/lib/auth';
 import type { ChatAction } from '@/lib/api';
 import {
   loadNotes,
@@ -16,6 +18,16 @@ import {
 // which persona is speaking, defaulting to Uniqa, so a note Unique
 // saves never lands in Uniqa's memory and vice versa.
 // ---------------------------------------------------------------------------
+
+/** SECURITY (2026-11-25): /apps/:id* are plain <a href> GETs — they
+ *  cannot carry an Authorization header, so the session token rides
+ *  as ?t= for the owner's own built file only. Same-origin only. */
+function withSessionToken(url: string | undefined): string | undefined {
+  if (!url) return url;
+  const token = getAuthToken();
+  if (!token) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}t=${encodeURIComponent(token)}`;
+}
 
 function formatCountdown(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -76,7 +88,7 @@ function TimerView({ seconds, label, onDone }: { seconds: number; label: string;
 function NotesView({ initialText, mode, persona = 'uniqa' }: { initialText?: string; mode: 'save' | 'list'; persona?: MemoryPersona }) {
   const [notes, setNotes] = useState<Note[]>(() => {
     try {
-      return loadNotes(window.localStorage, persona);
+      return loadNotes(secureAppStorage, persona);
     } catch {
       return [];
     }
@@ -89,8 +101,8 @@ function NotesView({ initialText, mode, persona = 'uniqa' }: { initialText?: str
         text: initialText,
         createdAt: new Date().toISOString(),
       };
-      const next = [note, ...loadNotes(window.localStorage, persona)];
-      saveNotes(window.localStorage, next, persona);
+      const next = [note, ...loadNotes(secureAppStorage, persona)];
+      saveNotes(secureAppStorage, next, persona);
       setNotes(next);
       setSaved(true);
     }
@@ -98,7 +110,7 @@ function NotesView({ initialText, mode, persona = 'uniqa' }: { initialText?: str
   }, [mode]);
   const removeNote = (id: string) => {
     const next = notes.filter((n) => n.id !== id);
-    saveNotes(window.localStorage, next, persona);
+    saveNotes(secureAppStorage, next, persona);
     setNotes(next);
   };
   if (notes.length === 0) {
@@ -216,7 +228,7 @@ function BuildAppView({ jobId, title, onReady, onFailed, onSettled }: { jobId: s
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       try {
-        const res = await fetch(`/api/build/status/${encodeURIComponent(jobId)}`);
+        const res = await authFetch(`/api/build/status/${encodeURIComponent(jobId)}`);
         if (cancelled) return;
         if (res.status === 404) {
           setGone(true);
@@ -276,10 +288,10 @@ function BuildAppView({ jobId, title, onReady, onFailed, onSettled }: { jobId: s
         <div data-testid="build-app-status">
           <div className="tool-text-block">✅ آپ کی چیز ریڈی ہو گئی ہے</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <a href={job.url} target="_blank" rel="noopener noreferrer" className="tool-action-button" data-testid="button-build-open">
+            <a href={withSessionToken(job.url)} target="_blank" rel="noopener noreferrer" className="tool-action-button" data-testid="button-build-open">
               🌐 کھولیں
             </a>
-            <a href={job.downloadUrl} download className="tool-action-button" data-testid="button-build-download">
+            <a href={withSessionToken(job.downloadUrl)} download className="tool-action-button" data-testid="button-build-download">
               📥 ڈاؤن لوڈ
             </a>
           </div>

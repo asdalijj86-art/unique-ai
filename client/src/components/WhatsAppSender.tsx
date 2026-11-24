@@ -7,6 +7,7 @@
  * Uses the unofficial Baileys client (user accepted ban risk).
  */
 import { useState, useEffect, useRef } from 'react';
+import { authFetch } from '@/lib/auth';
 import { Loader2, QrCode, Send, RefreshCw } from 'lucide-react';
 
 type WaStatus = {
@@ -26,7 +27,7 @@ export default function WhatsAppSender() {
 
   async function fetchStatus() {
     try {
-      const res = await fetch('/api/whatsapp/status');
+      const res = await authFetch('/api/whatsapp/status');
       const data = await res.json();
       setStatus(data);
     } catch {
@@ -62,7 +63,7 @@ export default function WhatsAppSender() {
     }
     setSending(true);
     try {
-      const res = await fetch('/api/whatsapp/send', {
+      const res = await authFetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ to: to.trim(), text: message.trim() }),

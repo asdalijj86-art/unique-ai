@@ -55,12 +55,53 @@ const fetchPageText = async () => null;
 import { MsEdgeTTS, OUTPUT_FORMAT } from "./vendor/msedge-tts/index.js";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { registerPairingRoutes } from "./pairing.js";
+import {
+  authRouter,
+  requireAuth,
+  requireOwner,
+  resolveGeminiKey,
+  noKeyResponse,
+  checkRateLimit,
+  pairingSecurity,
+  resolveUserFromToken,
+} from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.use(cors());
+// CORS — LOCKED (2026-11-25 security build): the app's own origins
+// only. No wildcard cors() any more: a foreign web page can no longer
+// call this server's API from a browser. Requests with no Origin
+// (same-origin fetch, curl) still pass; the auth gate below is the
+// real lock for those.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS
+  || "http://localhost:5000,http://127.0.0.1:5000,https://unique-ai-n4p3.onrender.com")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+}));
 app.use(express.json({ limit: "2mb" }));
+
+// --- Security: accounts + per-user keys + intrusion alerts -------------
+// Auth router first (its public routes: status/setup/login). Then the
+// /api gate: EVERY /api route needs a valid session token — except
+// the health check and the pairing relay's code-scoped endpoints
+// (join/check/poll/send/leave/qr), where the 6-digit pairing code
+// itself is the credential. /api/pair/create stays behind the gate.
+app.use("/api/auth", authRouter);
+app.use("/api", (req, res, next) => {
+  if (req.path === "/healthz") return next();
+  if (
+    req.path === "/pair/join" || req.path === "/pair/check" ||
+    req.path === "/pair/poll" || req.path === "/pair/send" ||
+    req.path === "/pair/leave" || req.path === "/pair/qr"
+  ) return next();
+  return requireAuth(req, res, next);
+});
 
 // ---------------------------------------------------------------------------
 // Unique AI system prompt — DO NOT REWORD. This is the locked identity.
@@ -330,7 +371,7 @@ async function executeDataIntent(dc, lang) {
 // POST /api/openai/chat — chat with Gemini (+ smart-brain intent actions)
 // ---------------------------------------------------------------------------
 app.post("/api/openai/chat", async (req, res) => {
-  const { messages, stream, language, userApiKey, persona, tone, memory, team } = req.body ?? {};
+  const { messages, stream, language, persona, tone, memory, team } = req.body ?? {};
   if (!validMessages(messages)) {
     res.status(400).json({ error: "پیغام درست نہیں ہے۔ دوبارہ کوشش کریں۔" });
     return;
@@ -342,10 +383,16 @@ app.post("/api/openai/chat", async (req, res) => {
   // Manual language selection (from the UI language chips) overrides auto-detection.
   const lang = ['ur', 'roman', 'en', 'ar'].includes(language) ? language : detectLanguage(latestUserText);
   const { intent } = c;
-  // The user's own key (sent by the app when saved in Settings) takes
-  // priority everywhere in this handler — same rule as the speech route;
-  // the server env key is only a fallback.
-  const chatApiKey = (typeof userApiKey === "string" && userApiKey.trim()) || process.env.GEMINI_API_KEY;
+  // Security (2026-11-25): the key below is ONLY the logged-in user's
+  // OWN stored key (auth.js resolveGeminiKey). A guest with no key gets
+  // the honest no-key answer — the owner's key is NEVER used for them.
+  const chatApiKey = resolveGeminiKey(req);
+  // Per-user daily chat cap (guests 60, owner 300).
+  const chatLimit = checkRateLimit(req.user, "chat");
+  if (!chatLimit.ok) {
+    res.status(429).json({ error: "آج کی چیٹ کی حد ختم — کل دوبارہ کوشش کریں۔" });
+    return;
+  }
 
   if (intent === "open_website" && c.website) {
     res.json({
@@ -693,6 +740,7 @@ app.post("/api/openai/chat", async (req, res) => {
       kind: c.build.kind,
       lang,
       apiKey,
+      ownerId: req.user.id, // ISOLATION: the built app belongs to this account only
     });
     const note = c.build.kind === "vpn_interface" ? `${buildVpnNoteText(lang)} ` : "";
     res.json({
@@ -721,7 +769,7 @@ app.post("/api/openai/chat", async (req, res) => {
   try {
     const apiKey = chatApiKey;
     if (!apiKey) {
-      res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔", errorType: "auth" });
+      noKeyResponse(res);
       return;
     }
 
@@ -1035,9 +1083,9 @@ app.post("/api/build-app", async (req, res) => {
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiKey(req);
   if (!apiKey) {
-    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    noKeyResponse(res);
     return;
   }
 
@@ -1119,9 +1167,9 @@ app.post("/api/translate", async (req, res) => {
     res.status(400).json({ error: "ترجمے والا متن درست نہیں ہے۔" });
     return;
   }
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiKey(req);
   if (!apiKey) {
-    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    noKeyResponse(res);
     return;
   }
   try {
@@ -1159,9 +1207,9 @@ app.post("/api/read-page", async (req, res) => {
     res.status(400).json({ error: "صفحہ پڑھا نہیں جا سکا۔ لنک چیک کریں۔" });
     return;
   }
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiKey(req);
   if (!apiKey) {
-    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    noKeyResponse(res);
     return;
   }
   try {
@@ -1199,9 +1247,9 @@ app.post("/api/draft-email", async (req, res) => {
     res.status(400).json({ error: "ای میل کا مقصد درست نہیں ہے۔" });
     return;
   }
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiKey(req);
   if (!apiKey) {
-    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    noKeyResponse(res);
     return;
   }
   try {
@@ -1239,9 +1287,9 @@ app.post("/api/transcribe", async (req, res) => {
     res.status(400).json({ error: "آڈیو درست نہیں ہے۔" });
     return;
   }
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiKey(req);
   if (!apiKey) {
-    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    noKeyResponse(res);
     return;
   }
   try {
@@ -1286,7 +1334,7 @@ async function getWa() {
   return _wa;
 }
 
-app.get('/api/whatsapp/status', async (req, res) => {
+app.get('/api/whatsapp/status', requireOwner, async (req, res) => {
   try {
     const wa = await getWa();
     res.json(wa.getStatus());
@@ -1295,7 +1343,7 @@ app.get('/api/whatsapp/status', async (req, res) => {
   }
 });
 
-app.post('/api/whatsapp/send', async (req, res) => {
+app.post('/api/whatsapp/send', requireOwner, async (req, res) => {
   const { to, text } = req.body ?? {};
   if (!to || !text) {
     res.status(400).json({ error: 'نمبر اور ٹیکسٹ دونوں ضروری ہیں۔' });
@@ -1348,6 +1396,11 @@ function parseNewsRss(xml) {
 
 // GET /api/news → { items: [{ title, link, source }] }
 app.get('/api/news', async (req, res) => {
+  const searchLimit = checkRateLimit(req.user, "api");
+  if (!searchLimit.ok) {
+    res.status(429).json({ error: "آج کی حد ختم — کل دوبارہ کوشش کریں۔" });
+    return;
+  }
   try {
     if (newsCache.data && Date.now() - newsCache.at < NEWS_CACHE_TTL) {
       res.json({ items: newsCache.data });
@@ -1483,7 +1536,10 @@ app.get('/api/quran/ayah/:surah/:ayah', async (req, res) => {
 // Device pairing relay (phone ⇄ laptop app link): /api/pair/* — in-memory,
 // single-use codes; see pairing.js. Registered here (before the SPA
 // catch-all) so its GET /api/pair/qr route is reachable.
-registerPairingRoutes(app);
+// Security (2026-11-25): /api/pair/create needs a logged-in account
+// (the global /api gate skips the code-scoped relay endpoints, so the
+// create check lives inside pairing.js via requireAuth).
+registerPairingRoutes(app, undefined, { requireAuth, onBruteForce: pairingSecurity.bruteForce });
 
 // ---------------------------------------------------------------------------
 // Brain builder (Phase 3, احمد): the workshop behind the conversation.
@@ -1498,7 +1554,7 @@ registerPairingRoutes(app);
 const builderService = createBuilderService({
   generate: makeGeminiGenerator({ timeoutMs: Number(process.env.BUILDER_GEN_TIMEOUT_MS || 150000) }),
 });
-registerBuilderRoutes(app, builderService);
+registerBuilderRoutes(app, builderService, { resolveUserFromToken });
 
 // POST /api/phone-lookup — Abstract API phone intelligence:
 // returns carrier, line type, city, region, country for any international number.
@@ -1567,9 +1623,9 @@ app.post("/api/create-video", async (req, res) => {
     res.status(400).json({ error: "ویڈیو کا آئیڈیا درست نہیں ہے۔" });
     return;
   }
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiKey(req);
   if (!apiKey) {
-    res.status(503).json({ error: "Gemini API key لوڈ نہیں ہوئی۔" });
+    noKeyResponse(res);
     return;
   }
   try {
@@ -1613,20 +1669,20 @@ app.post("/api/create-video", async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/assignment/generate — Professional assignment maker (study tool)
-// Accepts optional `userApiKey` in body (user's own key takes priority).
+// Uses the LOGGED-IN user's own stored key (auth.js resolveGeminiKey).
 // Body: { name, rollNo, classLevel, subject, topic, language: "ur"|"en",
-//         length: "short"|"medium"|"long", userApiKey }
+//         length: "short"|"medium"|"long" }
 // Returns: { ok: true, content } where content is the full assignment text.
 // ---------------------------------------------------------------------------
 app.post("/api/assignment/generate", async (req, res) => {
-  const { name, rollNo, classLevel, subject, topic, language, length, userApiKey } = req.body ?? {};
+  const { name, rollNo, classLevel, subject, topic, language, length } = req.body ?? {};
   if (typeof topic !== "string" || topic.trim().length < 2) {
     res.status(400).json({ error: "براہ کرم اسائنمنٹ کا موضوع لکھیں۔" });
     return;
   }
-  const apiKey = (typeof userApiKey === "string" && userApiKey.trim()) || process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiKey(req);
   if (!apiKey) {
-    res.status(503).json({ error: "اسائنمنٹ بنانے کے لیے API key درکار ہے۔ Settings میں اپنی Gemini key لگائیں۔" });
+    noKeyResponse(res);
     return;
   }
 
@@ -1750,7 +1806,7 @@ app.post("/api/tts/test-key", async (req, res) => {
 });
 
 // POST /api/openai/speech — Gemini TTS with selectable voice
-// Accepts optional `userApiKey` in body (user's own key takes priority).
+// Uses the LOGGED-IN user's own stored key (auth.js resolveGeminiKey).
 // Accepts optional `voiceName`: "Charon" (deep male, default) or "Fenrir"
 // (second male voice) — Unique's voices. "Sulafat" (warm FEMALE) is
 // UNIQA's voice (Phase 2): it is reachable ONLY when the client is
@@ -1758,7 +1814,7 @@ app.post("/api/tts/test-key", async (req, res) => {
 // as a fallback for Unique. Falls back to Charon for unknown values.
 // ---------------------------------------------------------------------------
 app.post("/api/openai/speech", async (req, res) => {
-  const { text, userApiKey, voiceName } = req.body ?? {};
+  const { text, voiceName } = req.body ?? {};
   if (typeof text !== "string" || text.trim().length === 0) {
     res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
     return;
@@ -1767,11 +1823,14 @@ app.post("/api/openai/speech", async (req, res) => {
   // Only allow known voices: Unique's two male voices + Uniqa's female one.
   const voice = voiceName === "Fenrir" ? "Fenrir" : voiceName === "Sulafat" ? "Sulafat" : "Charon";
 
-  const apiKey = (typeof userApiKey === "string" && userApiKey.trim()) || process.env.GEMINI_API_KEY;
+  const ttsLimit = checkRateLimit(req.user, "tts");
+  if (!ttsLimit.ok) {
+    res.status(429).json({ error: "آج کی آواز کی حد ختم — کل دوبارہ کوشش کریں۔" });
+    return;
+  }
+  const apiKey = resolveGeminiKey(req);
   if (!apiKey) {
-    res.status(503).json({
-      error: "آواز میں جواب سنانے کے لیے ابھی API key ترتیب نہیں دی گئی۔ فی الحال چیٹ استعمال کریں۔",
-    });
+    noKeyResponse(res);
     return;
   }
 
@@ -1863,6 +1922,11 @@ app.post("/api/tts/google", async (req, res) => {
   const { text } = req.body ?? {};
   if (typeof text !== "string" || text.trim().length === 0) {
     res.status(400).json({ error: "سنائے جانے والا متن درست نہیں ہے۔" });
+    return;
+  }
+  const ttsLimit = checkRateLimit(req.user, "tts");
+  if (!ttsLimit.ok) {
+    res.status(429).json({ error: "آج کی آواز کی حد ختم — کل دوبارہ کوشش کریں۔" });
     return;
   }
 

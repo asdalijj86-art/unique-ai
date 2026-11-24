@@ -9,6 +9,7 @@
  * All text served verbatim from api.alquran.cloud via our server cache.
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { authFetch } from '@/lib/auth';
 import { Loader2, Search, Volume2, Square, BookOpen, ArrowRight, ListMusic } from 'lucide-react';
 import { synthesizeMairaSpeech, synthesizeEdgeSpeech, TTS_PLAYBACK_RATE } from '@/lib/api';
 import { synthesizeSalmanClientSide } from '@/lib/edge-tts';
@@ -51,7 +52,7 @@ export default function QuranReader({ autoplayRequest }: { autoplayRequest?: Qur
   const stopAllRef = useRef(false);
 
   useEffect(() => {
-    fetch('/api/quran/surahs')
+    authFetch('/api/quran/surahs')
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) setSurahs(data);
@@ -204,7 +205,7 @@ export default function QuranReader({ autoplayRequest }: { autoplayRequest?: Qur
     setLoadingSurah(true);
     setError('');
     try {
-      const res = await fetch(`/api/quran/surah/${n}`);
+      const res = await authFetch(`/api/quran/surah/${n}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'error');
       setSelected(data);

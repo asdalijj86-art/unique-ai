@@ -30,6 +30,7 @@
 //   downloaded, so the panel says so plainly.
 
 import { useEffect, useRef, useState } from 'react';
+import { secureAppStorage } from '@/lib/secure-app-storage';
 import { Loader2, X } from 'lucide-react';
 import { synthesizeMairaSpeech, synthesizeEdgeSpeech } from '@/lib/api';
 import { synthesizeSalmanClientSide, synthesizeUniqaClientSide } from '@/lib/edge-tts';
@@ -537,14 +538,14 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
   }, [initialPrompt, autoStart, autoStartSignal]);
   const [locks, setLocks] = useState<CharacterLock[]>(() => {
     try {
-      return loadCharacterLocks(window.localStorage);
+      return loadCharacterLocks(secureAppStorage);
     } catch {
       return [];
     }
   });
   const [job, setJob] = useState<VideoJobState | null>(() => {
     try {
-      return loadVideoMakerJob(window.localStorage);
+      return loadVideoMakerJob(secureAppStorage);
     } catch {
       return null;
     }
@@ -564,7 +565,7 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
   function updateJob(next: VideoJobState) {
     setJob(next);
     try {
-      saveVideoMakerJob(window.localStorage, next);
+      saveVideoMakerJob(secureAppStorage, next);
     } catch {
       // status answers fall back to the live card
     }
@@ -572,7 +573,7 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
 
   function refreshLocks() {
     try {
-      setLocks(loadCharacterLocks(window.localStorage));
+      setLocks(loadCharacterLocks(secureAppStorage));
     } catch {
       // ignore
     }
@@ -587,7 +588,7 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
     reader.onload = () => {
       const dataUrl = String(reader.result || '');
       const current = locks.find((c) => c.name === name);
-      upsertCharacterLock(window.localStorage, {
+      upsertCharacterLock(secureAppStorage, {
         name,
         voice: current?.voice ?? autoVoiceFor(name),
         imageDataUrl: dataUrl,
@@ -599,7 +600,7 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
 
   function setVoice(name: string, voice: 'male' | 'female') {
     const current = locks.find((c) => c.name === name);
-    upsertCharacterLock(window.localStorage, {
+    upsertCharacterLock(secureAppStorage, {
       name,
       voice,
       imageDataUrl: current?.imageDataUrl ?? null,
@@ -659,7 +660,7 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
     // AUTOMATIC locks: every character gets a lock without asking.
     let allLocks: CharacterLock[];
     try {
-      allLocks = ensureCharacterLocks(window.localStorage, scenes);
+      allLocks = ensureCharacterLocks(secureAppStorage, scenes);
       refreshLocks();
     } catch {
       allLocks = locks;

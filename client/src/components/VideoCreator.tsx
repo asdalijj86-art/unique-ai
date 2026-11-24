@@ -5,6 +5,7 @@
 // All UI in Urdu. Nothing left to do manually.
 
 import { useState } from 'react';
+import { authFetch } from '@/lib/auth';
 import { Loader2, X } from 'lucide-react';
 
 type VideoPackage = {
@@ -60,7 +61,7 @@ export default function VideoCreator({ onClose, embedded = false }: { onClose: (
     setError('');
     setPkg(null);
     try {
-      const res = await fetch('/api/create-video', {
+      const res = await authFetch('/api/create-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idea: idea.trim(), platform, language }),

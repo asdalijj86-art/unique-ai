@@ -7,10 +7,16 @@
  *
  * Design constraints (honest scope): this is an APP-TO-APP link while
  * the app is open on both devices — NOT remote control of the phone.
- * No accounts, no database: pending codes and sessions live in RAM
- * only, codes are random + single-use + expire in 10 minutes, and a
- * session dies on disconnect or after 30 minutes idle (or on server
- * restart — acceptable on the free tier and stated in the UI).
+ * No database: pending codes and sessions live in RAM only, codes are
+ * random + single-use + expire in 10 minutes, and a session dies on
+ * disconnect or after 30 minutes idle (or on server restart —
+ * acceptable on the free tier and stated in the UI).
+ *
+ * SECURITY (2026-11-25): /api/pair/create needs a logged-in account
+ * (requireAuth, wired from index.js). Join attempts are rate-limited
+ * per IP — 5 wrong codes in 10 minutes blocks further joins from that
+ * IP for 10 minutes and the event goes to the owner's security log
+ * (a 6-digit code is only 1M combinations, so guessing must be slow).
  */
 import { randomInt, randomUUID } from "node:crypto";
 import QRCode from "qrcode";
@@ -203,25 +209,64 @@ export function createPairingRelay(now = () => Date.now()) {
   return { createCode, join, checkCode, poll, send, leave, _sizes: () => ({ codes: codes.size, sessions: sessions.size }) };
 }
 
-export function registerPairingRoutes(app, relay = createPairingRelay()) {
+export function registerPairingRoutes(app, relay = createPairingRelay(), opts = {}) {
   const fail = (res, status, error, message) => res.status(status).json({ error, message });
+  const requireAuth = opts.requireAuth;
+  const onBruteForce = opts.onBruteForce;
 
-  app.post("/api/pair/create", (req, res) => {
+  // Wrong-join counter per IP: 5 wrong codes in 10 min -> block 10 min.
+  const wrongJoins = new Map(); // ip -> { count, firstAt, blockedUntil }
+  function joinBlocked(ip) {
+    const rec = wrongJoins.get(ip);
+    if (!rec) return false;
+    const now = Date.now();
+    if (rec.blockedUntil && now < rec.blockedUntil) return true;
+    if (now - rec.firstAt > 10 * 60 * 1000) { wrongJoins.delete(ip); return false; }
+    return false;
+  }
+  function recordWrongJoin(ip) {
+    const now = Date.now();
+    const rec = wrongJoins.get(ip) || { count: 0, firstAt: now, blockedUntil: 0 };
+    if (now - rec.firstAt > 10 * 60 * 1000) { rec.count = 0; rec.firstAt = now; rec.blockedUntil = 0; }
+    rec.count += 1;
+    if (rec.count >= 5) {
+      rec.blockedUntil = now + 10 * 60 * 1000;
+      if (typeof onBruteForce === "function") {
+        onBruteForce(ip, "pairing کوڈ پر 10 منٹ میں 5 غلط کوششیں — اس IP سے جوڑنا 10 منٹ کے لیے بند");
+      }
+    }
+    wrongJoins.set(ip, rec);
+    return !!rec.blockedUntil && now < rec.blockedUntil;
+  }
+  function clientIp(req) {
+    const fwd = req.headers["x-forwarded-for"];
+    if (typeof fwd === "string" && fwd) return fwd.split(",")[0].trim();
+    return req.socket?.remoteAddress || req.ip || "?";
+  }
+
+  app.post("/api/pair/create", ...(requireAuth ? [requireAuth] : []), (req, res) => {
     const result = relay.createCode(req.body ?? {});
     if (!result.ok) return fail(res, 400, result.error, "ڈیوائس کی شناخت نہیں ملی۔");
     res.json({ code: result.code, expiresInSec: result.expiresInSec });
   });
 
   app.post("/api/pair/join", (req, res) => {
+    const ip = clientIp(req);
+    if (joinBlocked(ip)) {
+      return fail(res, 429, "too_many_attempts", "بہت کوششیں ہو گئیں — 10 منٹ بعد نیا کوڈ بنائیں۔");
+    }
     const { code, ...device } = req.body ?? {};
     const result = relay.join(code, device);
     if (!result.ok) {
-      if (result.error === "code_not_found")
+      if (result.error === "code_not_found") {
+        recordWrongJoin(ip);
         return fail(res, 404, result.error, "یہ کوڈ درست نہیں یا ختم ہو چکا ہے — نیا کوڈ بنائیں۔");
+      }
       if (result.error === "self_join")
         return fail(res, 400, result.error, "اپنے ہی کوڈ سے نہیں جُڑ سکتے — کوڈ دوسری ڈیوائس پر ڈالیں۔");
       return fail(res, 400, result.error, "جوڑنے میں مسئلہ ہوا۔");
     }
+    wrongJoins.delete(ip);
     res.json({ sessionId: result.sessionId, peer: result.peer });
   });
 

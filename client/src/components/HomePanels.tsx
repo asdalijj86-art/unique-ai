@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { secureAppStorage } from '@/lib/secure-app-storage';
 import { AGENT_DEFS, agentLabel, type AgentTaskState } from '../lib/agent-team';
 import { loadLearnings, saveLearnings, type Learning, type MemoryPersona } from '../lib/learnings';
 import { loadNotes, saveNotes, type Note } from '../lib/memory';
@@ -78,12 +79,12 @@ export function MemoryPanel({
 
   const refresh = () => {
     try {
-      setNotes(loadNotes(window.localStorage, viewPersona));
+      setNotes(loadNotes(secureAppStorage, viewPersona));
     } catch {
       setNotes([]);
     }
     try {
-      setLearnings(loadLearnings(window.localStorage, viewPersona));
+      setLearnings(loadLearnings(secureAppStorage, viewPersona));
     } catch {
       setLearnings([]);
     }
@@ -109,13 +110,13 @@ export function MemoryPanel({
 
   const deleteNote = (id: string) => {
     const next = notes.filter((n) => n.id !== id);
-    saveNotes(window.localStorage, next, viewPersona);
+    saveNotes(secureAppStorage, next, viewPersona);
     setNotes(next);
   };
 
   const deleteLearning = (id: string) => {
     const next = learnings.filter((l) => l.id !== id);
-    saveLearnings(window.localStorage, next, viewPersona);
+    saveLearnings(secureAppStorage, next, viewPersona);
     setLearnings(next);
   };
 

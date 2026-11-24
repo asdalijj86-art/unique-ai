@@ -24,6 +24,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { authFetch } from '@/lib/auth';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { CameraCardStatus } from './FrontExtras';
@@ -127,7 +128,7 @@ export default function WorldMonitor({
   // --- Real news (same /api/news fetch as WorldPanel) ------------------
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/news')
+    authFetch('/api/news')
       .then((r) => (r.ok ? r.json() : { items: [] }))
       .then((j: { items?: NewsItem[] }) => {
         if (!cancelled) setNews(Array.isArray(j.items) ? j.items : []);

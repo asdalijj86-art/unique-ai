@@ -23,6 +23,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { authFetch } from '@/lib/auth';
 import type { WorldPick } from './VisualHub';
 
 type NewsItem = { title: string; link: string; source: string };
@@ -95,7 +96,7 @@ export default function WorldPanel({
   // Real headlines from the app's own /api/news endpoint.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/news')
+    authFetch('/api/news')
       .then((r) => (r.ok ? r.json() : { items: [] }))
       .then((j: { items?: NewsItem[] }) => {
         if (!cancelled) setNews(Array.isArray(j.items) ? j.items : []);

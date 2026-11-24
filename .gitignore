@@ -1,3 +1,8 @@
 node_modules/
 server/dist/
 .DS_Store
+# Secrets — never commit. Server accounts, sessions, the master secret
+# for per-user key encryption, and the security log live here.
+.env
+.env.*
+server/data/

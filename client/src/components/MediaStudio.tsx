@@ -12,6 +12,7 @@
 //    sequential clip playback into one recording, in small
 //    segments, with unused object URLs revoked.
 import { useEffect, useRef, useState } from 'react';
+import { secureAppStorage } from '@/lib/secure-app-storage';
 import { X } from 'lucide-react';
 
 export function isMediaStudioOrder(text: string): boolean {
@@ -126,7 +127,7 @@ export default function MediaStudio({ onClose }: { onClose: () => void }) {
   }
   function saveProject() {
     try {
-      localStorage.setItem('unique-ai-media-project', JSON.stringify({ tab, videoFilter, format, vText, subtitle, sticker, watermark, pFilter, pText, savedAt: Date.now() }));
+      secureAppStorage.setItem('unique-ai-media-project', JSON.stringify({ tab, videoFilter, format, vText, subtitle, sticker, watermark, pFilter, pText, savedAt: Date.now() }));
       setProgress('Project saved on this device (settings only, files are not uploaded).');
     } catch { setProgress('Project could not be saved on this device.'); }
   }

@@ -18,11 +18,12 @@
 // persisted builder-job store first (see the final report note).
 
 import { useEffect, useState } from 'react';
+import { secureAppStorage } from '@/lib/secure-app-storage';
 import { loadVideoMakerJob, type VideoJobState } from '@/lib/video-maker';
 
 function readJob(): VideoJobState | null {
   try {
-    return loadVideoMakerJob(window.localStorage);
+    return loadVideoMakerJob(secureAppStorage);
   } catch {
     return null;
   }

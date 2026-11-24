@@ -259,7 +259,7 @@ export function createBuilderService({ generate }) {
 
   return {
     /** Create a job and start building in the background. Returns the job. */
-    startBuild({ description, title, kind = "app", lang = "ur", apiKey }) {
+    startBuild({ description, title, kind = "app", lang = "ur", apiKey, ownerId }) {
       const job = {
         id: randomUUID().slice(0, 12),
         title: title || description,
@@ -267,6 +267,11 @@ export function createBuilderService({ generate }) {
         kind,
         lang,
         status: "building",
+        // SECURITY (2026-11-25): a job belongs to ONE account. Only that
+        // account may view/download it (see visibleJob in
+        // registerBuilderRoutes). Jobs from before this change have
+        // ownerId null and are visible only to the owner account.
+        ownerId: ownerId || null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         html: null,
@@ -318,9 +323,32 @@ export function createBuilderService({ generate }) {
 const escapeHtml = (s) =>
   String(s || "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
-export function registerBuilderRoutes(app, service) {
+export function registerBuilderRoutes(app, service, opts = {}) {
+  const resolveUserFromToken = opts.resolveUserFromToken;
+
+  // Owner check for a job. A missing or wrong account scope means
+  // DENIAL (404, no existence leak) — never a fallback to someone
+  // else's job. /api/build/status/:id already carries req.user from
+  // the global auth gate; /apps/:id* are plain GETs (browser <a href>),
+  // so they resolve the token from the header or ?t=.
+  function visibleJob(req, id) {
+    const job = service.getJob(id);
+    if (!job) return null;
+    let user = req.user || null;
+    if (!user && typeof resolveUserFromToken === "function") {
+      const token =
+        (req.headers.authorization || "").toLowerCase().startsWith("bearer ")
+          ? req.headers.authorization.slice(7).trim()
+          : typeof req.query?.t === "string" ? req.query.t.trim() : null;
+      user = resolveUserFromToken(token)?.user || null;
+    }
+    if (!user) return null;
+    if (job.ownerId) return job.ownerId === user.id ? job : null;
+    return user.role === "owner" ? job : null;
+  }
+
   app.get("/apps/:id/download", (req, res) => {
-    const job = service.getJob(req.params.id);
+    const job = visibleJob(req, req.params.id);
     if (!job || job.status !== "done" || !job.html) {
       res.status(404).type("text/plain").send("یہ فائل نہیں مل سکی — شاید سرور ری اسٹارٹ ہو گیا ہے۔ دوبارہ بنا کر دیکھیں۔");
       return;
@@ -330,7 +358,7 @@ export function registerBuilderRoutes(app, service) {
   });
 
   app.get("/apps/:id", (req, res) => {
-    const job = service.getJob(req.params.id);
+    const job = visibleJob(req, req.params.id);
     if (!job) {
       res.status(404).type("text/plain").send("یہ لنک نہیں مل سکا — شاید سرور ری اسٹارٹ ہو گیا ہے۔ دوبارہ بنا کر دیکھیں۔");
       return;
@@ -353,7 +381,7 @@ export function registerBuilderRoutes(app, service) {
   });
 
   app.get("/api/build/status/:id", (req, res) => {
-    const job = service.getJob(req.params.id);
+    const job = visibleJob(req, req.params.id);
     if (!job) {
       res.status(404).json({ error: "یہ تعمیر نہیں ملی — شاید سرور ری اسٹارٹ ہو گیا ہے۔" });
       return;

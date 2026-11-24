@@ -13,7 +13,6 @@ import {
   synthesizeMairaSpeech,
   synthesizeEdgeSpeech,
   useSendMairaChatMessage,
-  getGeminiKeys,
   TTS_PLAYBACK_RATE,
 } from '@/lib/api';
 import { synthesizeSalmanClientSide, synthesizeUniqaClientSide } from '@/lib/edge-tts';
@@ -88,6 +87,9 @@ import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
 import AppBuilder from '@/components/AppBuilder';
 import ToolResults from '@/components/ToolResults';
 import { AgentTeamStrip, AgentTeamScene } from '@/components/AgentTeam';
+import SecurityPanel from '@/components/SecurityPanel';
+import { fetchAlerts, getAuthUser, logout } from '@/lib/auth';
+import { backupStorage, secureAppStorage } from '@/lib/secure-app-storage';
 import {
   detectAgentTasks,
   workingCards,
@@ -224,7 +226,7 @@ function createId() {
 
 function readConversations(): Conversation[] {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '[]');
+    const parsed = JSON.parse(secureAppStorage.getItem(STORAGE_KEY) || '[]');
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((item): item is Conversation =>
       Boolean(item && typeof item.id === 'string' && typeof item.title === 'string' && Array.isArray(item.messages)),
@@ -263,6 +265,24 @@ export default function ChatPage() {
   const [activeId, setActiveId] = useState<string | null>(() => readConversations()[0]?.id ?? null);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
+  // SECURITY (2026-11-25): owner-only intrusion alerts. The red badge
+  // shows unread alerts the moment he opens the app; tapping it opens
+  // the Security panel (full log + accounts). Guests never see it.
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
+  const isOwner = getAuthUser()?.role === 'owner';
+  useEffect(() => {
+    if (!isOwner) return;
+    let alive = true;
+    const poll = () => {
+      fetchAlerts()
+        .then((a) => { if (alive) setUnreadAlerts(a.unread); })
+        .catch(() => { /* alerts unavailable — badge stays quiet */ });
+    };
+    poll();
+    const timer = window.setInterval(poll, 60000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [isOwner]);
   // SPEECH NOTICE (2026-10-26 truncation fix): a VISIBLE banner for a
   // reply that ended early — never only the 24px X icon's tooltip
   // (the old setError rendering, which the user missed with Settings
@@ -283,7 +303,7 @@ export default function ChatPage() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   // Chat language selector (top bar): 'auto' = detect from typed text.
   const [chatLang, setChatLang] = useState(() => {
-    try { return localStorage.getItem('unique-ai-chat-lang') || 'auto'; }
+    try { return secureAppStorage.getItem('unique-ai-chat-lang') || 'auto'; }
     catch { return 'auto'; }
   });
   // PERSONAS (Master Plan Phase 2): who is "present" — Uniqa (female
@@ -302,22 +322,22 @@ export default function ChatPage() {
     personaRef.current = next;
     setPersona(next);
     logActivity(next === 'uniqa' ? 'یونیکا سامنے آئی' : 'یونیک سامنے آیا');
-    try { localStorage.setItem(PERSONA_STORAGE_KEY, next); } catch { /* ignore */ }
+    try { secureAppStorage.setItem(PERSONA_STORAGE_KEY, next); } catch { /* ignore */ }
   }
   function changeTone(next: ToneMode) {
     toneRef.current = next;
     setTone(next);
-    try { localStorage.setItem(TONE_STORAGE_KEY, next); } catch { /* ignore */ }
+    try { secureAppStorage.setItem(TONE_STORAGE_KEY, next); } catch { /* ignore */ }
   }
   // True while the server TTS reply is being fetched/buffered — the orb shows
   // "preparing" until audio actually starts playing (onplaying), so the UI
   // never claims to be speaking during the network wait.
   const [isPreparingVoice, setIsPreparingVoice] = useState(false);
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
-  // App settings (persisted to localStorage)
+  // App settings (persisted to secureAppStorage)
   const [appSettings, setAppSettings] = useState(() => {
     try {
-      const saved = localStorage.getItem('unique-ai-settings');
+      const saved = secureAppStorage.getItem('unique-ai-settings');
       if (saved) return JSON.parse(saved);
     } catch {}
     return { locationEnabled: true, voiceEnabled: true, continuousVoice: false, gesturesEnabled: false };
@@ -340,7 +360,7 @@ export default function ChatPage() {
   // احمد's live build — the scene reads these plus `agentTeam` above,
   // so scene and strip share ONE source of truth.
   const [boardEntries, setBoardEntries] = useState<BoardEntry[]>(() => {
-    try { return loadBoardEntries(window.localStorage); } catch { return []; }
+    try { return loadBoardEntries(secureAppStorage); } catch { return []; }
   });
   const [buildLive, setBuildLive] = useState<{ title: string; startedAt: number } | null>(null);
   // Call (Phase 4): DevicePairing owns the signalling; these mirror
@@ -371,7 +391,7 @@ export default function ChatPage() {
   // Phase 1 (2026-11-22): the new main screen — four panels around
   // the living face, and Awareness (speaks first). On phones the
   // panel is a bottom sheet; on laptops it docks inline on the left.
-  const [awarenessEnabled, setAwarenessEnabled] = useState(() => readAwarenessEnabled(window.localStorage));
+  const [awarenessEnabled, setAwarenessEnabled] = useState(() => readAwarenessEnabled(secureAppStorage));
   const [activePanel, setActivePanel] = useState<null | FrontNodeKey>(null);
   /** Full-screen World Monitor overlay (2026-11-25): opened from the
    *  slim YOUR WORLD strip at the top; ✕ closes back to the front. */
@@ -380,7 +400,7 @@ export default function ChatPage() {
   // Front 2.0 (2026-11-24, Stonic-video build): theme, chat tabs,
   // agent work view, custom skills, support number, short screens.
   const [theme, setTheme] = useState(() => {
-    try { return window.localStorage.getItem('unique-ai-theme') || 'unique'; }
+    try { return secureAppStorage.getItem('unique-ai-theme') || 'unique'; }
     catch { return 'unique'; }
   });
   const [chatTab, setChatTab] = useState<'voice' | 'agent' | 'notes'>('voice');
@@ -390,7 +410,7 @@ export default function ChatPage() {
   const [workView, setWorkView] = useState<AgentWorkSubject | null>(null);
   const [skillsDialogOpen, setSkillsDialogOpen] = useState(false);
   const [customSkills, setCustomSkills] = useState<CustomSkill[]>(() => {
-    try { return loadCustomSkills(window.localStorage); } catch { return []; }
+    try { return loadCustomSkills(secureAppStorage); } catch { return []; }
   });
   const [supportNumber, setSupportNumber] = useState(() => readSupportNumber());
   const [shortScreen, setShortScreen] = useState(() => window.matchMedia('(max-height: 820px)').matches);
@@ -403,8 +423,8 @@ export default function ChatPage() {
   function refreshMemoryLine() {
     try {
       const cands: { text: string; at: string }[] = [
-        ...loadNotes(window.localStorage, personaRef.current).map((n) => ({ text: n.text, at: n.createdAt })),
-        ...loadLearnings(window.localStorage, personaRef.current).map((l) => ({ text: l.text, at: l.createdAt })),
+        ...loadNotes(secureAppStorage, personaRef.current).map((n) => ({ text: n.text, at: n.createdAt })),
+        ...loadLearnings(secureAppStorage, personaRef.current).map((l) => ({ text: l.text, at: l.createdAt })),
       ];
       cands.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
       const top = cands[0]?.text?.trim() ?? '';
@@ -416,7 +436,7 @@ export default function ChatPage() {
 
   function toggleAwareness(next: boolean) {
     setAwarenessEnabled(next);
-    saveAwarenessEnabled(window.localStorage, next);
+    saveAwarenessEnabled(secureAppStorage, next);
   }
 
   // Camera permission (2026-11-25, user-approved in the voice call):
@@ -425,12 +445,12 @@ export default function ChatPage() {
   // front + MEDIA LINK card) turn it off any time, and OFF means she
   // never turns it on herself. The browser still asks once with its
   // own prompt the first time the camera opens.
-  const [cameraPermission, setCameraPermission] = useState(() => readCameraPermission(window.localStorage));
+  const [cameraPermission, setCameraPermission] = useState(() => readCameraPermission(secureAppStorage));
   const [lastCameraNote, setLastCameraNote] = useState<string | null>(null);
 
   function toggleCameraPermission(next: boolean) {
     setCameraPermission(next);
-    saveCameraPermission(window.localStorage, next);
+    saveCameraPermission(secureAppStorage, next);
     if (!next) {
       cameraLook.stopLook();
       logActivity('کیمرہ اجازت بند — یونیکا خود آن نہیں کرے گی');
@@ -458,7 +478,7 @@ export default function ChatPage() {
   // Front 2.0 helpers: theme, START/TERMINATE, agent work view.
   function changeTheme(next: string) {
     setTheme(next);
-    try { window.localStorage.setItem('unique-ai-theme', next); } catch { /* ignore */ }
+    try { secureAppStorage.setItem('unique-ai-theme', next); } catch { /* ignore */ }
   }
   function handleStartAI() {
     logActivity('START AI — یونیکا چالو');
@@ -519,7 +539,7 @@ export default function ChatPage() {
   // this device; refresh it whenever a panel opens or closes.
   useEffect(() => {
     try {
-      setMemoryCount(loadNotes(window.localStorage, persona).length + loadLearnings(window.localStorage, persona).length);
+      setMemoryCount(loadNotes(secureAppStorage, persona).length + loadLearnings(secureAppStorage, persona).length);
     } catch {
       setMemoryCount(0);
     }
@@ -819,9 +839,9 @@ export default function ChatPage() {
       const note = formatCameraNote(obs);
       setLastCameraNote(note);
       try {
-        const notes = loadNotes(window.localStorage, personaRef.current);
-        saveNotes(window.localStorage, [makeNote(note), ...notes], personaRef.current);
-        setMemoryCount(loadNotes(window.localStorage, personaRef.current).length + loadLearnings(window.localStorage, personaRef.current).length);
+        const notes = loadNotes(secureAppStorage, personaRef.current);
+        saveNotes(secureAppStorage, [makeNote(note), ...notes], personaRef.current);
+        setMemoryCount(loadNotes(secureAppStorage, personaRef.current).length + loadLearnings(secureAppStorage, personaRef.current).length);
         refreshMemoryLine();
       } catch {
         // storage unavailable — the look still happened, the note just won't persist
@@ -896,7 +916,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+      secureAppStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
       setStorageError(false);
     } catch {
       setStorageError(true);
@@ -939,7 +959,7 @@ export default function ChatPage() {
   useEffect(() => {
     let cancelled = false;
     try {
-      if (localStorage.getItem('unique-ai-perm-hint-dismissed') === '1') return;
+      if (secureAppStorage.getItem('unique-ai-perm-hint-dismissed') === '1') return;
     } catch { /* ignore */ }
     void queryAllPermissions().then((states) => {
       if (cancelled) return;
@@ -952,7 +972,7 @@ export default function ChatPage() {
   function dismissPermHint() {
     setShowPermHint(false);
     try {
-      localStorage.setItem('unique-ai-perm-hint-dismissed', '1');
+      secureAppStorage.setItem('unique-ai-perm-hint-dismissed', '1');
     } catch { /* ignore */ }
   }
 
@@ -1148,7 +1168,7 @@ export default function ChatPage() {
         if (!isRecordableAction(action.type)) continue;
         const def = agentForActionType(action.type);
         if (!def) continue;
-        entries = recordBoardCompletion(window.localStorage, {
+        entries = recordBoardCompletion(secureAppStorage, {
           agentKey: def.key,
           person: def.person,
           icon: def.icon,
@@ -1205,10 +1225,10 @@ export default function ChatPage() {
     continuousVoiceRef.current = continuousVoice;
   }, [continuousVoice]);
 
-  // Sync app settings to individual states + persist to localStorage.
+  // Sync app settings to individual states + persist to secureAppStorage.
   const settingsInitRef = useRef(false);
   useEffect(() => {
-    try { localStorage.setItem('unique-ai-settings', JSON.stringify(appSettings)); } catch {}
+    try { secureAppStorage.setItem('unique-ai-settings', JSON.stringify(appSettings)); } catch {}
     setGesturesEnabled(appSettings.gesturesEnabled);
     // Continuous voice has ONE source of truth: continuousIntendedRef.
     // The Settings toggle must start/stop the REAL mic, not just flip the
@@ -1384,7 +1404,7 @@ export default function ChatPage() {
       // learning brain holds about this person, spoken and on screen.
       let listing: string;
       try {
-        listing = formatLearningsList(loadLearnings(window.localStorage, personaRef.current), personaRef.current === 'uniqa');
+        listing = formatLearningsList(loadLearnings(secureAppStorage, personaRef.current), personaRef.current === 'uniqa');
       } catch {
         return false; // storage unavailable — let the brain answer instead
       }
@@ -1395,7 +1415,7 @@ export default function ChatPage() {
     }
     let outcome;
     try {
-      outcome = applyMemoryCommand(window.localStorage, cmd, personaRef.current);
+      outcome = applyMemoryCommand(secureAppStorage, cmd, personaRef.current);
     } catch {
       return false; // storage unavailable — let the brain answer instead
     }
@@ -1415,7 +1435,7 @@ export default function ChatPage() {
   // which names what will be replaced.
 
   function downloadBrainBackup(): BackupSummary {
-    const data = collectBackup(window.localStorage);
+    const data = collectBackup(backupStorage);
     const blob = new Blob([serializeBackup(data)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1466,7 +1486,7 @@ export default function ChatPage() {
   function confirmBackupRestore() {
     if (!pendingRestore) return;
     try {
-      applyBackup(window.localStorage, pendingRestore.data);
+      applyBackup(backupStorage, pendingRestore.data);
     } catch {
       setError('بحالی میں مسئلہ ہوا — آپ کا موجودہ ڈیٹا ویسا کا ویسا ہے۔');
       setPendingRestore(null);
@@ -1570,7 +1590,7 @@ export default function ChatPage() {
     // (name / likes / facts — lib/learnings). Fully silent: no card,
     // no announcement — the knowledge simply shows in later replies.
     try {
-      learnFromText(window.localStorage, text, 'auto', personaRef.current);
+      learnFromText(secureAppStorage, text, 'auto', personaRef.current);
     } catch {
       // storage unavailable — the reply matters, not the learning
     }
@@ -1677,7 +1697,7 @@ export default function ChatPage() {
           // along, so the reply answers with that knowledge — name
           // first, capped, never instructions. The other persona's
           // learnings never ride along.
-          memory: buildRecallBlock(loadLearnings(window.localStorage, personaRef.current)) || undefined,
+          memory: buildRecallBlock(loadLearnings(secureAppStorage, personaRef.current)) || undefined,
           // Team-work context (2026-10-24): today's real team state so
           // any member asked about their work can answer in full
           // spoken detail from facts, never invention or refusal.
@@ -1750,7 +1770,7 @@ export default function ChatPage() {
         // batch also feeds the learning store — silently.
         for (const a of result.actions) {
           if (a.type === 'save_note' && typeof a.text === 'string') {
-            try { learnFromText(window.localStorage, a.text, 'told', personaRef.current); } catch { /* bonus only */ }
+            try { learnFromText(secureAppStorage, a.text, 'told', personaRef.current); } catch { /* bonus only */ }
           }
         }
         setToolActions(result.actions as ChatAction[]);
@@ -1804,7 +1824,7 @@ export default function ChatPage() {
         // the note card below stays the only visible result.
         if (result.action.type === 'save_note' && typeof result.action.text === 'string') {
           try {
-            learnFromText(window.localStorage, result.action.text, 'told', personaRef.current);
+            learnFromText(secureAppStorage, result.action.text, 'told', personaRef.current);
           } catch {
             // learning is a silent bonus; the note card is the result
           }
@@ -1894,7 +1914,7 @@ export default function ChatPage() {
   }
 
   // Video Maker status: «میرا کام کہاں تک پہنچا؟» / «میری ویڈیو بن گئی؟»
-  // answered from the maker's REAL job state in localStorage.
+  // answered from the maker's REAL job state in secureAppStorage.
   // LIVE-TEST FIX (2026-10-29): the old rule let a generic question
   // about a DONE video job fall through to Gemini, which errored and
   // gave no status at all. Now (see shouldInterceptVideoMakerStatus
@@ -1912,7 +1932,7 @@ export default function ChatPage() {
     if (!text || !isVideoMakerStatusQuery(text)) return false;
     let job = null as ReturnType<typeof loadVideoMakerJob>;
     try {
-      job = loadVideoMakerJob(window.localStorage);
+      job = loadVideoMakerJob(secureAppStorage);
     } catch {
       return false;
     }
@@ -2024,7 +2044,7 @@ export default function ChatPage() {
     try {
       const def = agentForActionType('build_app');
       if (def) {
-        setBoardEntries(recordBoardCompletion(window.localStorage, {
+        setBoardEntries(recordBoardCompletion(secureAppStorage, {
           agentKey: def.key,
           person: def.person,
           icon: def.icon,
@@ -2600,7 +2620,9 @@ export default function ChatPage() {
     // counters — the new keys may work even if the old failed. (No
     // leg is ever skipped on these counters any more — 2026-10-25.)
     try {
-      const fp = getGeminiKeys().join('|');
+      // SECURITY (2026-11-25): no client keys any more — the account
+      // id is the fingerprint (a different account resets counters).
+      const fp = getAuthUser()?.id || 'anon';
       if (ttsKeysFingerprintRef.current !== fp) {
         ttsKeysFingerprintRef.current = fp;
         serverTtsDownRef.current = false;
@@ -2696,11 +2718,11 @@ export default function ChatPage() {
     // demand 2026-10-19 — a stale 'Google' selection migrates to 'Salman'.
     let selection = 'Salman';
     try {
-      const stored = localStorage.getItem('unique-ai-voice');
+      const stored = secureAppStorage.getItem('unique-ai-voice');
       if (stored === 'Charon' || stored === 'Fenrir' || stored === 'Salman') {
         selection = stored;
       } else if (stored === 'Google') {
-        localStorage.setItem('unique-ai-voice', 'Salman');
+        secureAppStorage.setItem('unique-ai-voice', 'Salman');
       }
     } catch { /* ignore */ }
     const tryBoth = async (): Promise<{ audioBase64: string; mimeType: string } | null> => {
@@ -4257,7 +4279,7 @@ export default function ChatPage() {
   const worldPicks = useMemo(() => {
     const picks: { title: string; detail: string; source: string }[] = [];
     try {
-      const learnings = loadLearnings(window.localStorage, persona);
+      const learnings = loadLearnings(secureAppStorage, persona);
       const last = learnings[learnings.length - 1];
       if (last) picks.push({ title: 'آپ نے مجھے یہ سکھایا', detail: last.text, source: 'سیکھا ہوا' });
     } catch { /* ignore */ }
@@ -4272,7 +4294,7 @@ export default function ChatPage() {
       }
     } catch { /* ignore */ }
     try {
-      const notes = loadNotes(window.localStorage, persona);
+      const notes = loadNotes(secureAppStorage, persona);
       const last = notes[notes.length - 1];
       if (last) picks.push({ title: 'یادداشت', detail: last.text, source: 'میموری' });
     } catch { /* ignore */ }
@@ -4342,7 +4364,7 @@ export default function ChatPage() {
             customSkills={customSkills}
             onNewSkill={() => { setActivePanel(null); setSkillsDialogOpen(true); }}
             onDeleteSkill={(id) => {
-              try { setCustomSkills(deleteCustomSkill(window.localStorage, id)); }
+              try { setCustomSkills(deleteCustomSkill(secureAppStorage, id)); }
               catch { setCustomSkills((s) => s.filter((x) => x.id !== id)); }
             }}
             onOpenStudio={(key: StudioKey) => { setActivePanel(null); openStudio(key); }}
@@ -4380,7 +4402,7 @@ export default function ChatPage() {
             chatLang={chatLang}
             onChatLangChange={(v: string) => {
               setChatLang(v);
-              try { localStorage.setItem('unique-ai-chat-lang', v); } catch { /* ignore */ }
+              try { secureAppStorage.setItem('unique-ai-chat-lang', v); } catch { /* ignore */ }
             }}
             onOpenPairing={() => setPairingOpen(true)}
             onBackupDownload={() => { downloadBrainBackup(); }}
@@ -4458,6 +4480,27 @@ export default function ChatPage() {
           </button>
           <span className={`unique-live-dot${busy || isSpeaking ? ' pulse' : ''}`} aria-hidden="true" />
           <span className="unique-live-text" dir="rtl" data-testid="status-assistant">{heroStatus}</span>
+          {isOwner && (
+            <button
+              type="button"
+              className={`unique-sec-btn${unreadAlerts > 0 ? ' alert' : ''}`}
+              onClick={() => { setUnreadAlerts(0); setSecurityOpen(true); }}
+              title={unreadAlerts > 0 ? `${unreadAlerts} نئے سیکیورٹی الرٹ — دیکھیں` : 'سیکیورٹی — الرٹس اور اکاؤنٹس'}
+              aria-label="سیکیورٹی"
+            >
+              <Shield size={15} />
+              {unreadAlerts > 0 && <span className="unique-sec-badge">{unreadAlerts > 99 ? '99+' : unreadAlerts}</span>}
+            </button>
+          )}
+          <button
+            type="button"
+            className="unique-logout-btn"
+            onClick={() => { void logout(); }}
+            title="لاگ آؤٹ کریں"
+            aria-label="لاگ آؤٹ"
+          >
+            ⎋
+          </button>
           {error && (
             <button className="unique-top-error" onClick={() => setError('')} data-testid="status-chat-error" title={error}>
               <X size={13} />
@@ -4916,7 +4959,7 @@ export default function ChatPage() {
           onClose={() => setSkillsDialogOpen(false)}
           onSave={(skill) => {
             try {
-              setCustomSkills(addCustomSkill(window.localStorage, skill));
+              setCustomSkills(addCustomSkill(secureAppStorage, skill));
             } catch { /* storage unavailable — list stays in memory only */ }
             setSkillsDialogOpen(false);
             logActivity(`نئی مہارت بنائی: ${skill.name}`);
@@ -5020,6 +5063,11 @@ export default function ChatPage() {
       )}
       {/* PAPERSTUDIO DELETED: render removed completely. */}
       {/* OLD TOOLS DELETED: MediaTools render removed completely. */}
+      {/* SECURITY (2026-11-25): owner-only alerts + accounts panel.
+          Opened from the top-bar shield button (red badge = unread). */}
+      {securityOpen && (
+        <SecurityPanel onClose={() => setSecurityOpen(false)} />
+      )}
       {/* Device pairing: stays mounted while linked so incoming
           conversations/commands arrive even with the panel closed.
           Entry points: Settings (📱 ڈیوائس جوڑیں), the front

@@ -1,5 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
-import { ttsAudioCache, deadKeyTracker, deadKeyId, makeTtsCacheKey } from './tts-cache';
+import { ttsAudioCache, makeTtsCacheKey } from './tts-cache';
+import { authFetch } from './auth';
+import { secureAppStorage } from './secure-app-storage';
 
 type ChatMessageInput = { role: string; content: string; image?: string };
 
@@ -63,6 +65,15 @@ export const TTS_PLAYBACK_RATE = 1.1;
  * Replacement for @workspace/api-client-react's useSendMairaChatMessage.
  * POSTs to /api/openai/chat and resolves with { text, action?, multiStep?, plan? }.
  */
+/**
+ * Replacement for @workspace/api-client-react's useSendMairaChatMessage.
+ * POSTs to /api/openai/chat and resolves with { text, action?, multiStep?, plan? }.
+ *
+ * SECURITY (2026-11-25): the client NEVER sends a Gemini key any more.
+ * The server uses ONLY the logged-in account's own stored key — a
+ * guest with no key gets the honest no-key answer, never the owner's
+ * key. The old client-side key rotation is gone with the keys.
+ */
 export function useSendMairaChatMessage() {
   return useMutation({
     mutationFn: async ({ data }: { data: { messages: ChatMessageInput[]; stream?: boolean; onDelta?: (delta: string) => void; language?: string; persona?: string; tone?: string; memory?: string; team?: string } }) => {
@@ -73,178 +84,87 @@ export function useSendMairaChatMessage() {
       // forever, so the user got no reply, no error, and every later send
       // was silently swallowed by the isPending guard. A stall watchdog
       // aborts after 35s without data; an absolute cap aborts at 90s.
-      const chatOnce = async (userApiKey: string | undefined, trackDelta: () => void): Promise<ChatResponse> => {
-        const ctrl = new AbortController();
-        let timedOut = false;
-        let stallTimer: ReturnType<typeof setTimeout> | undefined;
-        const armStall = () => {
-          if (stallTimer) clearTimeout(stallTimer);
-          stallTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, 35000);
-        };
-        const absTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, 90000);
-        armStall();
-        try {
-          const res = await fetch('/api/openai/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...body, ...(userApiKey ? { userApiKey } : {}) }),
-            signal: ctrl.signal,
-          });
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw { data: errData };
-          }
-          // Streaming mode: read SSE deltas and call onDelta for each
-          const contentType = res.headers.get('content-type') || '';
-          if (contentType.includes('text/event-stream') && onDelta) {
-            const reader = res.body!.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let finalData: ChatResponse = { text: '' };
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              armStall();
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data:')) continue;
-                try {
-                  const evt = JSON.parse(trimmed.slice(5).trim());
-                  // The server reports a mid-stream failure (e.g. the
-                  // upstream died before any text) as an error event.
-                  if (evt.error) {
-                    throw { data: { error: evt.error, errorType: evt.errorType } };
-                  }
-                  if (evt.delta) { trackDelta(); onDelta(evt.delta); }
-                  if (evt.done) {
-                    finalData = { text: evt.text || '', ...(evt.multiStep ? { multiStep: true, plan: evt.plan } : {}) };
-                  }
-                } catch (e: any) {
-                  if (e?.data) throw e;
-                  /* skip malformed line */
+      const ctrl = new AbortController();
+      let timedOut = false;
+      let stallTimer: ReturnType<typeof setTimeout> | undefined;
+      const armStall = () => {
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, 35000);
+      };
+      const absTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, 90000);
+      armStall();
+      try {
+        const res = await authFetch('/api/openai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw { data: errData };
+        }
+        // Streaming mode: read SSE deltas and call onDelta for each
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('text/event-stream') && onDelta) {
+          const reader = res.body!.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let finalData: ChatResponse = { text: '' };
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            armStall();
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('data:')) continue;
+              try {
+                const evt = JSON.parse(trimmed.slice(5).trim());
+                // The server reports a mid-stream failure (e.g. the
+                // upstream died before any text) as an error event.
+                if (evt.error) {
+                  throw { data: { error: evt.error, errorType: evt.errorType } };
                 }
+                if (evt.delta) { onDelta(evt.delta); }
+                if (evt.done) {
+                  finalData = { text: evt.text || '', ...(evt.multiStep ? { multiStep: true, plan: evt.plan } : {}) };
+                }
+              } catch (e: any) {
+                if (e?.data) throw e;
+                /* skip malformed line */
               }
             }
-            return finalData;
           }
-          return (await res.json()) as ChatResponse;
-        } catch (e: any) {
-          if (timedOut) {
-            throw { data: { error: 'جواب آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔', errorType: 'timeout' } };
-          }
-          throw e;
-        } finally {
-          if (stallTimer) clearTimeout(stallTimer);
-          clearTimeout(absTimer);
+          return finalData;
         }
-      };
-
-      // The user's own keys power the chat too — same rotation scheme as
-      // speech (synthesizeMairaSpeech): start from the active key, and on
-      // quota/auth failure rotate to the next key. Rotation happens ONLY
-      // when no reply text has streamed yet (retrying mid-stream would
-      // duplicate the reply). With no saved keys, a single attempt runs on
-      // the server's env key, exactly as before.
-      const keys = getGeminiKeys();
-      const attempts = keys.length > 0 ? keys : [undefined];
-      const startIdx = keys.length > 0 ? getActiveKeyIndex() % keys.length : 0;
-      let lastErr: any = null;
-      for (let a = 0; a < attempts.length; a++) {
-        const keyIdx = keys.length > 0 ? (startIdx + a) % keys.length : 0;
-        const userApiKey = keys.length > 0 ? keys[keyIdx] : undefined;
-        let gotDelta = false;
-        try {
-          const result = await chatOnce(userApiKey, () => { gotDelta = true; });
-          if (keys.length > 0) setActiveKeyIndex(keyIdx);
-          return result;
-        } catch (e: any) {
-          lastErr = e;
-          const t = e?.data?.errorType;
-          if (keys.length > 1 && !gotDelta && (t === 'quota' || t === 'auth')) {
-            setActiveKeyIndex(keyIdx);
-            continue;
-          }
-          throw e;
+        return (await res.json()) as ChatResponse;
+      } catch (e: any) {
+        if (timedOut) {
+          throw { data: { error: 'جواب آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔', errorType: 'timeout' } };
         }
+        throw e;
+      } finally {
+        if (stallTimer) clearTimeout(stallTimer);
+        clearTimeout(absTimer);
       }
-      throw lastErr || { data: { error: 'پیغام بھیجنے میں مسئلہ ہوا۔ براہِ کرم دوبارہ کوشش کریں۔', errorType: 'unknown' } };
     },
   });
 }
 
 /**
- * Multi-key rotation: user can paste several Gemini keys (one per line or
- * comma-separated) in one field. Keys are tried in order; on quota/auth
- * failure the app rotates to the next key automatically.
+ * SECURITY (2026-11-25): Gemini keys NO LONGER live in localStorage.
+ * Each account stores its own key on the server (encrypted at rest,
+ * /api/auth/key) and the server uses only the logged-in account's key.
+ * The old client-side multi-key rotation (parseGeminiKeys /
+ * getGeminiKeys / getActiveKeyIndex / rotateGeminiKey) is DELETED —
+ * the plaintext localStorage key `unique-ai-gemini-key` must never
+ * be written again. Any legacy key found there is migrated to the
+ * server once, on the owner's first login (see lib/secure-app-storage
+ * + chat.tsx), then deleted.
  */
-/**
- * Parse the keys field into individual Gemini keys.
- * Normal case: one key per line (or comma-separated).
- * Repair case: a copied key got line-wrapped mid-key (fragments that don't
- * start with a key prefix) — then strip ALL whitespace and re-split on the
- * known key prefixes ("AIza…" classic, "AQ.…" new).
- */
-export function parseGeminiKeys(raw: string): string[] {
-  if (!raw) return [];
-  const byLine = raw.split(/[\n,]+/).map((k) => k.trim()).filter((k) => k.length > 10);
-  const looksBroken = byLine.some((k) => !/^(AIza|AQ\.)/.test(k));
-  if (looksBroken) {
-    const clean = raw.replace(/\s+/g, '');
-    const byPrefix = clean.split(/(?=AIza)|(?=AQ\.)/).filter((k) => k.length > 10);
-    if (byPrefix.length) return byPrefix;
-  }
-  return byLine;
-}
-
-export function getGeminiKeys(): string[] {
-  try {
-    return parseGeminiKeys(localStorage.getItem('unique-ai-gemini-key') || '');
-  } catch { return []; }
-}
-export function getActiveKeyIndex(): number {
-  try { return Math.max(0, parseInt(localStorage.getItem('unique-ai-gemini-key-index') || '0', 10) || 0); }
-  catch { return 0; }
-}
-export function setActiveKeyIndex(i: number) {
-  try { localStorage.setItem('unique-ai-gemini-key-index', String(i)); } catch { /* ignore */ }
-}
-export function rotateGeminiKey() {
-  const keys = getGeminiKeys();
-  if (keys.length < 2) return;
-  setActiveKeyIndex((getActiveKeyIndex() + 1) % keys.length);
-}
-export function getActiveGeminiKey(): string | undefined {
-  const keys = getGeminiKeys();
-  if (!keys.length) return undefined;
-  return keys[getActiveKeyIndex() % keys.length];
-}
-
-/**
- * Replacement for @workspace/api-client-react's synthesizeMairaSpeech.
- * POSTs to /api/openai/speech and resolves with { audioBase64, mimeType }.
- * If the user saved their own Gemini API key(s) in settings, they're sent along
- * so their personal quota is used instead of the server's — with automatic
- * rotation to the next key when one hits quota.
- * Sends the user's selected voice (Charon/Fenrir) from settings.
- */
-// NEVER-DOWN VOICE (2026-10-25 fix, softened 2026-10-27 cache
-// fix ONLY for speech): there is no session-long dead-key memory,
-// but a quota/auth-dead user key IS skipped for ~10 minutes (see
-// lib/tts-cache DeadKeyTracker), then probed once when its window
-// expires. The old session-forever mute is gone — one dead key no
-// longer silences both personas — but re-asking every dead key on
-// every reply burned up to 4 fetches per reply after exhaustion
-// with zero audio. Within one call each live key is still tried at
-// most once, in rotation order starting from the active key, and
-// the per-reply fail-fast circuit in chat.tsx is unchanged. The
-// chat-generation rotation above is NOT affected by this tracker:
-// chat uses a different model and may have different quota.
-// Separately, successful Gemini audio is cached in-memory keyed by
-// exact text + resolved voice + female flag (lib/tts-cache), so
-// Replay / "سنیں" / repeated lines cost zero new Gemini calls.
 
 /** Uniqa's Gemini voice (Phase 2): a warm FEMALE prebuilt voice. Used
  *  ONLY for her turns — Unique's turns never carry it, and hers never
@@ -257,7 +177,8 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
     // stored male-voice selection belongs to Unique alone.
     if (female) return UNIQA_GEMINI_VOICE;
     try {
-      const stored = localStorage.getItem('unique-ai-voice') || 'Salman';
+      // SECURITY (2026-11-25): per-account namespaced storage.
+      const stored = secureAppStorage.getItem('unique-ai-voice') || 'Salman';
       // 'Salman' is the Edge TTS voice — it has no Gemini equivalent. When
       // the Gemini path is used at all (fallback / Charon selected), it
       // speaks with Charon; only an explicit 'Fenrir' selection differs.
@@ -280,169 +201,51 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
   const cacheKey = makeTtsCacheKey(text, voiceName, !!female);
   const cached = ttsAudioCache.get(cacheKey);
   if (cached) return cached;
-  const keys = getGeminiKeys();
-  let lastErr: any = null;
-  const startIdx = keys.length > 0 ? getActiveKeyIndex() % keys.length : 0;
-  // DEAD-KEY SKIP (2026-10-27): candidates are the saved keys in
-  // rotation order EXCLUDING keys inside their ~10-min skip window
-  // (expired entries re-probe — see tts-cache). If every saved key
-  // is skipped, this call makes ZERO fetches (not even the env
-  // fallback): the caller falls through to Edge/browser at once,
-  // and the next probe happens only after a window expires.
-  const orderedKeyIndices = keys.length > 0
-    ? Array.from({ length: keys.length }, (_, a) => (startIdx + a) % keys.length)
-    : [0];
-  const candidateKeyIndices = orderedKeyIndices.filter((keyIdx) =>
-    keys.length === 0 || !deadKeyTracker.isSkipped(deadKeyId(keyIdx, keys[keyIdx])),
-  );
-  const allUserKeysSkipped = keys.length > 0 && candidateKeyIndices.length === 0;
-  if (allUserKeysSkipped) {
-    throw { data: { errorType: 'quota', error: 'تمہاری key کی آج کی حد ختم ہو گئی ہے — نئی key لگاؤ یا کل انتظار کرو۔' } };
-  }
-  // TOTAL Gemini deadline (2026-10-27 ruk-ruk fix): the old 15s cap
-  // was PER KEY, so with 3 saved keys a stalled Gemini leg burned
-  // up to 45s on this leg alone before Edge ever ran — and the
-  // chunk queue then re-ran that chain 3x (plus extended passes).
-  // Rotation is unchanged (still sequential, still quota/auth-only),
-  // but the whole user-key rotation now shares ONE 20s budget: a
-  // stalled key must not eat the budget of the keys after it, and
-  // a stalled leg must hand over to Edge instead of stalling the
-  // reply. Fast quota/auth answers are unaffected (they return in
-  // ~1s); only stalls are cut short. The night-backup env-key
-  // attempt below keeps its own 15s cap, as the last resort.
-  const geminiDeadline = Date.now() + 20000;
-  for (let a = 0; a < candidateKeyIndices.length; a++) {
-    const keyIdx = candidateKeyIndices[a];
-    const userApiKey = keys.length > 0 ? keys[keyIdx] : undefined;
-    const keyId = keys.length > 0 ? deadKeyId(keyIdx, keys[keyIdx]) : '';
-    if (Date.now() >= geminiDeadline) {
-      lastErr = { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
-      break;
-    }
-    // Hard cap per key attempt, bounded by the shared deadline.
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), Math.max(1, Math.min(15000, geminiDeadline - Date.now())));
-    let res: Response;
-    try {
-      res = await fetch('/api/openai/speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          voiceName,
-          ...(userApiKey ? { userApiKey } : {}),
-        }),
-        signal: ctrl.signal,
-      });
-    } catch (e: any) {
-      clearTimeout(timer);
-      if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
-        // A stalled key must NOT kill the chunk: rotate to the next
-        // saved key (never-down rule). Only the last key's stall
-        // surfaces as a timeout for the caller to fall through to Edge.
-        if (a < candidateKeyIndices.length - 1) {
-          lastErr = { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
-          continue;
-        }
-        throw { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
-      }
-      // Network failure — rotating keys cannot fix the network; fail now
-      // so the caller falls through to the Edge legs immediately.
-      throw e;
-    }
+  // SECURITY (2026-11-25): ONE server attempt, no client key, no
+  // rotation, no "night backup" env-key fallback — the server uses
+  // ONLY this account's own stored key. A guest with no key gets the
+  // honest 402, never the owner's key. (The old dead-key tracker /
+  // multi-key rotation is deleted with the keys.)
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  let res: Response;
+  try {
+    res = await authFetch('/api/openai/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voiceName }),
+      signal: ctrl.signal,
+    });
+  } catch (e: any) {
     clearTimeout(timer);
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      const t = errData?.errorType;
-      // Rotate to the next key ONLY on quota/auth. The failed key
-      // enters its ~10-min skip window (see header comment) — the
-      // next reply does not re-burn a fetch on it until the window
-      // expires. When user keys exist, a quota/auth answer NEVER
-      // throws here: the loop records it and moves on, so the
-      // server-key fallback below gets its one chance after every
-      // live user key has failed. (With no user keys, this attempt
-      // already WAS the server key, so there is nothing further to
-      // fall back to — throw at once.)
-      if (t === 'quota' || t === 'auth') {
-        if (keys.length > 0) {
-          deadKeyTracker.markDead(keyId);
-          if (keys.length > 1) setActiveKeyIndex(keyIdx);
-          lastErr = { data: errData };
-          continue;
-        }
-      }
-      throw { data: errData };
+    if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
+      throw { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
     }
-    // Success — remember this key as the active one, clear its
-    // dead mark (it recovered), and cache the audio so an
-    // identical Replay / "سنیں" costs zero Gemini calls.
-    if (keys.length > 0) {
-      setActiveKeyIndex(keyIdx);
-      deadKeyTracker.clear(keyId);
-    }
-    const audio = await res.json() as { audioBase64: string; mimeType: string };
-    ttsAudioCache.set(cacheKey, audio);
-    return audio;
+    throw e;
   }
-  // NIGHT BACKUP (2026-10-27, user-approved): after ALL saved user
-  // keys returned quota/auth for this call, make EXACTLY ONE final
-  // attempt with NO userApiKey, so the server falls back to its own
-  // env key (server/index.js: `userApiKey || process.env.GEMINI_API_KEY`
-  // — proven from code, no server change needed). Only when user
-  // keys existed and failed on quota/auth — never as the first
-  // attempt, never in place of user keys, and never in a loop: if
-  // this attempt also fails on quota/auth, that error is thrown and
-  // the caller ends in its normal terminal failed outcome (then
-  // falls through to the Edge / browser legs as before). No key is
-  // recorded or changed here; a server-key success does not move
-  // the user's active-key index.
-  if (keys.length > 0 && (lastErr?.data?.errorType === 'quota' || lastErr?.data?.errorType === 'auth')) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15000);
-    let res: Response;
-    try {
-      res = await fetch('/api/openai/speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voiceName }),
-        signal: ctrl.signal,
-      });
-    } catch (e: any) {
-      clearTimeout(timer);
-      if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
-        throw { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
-      }
-      throw e;
-    }
-    clearTimeout(timer);
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw { data: errData };
-    }
-    const fallbackAudio = await res.json() as { audioBase64: string; mimeType: string };
-    ttsAudioCache.set(cacheKey, fallbackAudio);
-    return fallbackAudio;
+  clearTimeout(timer);
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw { data: errData };
   }
-  throw lastErr || { data: { errorType: 'quota' } };
+  const audio = await res.json() as { audioBase64: string; mimeType: string };
+  ttsAudioCache.set(cacheKey, audio);
+  return audio;
 }
 
 /**
  * Professional assignment maker — POSTs to /api/assignment/generate.
- * Sends the user's own Gemini key if saved (BYOK), else server key is used.
+ * SECURITY (2026-11-25): the server uses the logged-in account's own
+ * stored key. No key is ever sent from the client.
  */
 export async function generateAssignment(params: {
   name: string; rollNo: string; classLevel: string; subject: string;
   topic: string; language: string; length: string;
 }) {
-  const getSetting = (k: string) => {
-    try { return localStorage.getItem(k) || undefined; }
-    catch { return undefined; }
-  };
-  const userApiKey = getSetting('unique-ai-gemini-key');
-  const res = await fetch('/api/assignment/generate', {
+  const res = await authFetch('/api/assignment/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...params, ...(userApiKey ? { userApiKey } : {}) }),
+    body: JSON.stringify({ ...params }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw { data };
@@ -454,7 +257,9 @@ export async function generateAssignment(params: {
  * Used by Settings to validate the key immediately on save.
  */
 export async function testGeminiKey(userApiKey: string): Promise<{ ok: boolean; errorType?: string; message: string }> {
-  const res = await fetch('/api/tts/test-key', {
+  // Validation-only: the key is checked by the server and NOT stored
+  // by this call. Saving happens via /api/auth/key (auth.ts).
+  const res = await authFetch('/api/tts/test-key', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userApiKey }),
@@ -484,7 +289,7 @@ export async function synthesizeEdgeSpeech({ text, voice }: { text: string; voic
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
     try {
-      const res = await fetch('/api/tts/edge', {
+      const res = await authFetch('/api/tts/edge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // voice:'uniqa' asks the server for HER Edge voice (Uzma); absent

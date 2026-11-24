@@ -1,6 +1,7 @@
 // MapWidget — interactive world map with location search.
 // Uses Leaflet + OpenStreetMap tiles (free, no API key) and Nominatim for geocoding.
 import { useEffect, useRef, useState } from 'react';
+import { secureAppStorage } from '@/lib/secure-app-storage';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Search, Loader2, MapPin } from 'lucide-react';
@@ -10,7 +11,7 @@ const GEO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function getGeoCache(): Record<string, { lat: number; lon: number; name: string; ts: number }> {
   try {
-    return JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}');
+    return JSON.parse(secureAppStorage.getItem(GEO_CACHE_KEY) || '{}');
   } catch {
     return {};
   }
@@ -26,7 +27,7 @@ function setGeoCache(query: string, lat: number, lon: number, name: string) {
       keys.sort((a, b) => cache[a].ts - cache[b].ts);
       for (let i = 0; i < keys.length - 100; i++) delete cache[keys[i]];
     }
-    localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache));
+    secureAppStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache));
   } catch {
     // storage full or unavailable — skip caching
   }
@@ -44,7 +45,7 @@ const HOME_KEY = 'unique-ai-map-home';
 
 function getHome(): { lat: number; lon: number; name: string } | null {
   try {
-    const h = JSON.parse(localStorage.getItem(HOME_KEY) || 'null');
+    const h = JSON.parse(secureAppStorage.getItem(HOME_KEY) || 'null');
     return h && typeof h.lat === 'number' ? h : null;
   } catch {
     return null;
@@ -134,7 +135,7 @@ export default function MapWidget() {
     }
     const h = { lat, lon, name };
     try {
-      localStorage.setItem(HOME_KEY, JSON.stringify(h));
+      secureAppStorage.setItem(HOME_KEY, JSON.stringify(h));
     } catch { /* ignore */ }
     setHome(h);
   }

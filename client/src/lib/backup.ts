@@ -49,6 +49,10 @@ export type StorageLike = {
   removeItem: (key: string) => void;
   key: (index: number) => string | null;
   readonly length: number;
+  /** Optional: real item counts for the summary (the secure vault
+   *  adapter provides these — its memory entries are encrypted
+   *  blobs, so counts cannot be read back from the file). */
+  counts?: () => { conversations: number; notes: number; learnings: number };
 };
 
 export type BrainBackup = {
@@ -57,6 +61,11 @@ export type BrainBackup = {
   version: number;
   createdAt: string;
   entries: Record<string, string>;
+  /** Real item counts captured at collect time (2026-11-25): memory
+   *  entries travel as ENCRYPTED blobs, so their counts cannot be
+   *  read back from the file itself. Old files lack this field —
+   *  summarizeBackup falls back to counting entries. */
+  counts?: { conversations: number; notes: number; learnings: number };
 };
 
 function isExcluded(key: string): boolean {
@@ -83,12 +92,18 @@ export function collectBackup(storage: StorageLike, now: Date = new Date()): Bra
     const value = storage.getItem(key);
     if (typeof value === 'string') entries[key] = value;
   }
+  // SECURITY (2026-11-25): memory entries travel as ENCRYPTED blobs
+  // (the vault adapter stores raw values), so their counts cannot be
+  // read back from the file — capture the real counts now, from the
+  // live decrypted cache, when the adapter provides them.
+  const counts = typeof storage.counts === 'function' ? storage.counts() : undefined;
   return {
     app: BACKUP_APP,
     kind: BACKUP_KIND,
     version: BACKUP_VERSION,
     createdAt: now.toISOString(),
     entries,
+    ...(counts ? { counts } : {}),
   };
 }
 
@@ -142,6 +157,19 @@ export function parseBackup(text: string): ParseResult {
     if (isExcluded(key)) continue;
     clean[key] = value;
   }
+  // Optional counts block (new files only): three plain numbers.
+  let counts: BrainBackup['counts'];
+  const rawCounts = obj.counts;
+  if (rawCounts && typeof rawCounts === 'object' && !Array.isArray(rawCounts)) {
+    const c = rawCounts as Record<string, unknown>;
+    if (
+      typeof c.conversations === 'number' &&
+      typeof c.notes === 'number' &&
+      typeof c.learnings === 'number'
+    ) {
+      counts = { conversations: c.conversations, notes: c.notes, learnings: c.learnings };
+    }
+  }
   return {
     ok: true,
     data: {
@@ -150,6 +178,7 @@ export function parseBackup(text: string): ParseResult {
       version: BACKUP_VERSION,
       createdAt: typeof obj.createdAt === 'string' ? obj.createdAt : '',
       entries: clean,
+      ...(counts ? { counts } : {}),
     },
   };
 }
@@ -180,6 +209,17 @@ function countArrayEntry(entries: Record<string, string>, key: string): number {
 }
 
 export function summarizeBackup(data: BrainBackup): BackupSummary {
+  // Counts captured at collect time win: memory entries are encrypted
+  // blobs in new files, so they cannot be counted from the file.
+  if (data.counts) {
+    return {
+      conversations: data.counts.conversations,
+      notes: data.counts.notes,
+      learnings: data.counts.learnings,
+      totalEntries: Object.keys(data.entries).length,
+      createdAt: data.createdAt,
+    };
+  }
   return {
     conversations: countArrayEntry(data.entries, CONVERSATIONS_KEY),
     // Per-persona memory (2026-11-25): both personas' stores count —
