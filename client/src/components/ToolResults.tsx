@@ -354,7 +354,7 @@ export default function ToolResults({
 
         {action.type === 'search_results' && (
           <div>
-            {action.results.map((r, i) => (
+            {(action.results ?? []).map((r, i) => (
               <a key={i} href={r.url} target="_blank" rel="noopener noreferrer" className="tool-link-card">
                 <div className="tool-link-title">{r.title}</div>
                 {r.snippet && <div className="tool-link-snippet">{r.snippet}</div>}
@@ -377,7 +377,7 @@ export default function ToolResults({
 
         {action.type === 'youtube_results' && (
           <div className="tool-video-grid">
-            {action.videos.map((v, i) => (
+            {(action.videos ?? []).map((v, i) => (
               <a key={i} href={v.url} target="_blank" rel="noopener noreferrer" className="tool-video-card">
                 <img src={v.thumbnail} alt="" loading="lazy" className="tool-video-thumb" />
                 <div className="tool-video-title">{v.title}</div>
@@ -389,7 +389,7 @@ export default function ToolResults({
 
         {(action.type === 'news_results' || action.type === 'social_news_results') && (
           <div>
-            {action.headlines.map((h, i) => (
+            {(action.headlines ?? []).map((h, i) => (
               <a key={i} href={h.url} target="_blank" rel="noopener noreferrer" className="tool-link-card">
                 <div className="tool-link-title">{h.title}</div>
                 {h.snippet && <div className="tool-link-snippet">{h.snippet}</div>}

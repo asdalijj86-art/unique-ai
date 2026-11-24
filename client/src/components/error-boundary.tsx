@@ -46,12 +46,16 @@ function DefaultFallback({ error, resetError }: ErrorFallbackProps) {
           This part of the app hit an error. The rest of the app is still
           running.
         </p>
-        {/* Dev only: messages can carry API responses and other internals. */}
-        {import.meta.env.DEV ? (
-          <pre className="mt-4 overflow-x-auto rounded bg-gray-100 p-3 text-left text-xs text-gray-800">
-            {error.message || String(error)}
-          </pre>
-        ) : null}
+        {/* The message is always shown — on his own laptop screen, to
+            him only. A hidden error can't be fixed: when this page
+            appears, the line below IS the cause, and a screenshot of
+            it tells Muse exactly what broke. */}
+        <pre className="mt-4 overflow-x-auto rounded bg-gray-100 p-3 text-left text-xs text-gray-800">
+          {error.message || String(error)}
+        </pre>
+        <p className="mt-2 text-sm text-gray-600" dir="rtl">
+          اس لکھائی کا سکرین شاٹ مجھے بھیج دیں — یہی اصل وجہ بتائے گی۔
+        </p>
         <button
           type="button"
           onClick={resetError}
