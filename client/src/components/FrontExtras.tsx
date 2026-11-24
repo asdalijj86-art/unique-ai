@@ -275,6 +275,49 @@ export function readSupportNumber(): string {
 }
 
 // ---------------------------------------------------------------------------
+// LibraryStrip — LIBRARY under the Visual Hub (2026-11-25, Stonic front
+// screenshot): the hub's saved drawings — recent assistant replies that
+// actually drew numbered steps. Real items only; tapping one shows its
+// drawing in the hub again. Empty when nothing was ever drawn.
+// ---------------------------------------------------------------------------
+
+export type LibraryItem = { title: string; date: string; text: string; at: number };
+
+export function LibraryStrip({
+  items,
+  onOpenItem,
+}: {
+  items: LibraryItem[];
+  onOpenItem: (item: LibraryItem) => void;
+}) {
+  return (
+    <section className="ulib" data-testid="library-strip" dir="rtl" aria-label="لائبریری">
+      <div className="ulib-title">📚 LIBRARY — محفوظ ڈرائنگ</div>
+      {items.length === 0 ? (
+        <p className="ulib-empty">ابھی کوئی ڈرائنگ محفوظ نہیں — کچھ قدم بہ قدم پوچھیں، مراحل یہاں محفوظ ہوں گے۔</p>
+      ) : (
+        <ul className="ulib-items">
+          {items.map((it, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                className="ulib-item"
+                onClick={() => onOpenItem(it)}
+                data-testid={`library-item-${i}`}
+                title="بصری مرکز میں یہ ڈرائنگ دوبارہ دیکھیں"
+              >
+                <span className="ulib-item-title">{it.title}</span>
+                {it.date ? <span className="ulib-item-date">{it.date}</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // SkillsDialog — SKILL NAME / DESCRIPTION / INSTRUCTIONS + Cancel/Save.
 // ---------------------------------------------------------------------------
 

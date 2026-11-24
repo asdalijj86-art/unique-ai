@@ -33,7 +33,7 @@ export type ActivityEvent = { at: number; text: string };
 type HubTab = 'hub' | 'world' | 'gesture' | 'activity';
 
 /** Steps = numbered or bulleted lines in the reply. Max 6 nodes. */
-function parseSteps(text: string): string[] {
+export function extractSteps(text: string): string[] {
   const steps: string[] = [];
   for (const raw of text.split(/\n/)) {
     const line = raw.trim();
@@ -77,6 +77,11 @@ export default function VisualHub({
   onToggleGestures,
   worldPicks,
   activity,
+  /** A Library item opened from the strip — show ITS drawing instead
+   *  of the latest reply until cleared. */
+  focusText,
+  focusAt,
+  onClearFocus,
 }: {
   latestAssistantText: string | null;
   latestAt: number | null;
@@ -85,9 +90,14 @@ export default function VisualHub({
   onToggleGestures: () => void;
   worldPicks: WorldPick[];
   activity: ActivityEvent[];
+  focusText?: string | null;
+  focusAt?: number | null;
+  onClearFocus?: () => void;
 }) {
   const [tab, setTab] = useState<HubTab>('hub');
-  const steps = latestAssistantText ? parseSteps(latestAssistantText) : [];
+  const shownText = focusText ?? latestAssistantText;
+  const shownAt = focusText ? focusAt ?? null : latestAt;
+  const steps = shownText ? extractSteps(shownText) : [];
 
   return (
     <section className="uhub" data-testid="visual-hub" dir="rtl" aria-label="بصری مرکز">
@@ -110,11 +120,19 @@ export default function VisualHub({
 
       {tab === 'hub' && (
         <div className="uhub-body">
+          {focusText && (
+            <p className="uhub-status">
+              📚 لائبریری سے کھولا گیا —{' '}
+              <button type="button" className="uhub-focus-clear" onClick={onClearFocus} data-testid="button-hub-clear-focus">
+                تازہ جواب دیکھیں
+              </button>
+            </p>
+          )}
           {steps.length >= 2 ? (
             <>
               <p className="uhub-status">
                 🎨 ڈرائنگ تیار ہے — آخری جواب کے مراحل سے بنائی گئی
-                {latestAt ? ` (${formatTime(latestAt)})` : ''}
+                {shownAt ? ` (${formatTime(shownAt)})` : ''}
               </p>
               <div className="uhub-flow" dir="rtl">
                 {steps.map((s, i) => (

@@ -1311,6 +1311,71 @@ app.post('/api/whatsapp/send', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// News — real Google News headlines (Urdu, Pakistan) for the front's
+// YOUR WORLD panel. No fake headlines: on any failure it returns
+// { items: [] } and the client says so plainly. 10-minute cache.
+// ---------------------------------------------------------------------------
+const newsCache = { data: null, at: 0 };
+const NEWS_CACHE_TTL = 10 * 60 * 1000;
+
+function decodeNewsEntities(s) {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function parseNewsRss(xml) {
+  const items = [];
+  const blocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
+  for (const b of blocks) {
+    const title = (b.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/) || [])[1];
+    const link = (b.match(/<link>([\s\S]*?)<\/link>/) || [])[1];
+    const source = (b.match(/<source[^>]*>([\s\S]*?)<\/source>/) || [])[1];
+    if (title && link) {
+      items.push({
+        title: decodeNewsEntities(title).trim(),
+        link: link.trim(),
+        source: source ? decodeNewsEntities(source).trim() : 'Google News',
+      });
+    }
+    if (items.length >= 3) break;
+  }
+  return items;
+}
+
+// GET /api/news → { items: [{ title, link, source }] }
+app.get('/api/news', async (req, res) => {
+  try {
+    if (newsCache.data && Date.now() - newsCache.at < NEWS_CACHE_TTL) {
+      res.json({ items: newsCache.data });
+      return;
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    let xml;
+    try {
+      const r = await fetch('https://news.google.com/rss?hl=ur&gl=PK&ceid=PK:ur', {
+        headers: { 'User-Agent': 'UniqueAI/1.0' },
+        signal: ctrl.signal,
+      });
+      if (!r.ok) throw new Error(`News RSS ${r.status}`);
+      xml = await r.text();
+    } finally {
+      clearTimeout(timer);
+    }
+    const items = parseNewsRss(xml);
+    newsCache.data = items;
+    newsCache.at = Date.now();
+    res.json({ items });
+  } catch (e) {
+    res.json({ items: [] });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Quran Pak — Holy Quran with Urdu translation (Fateh Muhammad Jalandhry).
 // Source: api.alquran.cloud (verbatim text, never generated or paraphrased).
 // Cached in memory to be fast and respectful of the free API.

@@ -104,11 +104,14 @@ import MediaStudio, { isMediaStudioOrder } from '@/components/MediaStudio';
 import IslamicStudio, { isIslamicStudioOrder } from '@/components/IslamicStudio';
 import GameStudio, { isGameStudioOrder } from '@/components/GameStudio';
 // PAPERSTUDIO DELETED 2026-10-31 on user order, before master plan.
-import VisualHub from '@/components/VisualHub';
+import VisualHub, { extractSteps } from '@/components/VisualHub';
 // Front 2.0 (2026-11-24, Stonic-video build): the front is the orb
 // with attached nodes + Agent Town; panels open as dialogs over it.
 import { FrontStage, AgentTown, AgentWorkView, NodeDialog, VoicesPanel, type FrontNodeKey, type AgentWorkSubject } from '@/components/StonicFront';
-import { UniquePlayer, MediaLinkCard, HeadlinesCard, SupportButton, readSupportNumber, SkillsDialog } from '@/components/FrontExtras';
+import { UniquePlayer, MediaLinkCard, HeadlinesCard, SupportButton, readSupportNumber, SkillsDialog, LibraryStrip, type LibraryItem } from '@/components/FrontExtras';
+// Front 3.0 (2026-11-25, Stonic front screenshot): the left YOUR WORLD
+// column — globe, three things, news, weather.
+import WorldPanel from '@/components/WorldPanel';
 import { loadCustomSkills, addCustomSkill, deleteCustomSkill, formatCustomSkills, type CustomSkill } from '@/lib/custom-skills';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import StatusPanel from '@/components/StatusPanel';
@@ -364,6 +367,8 @@ export default function ChatPage() {
   });
   const [chatTab, setChatTab] = useState<'voice' | 'agent' | 'notes'>('voice');
   const [hubOpen, setHubOpen] = useState(() => !window.matchMedia('(max-height: 820px)').matches);
+  /** A Library drawing opened from the strip — the hub shows it until cleared. */
+  const [hubFocus, setHubFocus] = useState<{ text: string; at: number } | null>(null);
   const [workView, setWorkView] = useState<AgentWorkSubject | null>(null);
   const [skillsDialogOpen, setSkillsDialogOpen] = useState(false);
   const [customSkills, setCustomSkills] = useState<CustomSkill[]>(() => {
@@ -4157,6 +4162,28 @@ export default function ChatPage() {
     .reverse()
     .find((m) => m.role === 'assistant');
 
+  // Front 3.0 (2026-11-25): LIBRARY — recent assistant replies that
+  // actually drew numbered steps in the hub. Real items only.
+  const libraryItems = useMemo(() => {
+    const msgs = activeConversation?.messages ?? [];
+    const items: LibraryItem[] = [];
+    for (let i = msgs.length - 1; i >= 0 && items.length < 4; i--) {
+      const m = msgs[i];
+      if (m.role !== 'assistant' || !m.content) continue;
+      const steps = extractSteps(m.content);
+      if (steps.length < 2) continue;
+      let at = Date.now();
+      let date = '';
+      try {
+        at = Date.parse(m.createdAt) || Date.now();
+        date = new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      } catch { /* keep defaults */ }
+      const first = steps[0];
+      items.push({ title: first.length > 42 ? `${first.slice(0, 42)}…` : first, date, text: m.content, at });
+    }
+    return items;
+  }, [activeConversation]);
+
   // Phase 1 — the four panels around the living face. The panel
   // content is shared by the laptop inline dock and the phone
   // bottom sheet; every button inside opens the real thing.
@@ -4259,7 +4286,7 @@ export default function ChatPage() {
   // the user wants the face FRONT, Stonic-style — sizes raised so it
   // stays prominent even mid-conversation.)
   const hasMessages = (activeConversation?.messages.length ?? 0) > 0;
-  const orbSize = !hasMessages ? (isDesktop ? (shortScreen ? 230 : 320) : 232) : (isDesktop ? 190 : 132);
+  const orbSize = !hasMessages ? (isDesktop ? (shortScreen ? 210 : 260) : 232) : (isDesktop ? 180 : 132);
 
   return (
     <main className={`unique-shell${busy || isSpeaking ? ' working' : ''}`} lang="ur" data-theme={theme} data-testid="page-maira-chat">
@@ -4359,8 +4386,15 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* ======= MAIN: front (nodes + orb + town) | chat panel ======= */}
+      {/* ======= MAIN: world | front (nodes + face + hub + library + town) | chat ======= */}
       <div className="unique-main">
+        {/* YOUR WORLD (left): globe, three things, news, weather. */}
+        <WorldPanel
+          awarenessEnabled={awarenessEnabled}
+          picks={worldPicks}
+          onEnableAwareness={() => toggleAwareness(true)}
+        />
+
         {/* FRONT: nodes attached to the face, orb, Agent Town, hub */}
         <div className="ufront-col">
           <FrontStage
@@ -4395,6 +4429,8 @@ export default function ChatPage() {
             onStartAI={handleStartAI}
             onTerminate={handleTerminate}
             onOpenCall={() => setCallPanelOpen(true)}
+            awarenessEnabled={awarenessEnabled}
+            onToggleAwareness={() => toggleAwareness(!awarenessEnabled)}
           />
 
           <AgentTown
@@ -4431,9 +4467,21 @@ export default function ChatPage() {
                 }}
                 worldPicks={worldPicks}
                 activity={activityLog}
+                focusText={hubFocus?.text ?? null}
+                focusAt={hubFocus?.at ?? null}
+                onClearFocus={() => setHubFocus(null)}
               />
             )}
           </section>
+
+          {/* LIBRARY: the hub's saved drawings — tap one to see it again. */}
+          <LibraryStrip
+            items={libraryItems}
+            onOpenItem={(it) => {
+              setHubFocus({ text: it.text, at: it.at });
+              setHubOpen(true);
+            }}
+          />
         </div>
 
         {/* CHAT PANEL (right): VOICE / AGENT / NOTES + composer */}

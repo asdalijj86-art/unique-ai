@@ -141,9 +141,9 @@ export function VoicesPanel({
 
 const NODES: { key: FrontNodeKey; icon: string; label: string; urdu: string; color: string; testId: string }[] = [
   { key: 'memory', icon: '🧠', label: 'MEMORY', urdu: 'میموری', color: '#22d3ee', testId: 'button-panel-memory' },
-  { key: 'skills', icon: '🛠️', label: 'SKILLS', urdu: 'مہارتیں', color: '#a78bfa', testId: 'button-panel-skills' },
-  { key: 'character', icon: '👤', label: 'CHARACTER', urdu: 'کردار', color: '#f9a8d4', testId: 'button-panel-character' },
-  { key: 'settings', icon: '⚙️', label: 'SETTING', urdu: 'سیٹنگز', color: '#34d399', testId: 'button-panel-settings' },
+  { key: 'skills', icon: '🛠️', label: 'SKILLS', urdu: 'مہارتیں', color: '#34d399', testId: 'button-panel-skills' },
+  { key: 'character', icon: '👤', label: 'CHARACTER', urdu: 'کردار', color: '#fb7185', testId: 'button-panel-character' },
+  { key: 'settings', icon: '⚙️', label: 'SETTING', urdu: 'سیٹنگز', color: '#94a3b8', testId: 'button-panel-settings' },
 ];
 
 export function FrontStage({
@@ -207,39 +207,13 @@ export function FrontStage({
   onTerminate: () => void;
   /** Open the «📞 کال — کہیں سے بھی» panel (Stonic Remote-style). */
   onOpenCall: () => void;
+  /** Awareness switch state — the front shows it, not just the top bar. */
+  awarenessEnabled: boolean;
+  /** Toggle Awareness (same as the title-bar switch). */
+  onToggleAwareness: () => void;
 }) {
   return (
     <section className="ufront-stage" aria-label="فرنٹ">
-      {/* Connector lines: each node joins the orb (desktop only). */}
-      <svg className="ufront-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <line x1="18" y1="12" x2="50" y2="42" stroke="#22d3ee" />
-        <line x1="82" y1="12" x2="50" y2="42" stroke="#a78bfa" />
-        <line x1="18" y1="88" x2="50" y2="42" stroke="#f9a8d4" />
-        <line x1="82" y1="88" x2="50" y2="42" stroke="#34d399" />
-      </svg>
-
-      {/* The four nodes — attached to the front, not side panels. */}
-      <div className="ufront-nodes">
-        {NODES.map((n) => (
-          <button
-            key={n.key}
-            type="button"
-            className={`ufront-node ufront-node-${n.key}${activeNode === n.key ? ' active' : ''}`}
-            style={{ ['--node-color' as string]: n.color }}
-            onClick={() => onOpenNode(n.key)}
-            aria-pressed={activeNode === n.key}
-            data-testid={n.testId}
-          >
-            <span className="ufront-node-icon" aria-hidden="true">{n.icon}</span>
-            <span className="ufront-node-label">{n.label}</span>
-            <span className="ufront-node-urdu">{n.urdu}</span>
-            {n.key === 'memory' && memoryCount > 0 && (
-              <span className="ufront-node-badge">{memoryCount}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
       {awarenessBubble && (
         <AwarenessBubble
           line={awarenessBubble.line}
@@ -249,13 +223,58 @@ export function FrontStage({
         />
       )}
 
-      <div className="ufront-orb-row">
-        <div
-          className={`unique-orb-wrap${isSpeaking || isPreparingVoice ? ' tappable' : ''}`}
-          onClick={onOrbClick}
-          title={isSpeaking || isPreparingVoice ? 'رکنے کے لیے دبائیں' : undefined}
-        >
-          <AiOrb isSpeaking={isSpeaking} isThinking={isThinking} size={orbSize} persona={persona} />
+      {/* Face row (2026-11-25, Stonic front screenshot): node chips in a
+          column on the left, elbow lines into the framed face panel,
+          the speaking line in its small side box. */}
+      <div className="ufront-face-row">
+        <div className="ufront-face-core">
+          {/* Connector lines: each node chip joins the face panel. */}
+          <svg className="ufront-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <polyline points="24,12 27,12 27,30 31,30" stroke="#22d3ee" />
+            <polyline points="24,37 27,37 27,42 31,42" stroke="#34d399" />
+            <polyline points="24,62 27,62 27,58 31,58" stroke="#fb7185" />
+            <polyline points="24,87 27,87 27,70 31,70" stroke="#94a3b8" />
+          </svg>
+
+          {/* The four nodes — stacked chips attached to the front. */}
+          <div className="ufront-nodes-col">
+            {NODES.map((n) => (
+              <button
+                key={n.key}
+                type="button"
+                className={`ufront-node ufront-node-${n.key}${activeNode === n.key ? ' active' : ''}`}
+                style={{ ['--node-color' as string]: n.color }}
+                onClick={() => onOpenNode(n.key)}
+                aria-pressed={activeNode === n.key}
+                data-testid={n.testId}
+              >
+                <span className="ufront-node-icon" aria-hidden="true">{n.icon}</span>
+                <span className="ufront-node-text">
+                  <span className="ufront-node-label">{n.label}</span>
+                  <span className="ufront-node-urdu">{n.urdu}</span>
+                </span>
+                {n.key === 'memory' && memoryCount > 0 && (
+                  <span className="ufront-node-badge">{memoryCount}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* The face, in its glowing frame — the orb keeps its lip
+              motion while speaking; tap it to interrupt. */}
+          <div
+            className={`uface-panel${isSpeaking || isPreparingVoice ? ' tappable' : ''}`}
+            onClick={onOrbClick}
+            title={isSpeaking || isPreparingVoice ? 'رکنے کے لیے دبائیں' : undefined}
+            data-testid="face-panel"
+          >
+            <span className="uface-panel-tag" aria-hidden="true">● LIVE</span>
+            <AiOrb isSpeaking={isSpeaking} isThinking={isThinking} size={orbSize} persona={persona} />
+            <div className={`uface-panel-state uface-state-${faceState}`} dir="rtl" data-testid="face-state">
+              <span className="uface-state-dot" aria-hidden="true" />
+              {faceStateLabel}
+            </div>
+          </div>
         </div>
         {speakingText && (isSpeaking || isPreparingVoice) && (
           <FaceLine
@@ -279,10 +298,6 @@ export function FrontStage({
           {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
         </span>
         <span className="unique-name-sub" dir="rtl" data-testid="text-avatar-status">{heroStatus}</span>
-        <span className={`uface-state uface-state-${faceState}`} dir="rtl" data-testid="face-state">
-          <span className="uface-state-dot" aria-hidden="true" />
-          {faceStateLabel}
-        </span>
         {(isSpeaking || isThinking || isPreparingVoice) && (
           <button
             type="button"
@@ -296,6 +311,20 @@ export function FrontStage({
           </button>
         )}
       </div>
+
+      {/* Awareness / Unawareness, visible on the front itself (Stonic
+          reel, 2026-11-25): ON — Uniqa notices and speaks first;
+          OFF — she only answers when called, and looks at nothing. */}
+      <button
+        type="button"
+        className={`uaware-chip${awarenessEnabled ? '' : ' off'}`}
+        onClick={onToggleAwareness}
+        aria-pressed={awarenessEnabled}
+        data-testid="button-awareness-front"
+        title={awarenessEnabled ? 'آگاہی بند کرنے کے لیے دبائیں' : 'آگاہی آن کرنے کے لیے دبائیں'}
+      >
+        {awarenessEnabled ? '👁️ آگاہی آن ہے — یونیکا خود بولے گی' : '🙈 آگاہی بند ہے — یونیکا صرف بلانے پر بولے گی'}
+      </button>
 
       {/* START AI / TERMINATE — the assistant's power pill. */}
       <button

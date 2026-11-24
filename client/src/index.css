@@ -224,8 +224,6 @@ body {
   padding: 8px 12px 2px;
   flex-shrink: 0;
 }
-.unique-orb-wrap { position: relative; display: flex; justify-content: center; }
-.unique-orb-wrap.tappable { cursor: pointer; }
 .unique-name { text-align: center; }
 .unique-name-text {
   font-size: 17px; font-weight: 700; color: #eaf9ff;
@@ -2184,14 +2182,18 @@ body {
 }
 .unique-theme select option { background: #0a1426; color: #eaf9ff; }
 
-/* ---- Desktop dashboard: front | chat, strip below ---- */
+/* ---- Desktop dashboard: world | front | chat, strip below ---- */
 @media (min-width: 1100px) {
   .unique-main {
     display: grid;
-    grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+    grid-template-columns: minmax(220px, 0.58fr) minmax(0, 1.24fr) minmax(0, 0.82fr);
     grid-template-rows: minmax(0, 1fr);
     gap: 12px;
     padding: 10px 14px 8px;
+  }
+  .uworld-col {
+    display: flex; flex-direction: column;
+    min-height: 0; overflow-y: auto; scrollbar-width: thin;
   }
   .ufront-col {
     display: flex; flex-direction: column;
@@ -2210,40 +2212,49 @@ body {
   padding: 4px 8px 2px;
   flex-shrink: 0;
 }
+/* Face row (2026-11-25, Stonic front screenshot): node chips in a
+   column, elbow lines into the framed face panel, side box beside. */
+.ufront-face-row {
+  position: relative; z-index: 1;
+  display: flex; align-items: stretch; gap: 12px;
+  width: 100%;
+}
+.ufront-face-core {
+  position: relative; flex: 1; min-width: 0;
+  display: flex; align-items: stretch; gap: 8px;
+}
 .ufront-lines {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   pointer-events: none; z-index: 0;
 }
-.ufront-lines line { stroke-width: 1.2; opacity: 0.45; }
-.ufront-nodes {
-  position: absolute; inset: 0 8%;
-  pointer-events: none; z-index: 2;
+.ufront-lines polyline { fill: none; stroke-width: 1.2; opacity: 0.5; }
+.ufront-nodes-col {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; justify-content: space-evenly; gap: 8px;
+  flex-shrink: 0; width: 104px;
 }
 .ufront-node {
-  position: absolute;
-  pointer-events: auto;
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
-  min-width: 86px;
-  padding: 7px 10px 6px;
-  border-radius: 14px;
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
   background: rgba(8, 17, 33, 0.78);
   border: 1px solid var(--node-color, #22d3ee);
   color: #eaf9ff;
   cursor: pointer;
   box-shadow: 0 0 14px color-mix(in srgb, var(--node-color, #22d3ee) 25%, transparent);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+  text-align: start;
 }
 .ufront-node:hover { transform: translateY(-1px); }
 .ufront-node.active {
   box-shadow: 0 0 18px color-mix(in srgb, var(--node-color, #22d3ee) 60%, transparent);
   background: rgba(20, 32, 54, 0.9);
 }
-.ufront-node-memory { top: 4px; left: 6px; }
-.ufront-node-skills { top: 4px; right: 6px; }
-.ufront-node-character { bottom: 4px; left: 6px; }
-.ufront-node-settings { bottom: 4px; right: 6px; }
-.ufront-node-icon { font-size: 16px; line-height: 1; }
+.ufront-node-icon { font-size: 16px; line-height: 1; flex-shrink: 0; }
+.ufront-node-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ufront-node-label { font-size: 11.5px; font-weight: 800; letter-spacing: 1px; color: var(--node-color, #22d3ee); }
 .ufront-node-urdu { font-size: 11px; color: #a5e3f5; }
 .ufront-node-badge {
@@ -2251,6 +2262,42 @@ body {
   background: var(--uq-accent); color: #fff;
   font-size: 11px; font-weight: 700;
   border-radius: 999px; padding: 1px 7px;
+}
+/* The face, in its glowing frame. */
+.uface-panel {
+  position: relative; z-index: 1;
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px 8px 36px;
+  border-radius: 16px;
+  border: 1px solid rgba(167, 139, 250, 0.5);
+  background: radial-gradient(120% 120% at 50% 0%, rgba(139, 92, 246, 0.3), rgba(8, 17, 33, 0.92) 72%);
+  box-shadow: 0 0 28px rgba(139, 92, 246, 0.35), inset 0 0 24px rgba(139, 92, 246, 0.16);
+  overflow: hidden;
+}
+.uface-panel.tappable { cursor: pointer; }
+.uface-panel-tag {
+  position: absolute; top: 8px; inset-inline-end: 8px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 1px;
+  color: #f0a6c8; background: rgba(167, 139, 250, 0.2);
+  border: 1px solid rgba(167, 139, 250, 0.45); border-radius: 999px; padding: 2px 8px;
+}
+.uface-panel-state {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 6px 8px; font-size: 12.5px; color: #ede9fe;
+  background: rgba(8, 17, 33, 0.65);
+  border-top: 1px solid rgba(167, 139, 250, 0.3);
+}
+/* Awareness / Unawareness chip on the front itself. */
+.uaware-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 8px; padding: 6px 14px;
+  border-radius: 999px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  background: rgba(34, 211, 238, 0.12); border: 1px solid rgba(34, 211, 238, 0.45); color: #a5f3fc;
+}
+.uaware-chip.off {
+  background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.45); color: #cbd5e1;
 }
 
 /* VisualHub collapsible wrapper — header button + hub below it. */
@@ -2281,22 +2328,17 @@ body {
   border-radius: 0;
 }
 
-/* Orb row: orb + the SMALL SIDE BOX for the speaking line. */
-.ufront-orb-row {
-  position: relative; z-index: 1;
-  display: flex; align-items: center; justify-content: center; gap: 14px;
-  width: 100%;
-}
-.ufront-orb-row .uface-line {
-  width: 230px; max-width: 230px;
+/* Speaking line — the SMALL SIDE BOX beside the face panel. */
+.ufront-face-row .uface-line {
+  width: 200px; max-width: 200px;
   margin: 0;
   max-height: 150px;
   overflow-y: auto;
   flex-shrink: 0;
   text-align: right;
 }
-.ufront-orb-row .uface-line::before {
-  /* Tail points LEFT toward the orb, not up. */
+.ufront-face-row .uface-line::before {
+  /* Tail points LEFT toward the face panel, not up. */
   left: -9px; top: 50%;
   transform: translateY(-50%);
   border-top: 9px solid transparent;
@@ -2305,18 +2347,18 @@ body {
   border-right: 10px solid rgba(56, 189, 248, 0.35);
   border-left: none;
 }
-.ufront-orb-row .uface-line-uniqa::before {
+.ufront-face-row .uface-line-uniqa::before {
   border-right-color: rgba(167, 139, 250, 0.45);
   border-bottom-color: transparent;
 }
-.ufront-orb-row .uface-line-text {
+.ufront-face-row .uface-line-text {
   display: block;
   -webkit-line-clamp: unset;
   overflow: visible;
   font-size: 13px;
 }
-.ufront-orb-row .uface-line::-webkit-scrollbar { width: 5px; }
-.ufront-orb-row .uface-line::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.3); border-radius: 3px; }
+.ufront-face-row .uface-line::-webkit-scrollbar { width: 5px; }
+.ufront-face-row .uface-line::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.3); border-radius: 3px; }
 
 /* START AI / TERMINATE power pill. */
 .ufront-power {
@@ -2349,6 +2391,73 @@ body {
   box-shadow: 0 0 16px rgba(34, 197, 94, 0.22);
 }
 .ufront-call:hover { background: rgba(34, 197, 94, 0.22); }
+
+/* ---- YOUR WORLD column (left) + LIBRARY strip ---- */
+.uworld {
+  display: flex; flex-direction: column; gap: 8px;
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 16px;
+  padding: 10px 12px;
+}
+.uworld-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.uworld-title { font-size: 13px; font-weight: 800; color: #7dd3fc; }
+.uworld-title-en { font-size: 10.5px; font-weight: 800; letter-spacing: 1px; color: #5b7a8c; }
+.uworld-date { margin: 0; font-size: 12px; color: #7c93a8; }
+.uworld-globe { display: flex; justify-content: center; padding: 2px 0; }
+.uworld-globe-svg { width: 150px; height: 150px; }
+.uworld-globe-you { animation: uworld-ping 2.2s ease-in-out infinite; }
+@keyframes uworld-ping { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.uworld-sec { font-size: 12.5px; font-weight: 700; color: #a5e3f5; margin: 2px 0 0; }
+.uworld-picks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.uworld-pick {
+  display: flex; flex-direction: column; gap: 1px;
+  background: rgba(34, 211, 238, 0.06);
+  border: 1px solid rgba(56, 189, 248, 0.16);
+  border-radius: 10px; padding: 7px 10px;
+}
+.uworld-pick-title { font-size: 12.5px; font-weight: 800; color: #fde68a; }
+.uworld-pick-detail { font-size: 13px; line-height: 1.8; color: #eaf9ff; }
+.uworld-pick-source { font-size: 11.5px; color: #7cc4e4; }
+.uworld-news { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.uworld-news-item { display: flex; flex-direction: column; gap: 1px; padding: 7px 0; border-top: 1px solid rgba(56, 189, 248, 0.12); }
+.uworld-news-item:first-child { border-top: none; padding-top: 2px; }
+.uworld-news-title { font-size: 13px; line-height: 1.8; color: #eaf9ff; text-decoration: none; }
+.uworld-news-title:hover { text-decoration: underline; }
+.uworld-news-src { font-size: 11.5px; color: #7cc4e4; }
+.uworld-wx { margin: 0; font-size: 13.5px; line-height: 1.8; color: #eaf9ff; }
+.uworld-note { margin: 0; font-size: 12.5px; line-height: 1.8; color: #7c93a8; }
+.uworld-empty { margin: 0; font-size: 12.5px; line-height: 1.9; color: #7cc4e4; }
+.uworld-off { display: flex; flex-direction: column; gap: 8px; }
+.uworld-btn {
+  padding: 7px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 700;
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd;
+  align-self: flex-start;
+}
+
+.ulib {
+  flex-shrink: 0;
+  background: rgba(8, 17, 33, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  border-radius: 16px;
+  padding: 8px 10px;
+}
+.ulib-title { font-size: 12.5px; font-weight: 700; color: #7dd3fc; margin-bottom: 6px; }
+.ulib-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ulib-item {
+  width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  background: transparent; border: none; border-bottom: 1px solid rgba(56, 189, 248, 0.1);
+  padding: 7px 2px; cursor: pointer; text-align: start; color: #eaf9ff; font-size: 13px;
+}
+.ulib-item:last-child { border-bottom: none; }
+.ulib-item:hover .ulib-item-title { text-decoration: underline; }
+.ulib-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ulib-item-date { flex-shrink: 0; color: #7cc4e4; font-size: 12px; }
+.ulib-empty { margin: 0; font-size: 12.5px; line-height: 1.8; color: #7c93a8; }
+.uhub-focus-clear {
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #bae6fd; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
 
 /* ---- Agent Town (bottom-centre of the front) ---- */
 .utown {
@@ -2663,22 +2772,23 @@ body {
 @media (max-width: 1099px) {
   .unique-shell { height: auto; min-height: 100dvh; overflow-y: auto; overflow-x: hidden; }
   .unique-main { display: flex; flex-direction: column; overflow: visible; }
-  .ufront-col { overflow: visible; }
+  .ufront-col { overflow: visible; order: 1; }
+  .uworld-col { overflow: visible; order: 2; }
+  .uchat-col { overflow: visible; order: 3; }
   .ufront-lines { display: none; }
-  .ufront-nodes {
-    position: static; pointer-events: auto;
-    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
-    margin-bottom: 10px;
+  .ufront-face-row { flex-direction: column; }
+  .ufront-face-core { flex-direction: column; }
+  .ufront-nodes-col {
+    flex-direction: row; flex-wrap: wrap; gap: 8px; justify-content: center;
+    width: auto;
   }
-  .ufront-node { position: static; min-width: 0; flex: 1 1 40%; }
-  .ufront-orb-row { flex-direction: column; }
-  .ufront-orb-row .uface-line { width: 100%; max-width: 440px; }
-  .ufront-orb-row .uface-line::before {
+  .ufront-node { min-width: 0; flex: 1 1 40%; }
+  .ufront-face-row .uface-line { width: 100%; max-width: 440px; }
+  .ufront-face-row .uface-line::before {
     left: 50%; top: -9px; transform: translateX(-50%);
     border-left: 9px solid transparent; border-right: 9px solid transparent;
     border-bottom: 10px solid rgba(56, 189, 248, 0.35); border-right-color: transparent;
   }
-  .uchat-col { overflow: visible; }
   .uchat-panel { min-height: 68dvh; }
   .unique-bottom-strip {
     grid-template-columns: 1fr;
