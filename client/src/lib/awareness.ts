@@ -73,55 +73,194 @@ export function saveAwarenessEnabled(storage: StorageLike, enabled: boolean): vo
 
 // ---------------------------------------------------------------------------
 // Lines — our own honest Urdu. Never Stonic's unverified spoken lines.
+//
+// FAST MIND (user order 2026-11-26): she THINKS before she speaks.
+// Every line carries a MANNER — loving, gentle, caring, playful,
+// serious — and the picker chooses the manner that fits the moment
+// (the matter), never a random one:
+//  - late at night → gentle only (never playful, never loud-loving)
+//  - serious tone («سیریس ہو کے بات کرو») → serious pool only: short,
+//    respectful, no pet names — the tone the user ordered wins over
+//    her default warmth
+//  - the same manner twice in a row, soon after, is a veto: she
+//    already said her loving word — repeating it would be nagging,
+//    not thinking. decideProactiveFit() makes that call (pure, and
+//    unit-testable); the thought bubble is the visible thinking
+//    window — it shows for 3 seconds before any line is spoken, so
+//    she never blurts.
+// Memory grounds the lines, not decoration: when the learning brain
+// actually holds something about him (hasMemory), the quiet pool
+// gains a line that says his words stay with her — it appears ONLY
+// then, never as a fake specific memory.
 // ---------------------------------------------------------------------------
+
+export type AwarenessManner = 'loving' | 'gentle' | 'caring' | 'playful' | 'serious';
+
+export type AwarenessLine = { line: string; manner: AwarenessManner };
 
 /** Last awareness line spoken — a reason never repeats its line twice in a row. */
 let lastAwarenessLine = '';
+/** Manner of the last awareness line spoken (the fast-mind veto). */
+let lastAwarenessManner: AwarenessManner | '' = '';
 
-function pickFromPool(pool: string[]): string {
-  const fresh = pool.length > 1 ? pool.filter((l) => l !== lastAwarenessLine) : pool;
-  const line = fresh[Math.floor(Math.random() * fresh.length)];
-  lastAwarenessLine = line;
-  return line;
+function pickFromPool(pool: AwarenessLine[]): AwarenessLine {
+  const fresh = pool.length > 1 ? pool.filter((l) => l.line !== lastAwarenessLine) : pool;
+  const picked = fresh[Math.floor(Math.random() * fresh.length)];
+  lastAwarenessLine = picked.line;
+  lastAwarenessManner = picked.manner;
+  return picked;
 }
 
-export function pickAwarenessLine(reason: AwarenessReason, feminine: boolean): string {
+const SERIOUS_LINES: Record<AwarenessReason, AwarenessLine[]> = {
+  'late-night': [
+    { line: 'رات کافی ہو گئی ہے — آرام کر لیں۔', manner: 'serious' },
+    { line: 'رات ہو گئی — سو جائیں۔', manner: 'serious' },
+  ],
+  'long-work': [
+    { line: 'آپ کافی دیر سے کام کر رہے ہیں — تھوڑا آرام کر لیں۔', manner: 'serious' },
+    { line: 'بہت کام ہو گیا — تھوڑا آرام کر لیں۔', manner: 'serious' },
+  ],
+  'evening-dip': [
+    { line: 'شام ہو گئی — دن کیسا گزرا؟', manner: 'serious' },
+    { line: 'شام ہو گئی — تھکاوٹ ہو تو بتائیں۔', manner: 'serious' },
+  ],
+  'quiet': [
+    { line: 'میں یہیں ہوں — کچھ چاہیے تو بتائیں۔', manner: 'serious' },
+    { line: 'کافی دیر سے خاموشی ہے — سب خیریت ہے؟', manner: 'serious' },
+  ],
+};
+
+export type ProactiveFitContext = {
+  /** Local hour 0..23. */
+  hour: number;
+  /** The tone the user ordered (serious wins over warmth). */
+  tone?: import('./persona').ToneMode;
+  /** Manner of the last proactive line ('' = none yet). */
+  lastManner?: AwarenessManner | '';
+  /** ms since the last proactive line (0 = never). */
+  sinceLastMs?: number;
+};
+
+/**
+ * FAST MIND — the think-before-speaking gate (pure). Decides
+ * whether a proactive line fits this moment at all, and in which
+ * manner. Rules:
+ *  - serious tone → serious manner, always (the user's order).
+ *  - 23:00–04:59 → gentle manner only.
+ *  - the same manner as the last line, fired less than 30 minutes
+ *    ago, on a 'quiet' trigger → DO NOT speak. She already said
+ *    her word; repeating the same feeling so soon is nagging.
+ * Everything else speaks, in the manner the reason calls for.
+ */
+export function decideProactiveFit(
+  reason: AwarenessReason,
+  ctx: ProactiveFitContext,
+): { speak: boolean; manner: AwarenessManner } {
+  if (ctx.tone === 'serious') return { speak: true, manner: 'serious' };
+  const night = ctx.hour >= 23 || ctx.hour < 5;
+  if (night) return { speak: true, manner: 'gentle' };
+  if (
+    reason === 'quiet' &&
+    ctx.lastManner === 'loving' &&
+    (ctx.sinceLastMs ?? 0) > 0 &&
+    (ctx.sinceLastMs ?? 0) < 30 * 60 * 1000
+  ) {
+    // Same feeling ('loving'), too soon — stay silent instead of
+    // blurting. She already said her word; repeating it would be
+    // nagging, not thinking.
+    return { speak: false, manner: ctx.lastManner };
+  }
+  switch (reason) {
+    case 'late-night':
+      return { speak: true, manner: 'gentle' };
+    case 'long-work':
+      return { speak: true, manner: 'caring' };
+    case 'evening-dip':
+      return { speak: true, manner: 'loving' };
+    case 'quiet':
+    default:
+      return { speak: true, manner: 'loving' };
+  }
+}
+
+export function pickAwarenessLine(
+  reason: AwarenessReason,
+  feminine: boolean,
+  opts?: { tone?: import('./persona').ToneMode; hour?: number; hasMemory?: boolean },
+): string {
+  const tone = opts?.tone ?? 'neutral';
+  if (tone === 'serious') {
+    const pool = SERIOUS_LINES[reason];
+    const picked = pool[Math.floor(Math.random() * pool.length)];
+    lastAwarenessLine = picked.line;
+    lastAwarenessManner = picked.manner;
+    return picked.line;
+  }
+  const hour = opts?.hour ?? new Date().getHours();
+  const night = hour >= 23 || hour < 5;
   switch (reason) {
     case 'late-night':
       return pickFromPool(feminine ? [
-        'رات کافی ہو گئی ہے جان — تھک گئے ہوں تو آرام کر لیں، میں صبح بھی یہیں ہوں گی۔',
-        'رات ہو گئی جان — سو جائیں، میں یہیں ہوں گی۔',
+        { line: 'رات کافی ہو گئی ہے جان — تھک گئے ہوں تو آرام کر لیں، میں صبح بھی یہیں ہوں گی۔', manner: 'gentle' as const },
+        { line: 'رات ہو گئی جان — سو جائیں، میں یہیں ہوں گی۔', manner: 'gentle' as const },
       ] : [
-        'رات کافی ہو گئی ہے — تھک گئے ہوں تو آرام کر لیں، میں صبح بھی یہیں ہوں گا۔',
-        'رات ہو گئی — سو جائیں، میں یہیں ہوں گا۔',
-      ]);
+        { line: 'رات کافی ہو گئی ہے — تھک گئے ہوں تو آرام کر لیں، میں صبح بھی یہیں ہوں گا۔', manner: 'gentle' as const },
+        { line: 'رات ہو گئی — سو جائیں، میں یہیں ہوں گا۔', manner: 'gentle' as const },
+      ]).line;
     case 'long-work':
+      // At night the long-work nudge is gentle too — never a
+      // bright caring line at 2 AM (the fit gate says 'gentle').
+      if (night) {
+        return pickFromPool(feminine ? [
+          { line: 'آپ کافی دیر سے کام کر رہے ہیں جان — تھوڑا آرام کر لیں، میں یہیں ہوں۔', manner: 'gentle' as const },
+        ] : [
+          { line: 'آپ کافی دیر سے کام کر رہے ہیں — تھوڑا آرام کر لیں، میں یہیں ہوں۔', manner: 'gentle' as const },
+        ]).line;
+      }
       return pickFromPool(feminine ? [
-        'آپ کافی دیر سے کام کر رہے ہیں جان — تھوڑا پانی پی لیں، سانس لیں، پھر جاری رکھتے ہیں۔',
-        'بہت کام ہو گیا جان — تھوڑا آرام کر لیں، پھر جاری رکھتے ہیں۔',
+        { line: 'آپ کافی دیر سے کام کر رہے ہیں جان — تھوڑا پانی پی لیں، سانس لیں، پھر جاری رکھتے ہیں۔', manner: 'caring' as const },
+        { line: 'بہت کام ہو گیا جان — تھوڑا آرام کر لیں، پھر جاری رکھتے ہیں۔', manner: 'caring' as const },
       ] : [
-        'آپ کافی دیر سے کام کر رہے ہیں — تھوڑا پانی پی لیں، سانس لیں، پھر جاری رکھتے ہیں۔',
-        'بہت کام ہو گیا — تھوڑا آرام کر لیں، پھر جاری رکھتے ہیں۔',
-      ]);
+        { line: 'آپ کافی دیر سے کام کر رہے ہیں — تھوڑا پانی پی لیں، سانس لیں، پھر جاری رکھتے ہیں۔', manner: 'caring' as const },
+        { line: 'بہت کام ہو گیا — تھوڑا آرام کر لیں، پھر جاری رکھتے ہیں۔', manner: 'caring' as const },
+      ]).line;
     case 'evening-dip':
       return pickFromPool(feminine ? [
-        'شام ہو گئی جان — دن کیسا گزرا؟ تھکاوٹ ہو تو بتائیں، میں سن رہی ہوں۔',
-        'شام ہو گئی جان — چائے پی لیں؟ میں آپ کے ساتھ ہوں۔',
+        { line: 'شام ہو گئی جان — دن کیسا گزرا؟ تھکاوٹ ہو تو بتائیں، میں سن رہی ہوں۔', manner: 'loving' as const },
+        { line: 'شام ہو گئی جان — چائے پی لیں؟ میں آپ کے ساتھ ہوں۔', manner: 'playful' as const },
       ] : [
-        'شام ہو گئی — دن کیسا گزرا؟ تھکاوٹ ہو تو بتائیں، میں سن رہا ہوں۔',
-        'شام ہو گئی — چائے پی لیں؟ میں آپ کے ساتھ ہوں۔',
-      ]);
+        { line: 'شام ہو گئی — دن کیسا گزرا؟ تھکاوٹ ہو تو بتائیں، میں سن رہا ہوں۔', manner: 'loving' as const },
+        { line: 'شام ہو گئی — چائے پی لیں؟ میں آپ کے ساتھ ہوں۔', manner: 'playful' as const },
+      ]).line;
     case 'quiet':
-    default:
-      return pickFromPool(feminine ? [
-        'میں یہیں ہوں جان — کافی دیر سے خاموشی ہے، سب خیریت تو ہے؟',
-        'جان، آپ چپ ہیں — میں یہیں ہوں، کچھ چاہیے تو بتائیں۔',
-        'کافی دیر سے خاموشی ہے جان — میں سن رہی ہوں، بولیں تو سہی۔',
-      ] : [
-        'میں یہیں ہوں — کافی دیر سے خاموشی ہے، سب خیریت تو ہے؟',
-        'آپ چپ ہیں — میں یہیں ہوں، کچھ چاہیے تو بتائیں۔',
-        'کافی دیر سے خاموشی ہے — میں سن رہا ہوں، بولیں تو سہی۔',
-      ]);
+    default: {
+      const base: AwarenessLine[] = feminine
+        ? [
+            { line: 'میں یہیں ہوں جان — کافی دیر سے خاموشی ہے، سب خیریت تو ہے؟', manner: 'loving' },
+            { line: 'جان، آپ چپ ہیں — میں یہیں ہوں، کچھ چاہیے تو بتائیں۔', manner: 'loving' },
+            { line: 'کافی دیر سے خاموشی ہے جان — میں سن رہی ہوں، بولیں تو سہی۔', manner: 'loving' },
+            { line: 'جان، کافی دیر سے خاموشی ہے — تھکاوٹ ہو تو بتائیں، میں یہیں ہوں۔', manner: 'gentle' },
+          ]
+        : [
+            { line: 'میں یہیں ہوں — کافی دیر سے خاموشی ہے، سب خیریت تو ہے؟', manner: 'loving' },
+            { line: 'آپ چپ ہیں — میں یہیں ہوں، کچھ چاہیے تو بتائیں۔', manner: 'loving' },
+            { line: 'کافی دیر سے خاموشی ہے — میں سن رہا ہوں، بولیں تو سہی۔', manner: 'loving' },
+            { line: 'کافی دیر سے خاموشی ہے — تھکاوٹ ہو تو بتائیں، میں یہیں ہوں۔', manner: 'gentle' },
+          ];
+      // Memory-grounded line — ONLY when the learning brain really
+      // holds something about him (hasMemory). It says his words
+      // stay with her; it never invents a specific memory.
+      if (opts?.hasMemory) {
+        base.push(
+          feminine
+            ? { line: 'جان، آپ کی باتیں مجھے یاد رہتی ہیں — کچھ کہنا ہے تو میں سن رہی ہوں۔', manner: 'loving' as const }
+            : { line: 'آپ کی باتیں مجھے یاد رہتی ہیں — کچھ کہنا ہے تو میں سن رہا ہوں۔', manner: 'loving' as const },
+        );
+      }
+      // At night the quiet line is gentle, never loud-loving.
+      const pool = night ? base.filter((l) => l.manner === 'gentle') : base;
+      return pickFromPool(pool.length > 0 ? pool : base).line;
+    }
   }
 }
 
@@ -195,6 +334,13 @@ export function useAwareness(opts: {
   enabled: boolean;
   /** Uniqa speaks with feminine grammar; Unique with masculine. */
   feminine: boolean;
+  /** The tone the user ordered — FAST MIND: serious tone restrains
+   *  her proactive lines to the serious pool. */
+  tone?: import('./persona').ToneMode;
+  /** True when the learning brain actually holds something about
+   *  him — FAST MIND: only then may a proactive line say his words
+   *  stay with her. */
+  hasMemory?: boolean;
   /** True while the app must NOT interrupt (reply generating,
    *  speaking, recording, user typing, studio/overlay open). */
   paused: boolean;
@@ -256,7 +402,22 @@ export function useAwareness(opts: {
   const fire = useCallback(
     (reason: AwarenessReason) => {
       if (bubbleRef.current) return;
-      const line = pickAwarenessLine(reason, optsRef.current.feminine);
+      // FAST MIND — think before speaking: the fit gate decides
+      // whether this moment earns a word at all, and in which
+      // manner. A vetoed moment stays silent — she never blurts.
+      const now = Date.now();
+      const fit = decideProactiveFit(reason, {
+        hour: new Date(now).getHours(),
+        tone: optsRef.current.tone ?? 'neutral',
+        lastManner: lastAwarenessManner,
+        sinceLastMs: lastFiredRef.current ? now - lastFiredRef.current : 0,
+      });
+      if (!fit.speak) return;
+      const line = pickAwarenessLine(reason, optsRef.current.feminine, {
+        tone: optsRef.current.tone ?? 'neutral',
+        hour: new Date(now).getHours(),
+        hasMemory: optsRef.current.hasMemory ?? false,
+      });
       const state: AwarenessBubbleState = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         reason,

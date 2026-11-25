@@ -80,6 +80,20 @@ import {
 } from '@/lib/backup';
 import { saveMemoryBackupToUsb } from '@/lib/usb-save';
 import JobTimerBar from '@/components/JobTimerBar';
+import AlarmStrip from '@/components/AlarmStrip';
+import {
+  ALARM_HONEST_LIMIT,
+  alarmFireLine,
+  alarmSetConfirmation,
+  dueAlarms,
+  formatAlarmTime,
+  formatCountdown,
+  loadAlarms,
+  makeAlarm,
+  parseAlarmCommand,
+  saveAlarms,
+  type Alarm,
+} from '@/lib/alarm';
 import {
   AGENT_ESTIMATE_SECONDS,
   BUILDER_ESTIMATE_SECONDS,
@@ -381,6 +395,45 @@ export default function ChatPage() {
   // reads the maker's real job store). Fast agent jobs get NO minute
   // estimate — only ticking seconds.
   const [jobTimer, setJobTimer] = useState<JobTimerState | null>(null);
+
+  // ALARM (2026-11-26, user order): Uniqa sets alarms from chat.
+  // Persisted in plain localStorage (time + short purpose only — no
+  // secrets) so a refresh keeps them; the strip counts down live
+  // and Uniqa speaks when one fires.
+  const [alarms, setAlarms] = useState<Alarm[]>(() => {
+    try {
+      return loadAlarms(localStorage);
+    } catch {
+      return [];
+    }
+  });
+  const [firingAlarm, setFiringAlarm] = useState<Alarm | null>(null);
+  const alarmsRef = useRef(alarms);
+  alarmsRef.current = alarms;
+  useEffect(() => {
+    saveAlarms(localStorage, alarms);
+  }, [alarms]);
+  // The alarm clock: every second, fire what is due. One alarm
+  // rings at a time (the earliest first); the rest stay queued and
+  // fire on the following ticks. The message lands in chat even if
+  // the voice cannot play — the strip is the visible sign.
+  const fireAlarmRef = useRef<(alarm: Alarm) => void>(() => {});
+  fireAlarmRef.current = (alarm: Alarm) => {
+    setFiringAlarm(alarm);
+    const line = alarmFireLine(alarm, personaRef.current === 'uniqa');
+    logActivity(`الارم — ${alarm.label}`);
+    if (appendAssistantMessage(line)) void playAssistantMessage(line);
+  };
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const due = dueAlarms(alarmsRef.current, Date.now());
+      if (due.length === 0) return;
+      const first = due[0];
+      setAlarms((prev) => prev.filter((a) => a.id !== first.id));
+      fireAlarmRef.current(first);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
   const startJobTimer = (kind: JobTimerKind, title: string, estimateSeconds: number | null, detail?: string) => {
     setJobTimer(createJobTimer(kind, title, estimateSeconds, detail));
   };
@@ -830,6 +883,11 @@ export default function ChatPage() {
   const awareness = useAwareness({
     enabled: awarenessEnabled,
     feminine: persona === 'uniqa',
+    // FAST MIND (2026-11-26): the tone the user ordered restrains
+    // her proactive lines, and a real memory in the learning brain
+    // lets a line say his words stay with her.
+    tone,
+    hasMemory: memoryCount > 0,
     paused:
       busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
       libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
@@ -1457,6 +1515,66 @@ export default function ChatPage() {
     return true;
   }
 
+  /**
+   * Alarm commands (2026-11-26, user order): «الارم لگا دو» /
+   * «صبح 7 بجے اٹھنا ہے» / «کبھی بھی کام کرنا ہے الارم لگا دو» /
+   * "set an alarm" — set / list / cancel, handled locally on the
+   * alarms store. The strip at the top of the front counts down
+   * live; at the alarm time Uniqa speaks (see the firing effect
+   * above). Returns true when the message was an alarm command.
+   */
+  function handleAlarmCommand(textValue: string): boolean {
+    const cmd = parseAlarmCommand(textValue);
+    if (!cmd) return false;
+    const fem = personaRef.current === 'uniqa';
+    if (cmd.type === 'list') {
+      const upcoming = [...alarmsRef.current].sort((a, b) => a.fireAt - b.fireAt);
+      const text =
+        upcoming.length === 0
+          ? 'ابھی کوئی الارم نہیں لگا ہوا۔'
+          : `آپ کے الارم:\n${upcoming.map((a) => `⏰ ${formatAlarmTime(a.fireAt)} — ${a.label} (${formatCountdown(a.fireAt)})`).join('\n')}`;
+      appendWebsiteCommandExchange(textValue, text);
+      playAssistantMessage(text);
+      setDraft('');
+      return true;
+    }
+    if (cmd.type === 'cancel') {
+      const upcoming = [...alarmsRef.current].sort((a, b) => a.fireAt - b.fireAt);
+      if (upcoming.length === 0) {
+        const text = 'کوئی الارم لگا ہوا نہیں ہے — کینسل کرنے کو کچھ نہیں۔';
+        appendWebsiteCommandExchange(textValue, text);
+        playAssistantMessage(text);
+        setDraft('');
+        return true;
+      }
+      if (cmd.scope === 'all') {
+        const n = upcoming.length;
+        setAlarms([]);
+        const text = `ٹھیک ہے — سارے الارم بند کر دیے (${n} الارم)۔`;
+        appendWebsiteCommandExchange(textValue, text);
+        playAssistantMessage(text);
+      } else {
+        const next = upcoming[0];
+        setAlarms((prev) => prev.filter((a) => a.id !== next.id));
+        const text = `ٹھیک ہے — ${formatAlarmTime(next.fireAt)} والا الارم (${next.label}) بند کر دیا۔`;
+        appendWebsiteCommandExchange(textValue, text);
+        playAssistantMessage(text);
+      }
+      setDraft('');
+      return true;
+    }
+    // Set.
+    const alarm = makeAlarm(cmd.fireAt, cmd.label);
+    const first = alarmsRef.current.length === 0;
+    setAlarms((prev) => [...prev, alarm]);
+    let confirmation = alarmSetConfirmation(alarm, fem);
+    if (first) confirmation += `\n${ALARM_HONEST_LIMIT}`;
+    appendWebsiteCommandExchange(textValue, confirmation);
+    playAssistantMessage(confirmation);
+    setDraft('');
+    return true;
+  }
+
   // ---- Brain backup / restore (Phase 4) ----
   // «بیک اپ بنا دو» downloads ONE JSON file with the whole brain
   // (lib/backup — API keys NEVER included, by design); «بیک اپ واپس
@@ -1631,6 +1749,10 @@ export default function ChatPage() {
     // Memory voice commands (Phase 2): «یہ یاد رکھو» / «بھول جاؤ» /
     // «ساری میموری ڈیلیٹ کر دو» — handled on the notes store locally.
     if (!attachedImage && handleMemoryCommand(text)) return;
+    // Alarm (2026-11-26): «الارم لگا دو» / «صبح 7 بجے اٹھنا ہے» /
+    // «کبھی بھی کام کرنا ہے الارم لگا دو» — set / list / cancel,
+    // handled locally on the alarms store (never the brain).
+    if (!attachedImage && handleAlarmCommand(text)) return;
     // Brain backup (Phase 4): «بیک اپ بنا دو» downloads the brain
     // file; «بیک اپ واپس لاؤ» opens the restore picker. Runs AFTER
     // memory so «یہ یاد رکھو … بیک اپ …» stays a note-save.
@@ -4661,6 +4783,17 @@ export default function ChatPage() {
           from the job's real start; long jobs state their estimate
           (تقریباً), fast jobs claim no minutes at all. */}
       <JobTimerBar timer={jobTimer} onDismiss={() => setJobTimer(null)} />
+
+      {/* Alarm clock (2026-11-26): visible ONLY while an alarm is
+          set or ringing — the next alarm + a live countdown that
+          ticks every second, with the honest limit in plain words
+          (fires only while the laptop is on and the app is open). */}
+      <AlarmStrip
+        alarms={alarms}
+        firing={firingAlarm}
+        onCancel={(id) => setAlarms((prev) => prev.filter((a) => a.id !== id))}
+        onDismissFiring={() => setFiringAlarm(null)}
+      />
 
       {speechNotice && (
         <div dir="rtl" data-testid="banner-speech-notice" style={{
