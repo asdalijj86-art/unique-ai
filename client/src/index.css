@@ -3329,6 +3329,13 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr) 216px;
   grid-template-rows: minmax(0, 1fr);
+  /* Dense auto-placement (2026-11-26 root cause): the DOM order is
+     center, side, globe — with sparse placement the center takes
+     row 1 col 2 first, so side + globe fall into an implicit row 2
+     and row 1 collapses to 0px, clipping the whole face to nothing
+     (clientHeight 0, scrollHeight 350). Dense backfills row 1 so
+     all three sit in the same row. */
+  grid-auto-flow: dense;
   gap: 12px;
   padding: 10px 14px;
   direction: ltr;
