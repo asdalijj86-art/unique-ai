@@ -2663,8 +2663,19 @@ body {
   border-radius: 16px;
   padding: 6px 10px;
 }
-.utown-title { font-size: 12px; font-weight: 700; color: #7dd3fc; margin-bottom: 4px; }
-.utown-live { color: #4ade80; animation: brand-pulse 1.2s ease-in-out infinite; }
+.utown-title { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: #7dd3fc; margin-bottom: 5px; }
+.utown-title > span:first-child { white-space: nowrap; }
+.utown-live { color: #4ade80; animation: brand-pulse 1.2s ease-in-out infinite; white-space: nowrap; }
+/* The office button rides in the title row now (2026-11-26): a
+   full-width row would have cost the seats their last row. */
+.utown-office-btn {
+  margin-inline-start: auto;
+  padding: 2px 8px; border-radius: 999px; cursor: pointer;
+  font-size: 11px; font-weight: 700; font-family: inherit; white-space: nowrap;
+  background: rgba(139, 92, 246, 0.16);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: #ede9fe;
+}
 .utown-bubbles { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .utown-bubble {
   display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
@@ -2681,33 +2692,56 @@ body {
   background: rgba(34, 197, 94, 0.18); border: 1px solid rgba(34, 197, 94, 0.5); color: #bbf7d0;
   white-space: nowrap;
 }
-.utown-quiet { font-size: 12.5px; line-height: 1.8; color: #7c93a8; margin: 0 0 6px; }
-.utown-chips { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-.utown-chips::-webkit-scrollbar { display: none; }
+/* ---- Agent Town under the globe: SEATED agents (2026-11-26) ----
+   A 3-column grid of compact seat cards fits the narrow 216px
+   globe column with ALL eight seats visible at once (a 2-column
+   grid at readable size only showed four — the rest needed a
+   scroll, which is exactly the "agents not visible" complaint).
+   Avatar circle on top (the agent "sitting"), name below, status
+   under it. On small screens the column goes full-width and the
+   seats spread out (see the media query below). */
+.utown-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .utown-chip {
-  display: flex; align-items: center; gap: 5px;
-  padding: 5px 9px; border-radius: 999px;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 5px 2px 4px; border-radius: 12px;
   background: rgba(34, 211, 238, 0.05);
   border: 1px solid rgba(56, 189, 248, 0.16);
-  color: #a5e3f5; font-size: 12px; white-space: nowrap;
-  cursor: pointer; flex-shrink: 0;
+  color: #a5e3f5; font-size: 11px; text-align: center;
+  cursor: pointer; min-width: 0;
 }
 .utown-chip.working { border-color: rgba(34, 197, 94, 0.55); color: #bbf7d0; }
 .utown-manager { border-color: rgba(34, 211, 238, 0.5); color: #cffafe; }
-.utown-dot { width: 7px; height: 7px; border-radius: 50%; background: #475569; flex-shrink: 0; }
+/* The seat: the agent's face in a circle, with its status dot
+   riding on the circle's corner. */
+.utown-avatar {
+  position: relative;
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; flex-shrink: 0;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+}
+.utown-chip.working .utown-avatar {
+  border-color: rgba(34, 197, 94, 0.7);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.45);
+}
+.utown-dot {
+  position: absolute; bottom: -1px; inset-inline-end: -1px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #475569; border: 1.5px solid #0b1526;
+  flex-shrink: 0;
+}
 .utown-dot.working {
   background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
   animation: brand-pulse 1.2s ease-in-out infinite;
 }
-.utown-name { font-weight: 600; }
-.utown-state { font-size: 11.5px; opacity: 0.75; }
-.utown-office {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 999px;
-  background: rgba(139, 92, 246, 0.16);
-  border: 1px solid rgba(167, 139, 250, 0.4);
-  color: #ede9fe; font-size: 12.5px; white-space: nowrap;
-  cursor: pointer; flex-shrink: 0;
+.utown-name { font-weight: 600; font-size: 11px; line-height: 1.3; }
+.utown-state { font-size: 10px; opacity: 0.75; line-height: 1.35; }
+/* A working seat shows its task (the user's own words), clamped
+   to 2 lines so one long request never stretches the seat. */
+.utown-state-task {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ---- Node dialog (panel over the front) ---- */
@@ -3343,8 +3377,9 @@ body {
 .usimple-side {
   grid-column: 1;
   display: flex; flex-direction: column;
-  /* Never scrolls the town away: the chat scrolls internally,
-     Agent Town stays pinned at the bottom, always visible. */
+  /* The chat scrolls internally and now fills the whole column:
+     Agent Town moved under the globe (2026-11-26), so the chat
+     box stretches to the bottom. */
   min-height: 0; min-width: 0; overflow: hidden;
   gap: 10px;
   direction: rtl;
@@ -3360,8 +3395,17 @@ body {
   grid-column: 3;
   display: flex; flex-direction: column; align-items: center;
   gap: 8px; padding-top: 10px;
-  min-width: 0;
+  min-width: 0; min-height: 0; overflow: hidden;
   direction: rtl;
+}
+/* Agent Town under the globe (2026-11-26): the globe keeps its
+   natural height, the town takes the rest of the column and
+   scrolls inside itself if the seats ever overflow. */
+.usimple-globe > :not(.utown) { flex-shrink: 0; }
+.usimple-globe .utown {
+  align-self: stretch;
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; scrollbar-width: thin;
 }
 @media (max-width: 1099px) {
   .usimple-main {
@@ -3372,7 +3416,11 @@ body {
   .usimple-center { grid-column: 1; order: 1; overflow: visible; }
   .usimple-side { grid-column: 1; order: 2; overflow: visible; }
   .usimple-side .uchat-col { flex: none; }
-  .usimple-globe { grid-column: 1; order: 3; padding-top: 0; }
+  .usimple-globe { grid-column: 1; order: 3; padding-top: 0; overflow: visible; }
+  .usimple-globe .utown { overflow: visible; }
+  /* Stacked layout: the globe column is full-width, so the seats
+     spread out instead of staying in 3 narrow columns. */
+  .utown-chips { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
 }
 
 /* ---- Node LINES: thin rules radiating OUT OF the face, each

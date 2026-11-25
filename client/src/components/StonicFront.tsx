@@ -379,21 +379,23 @@ export function FrontStage({
 }
 
 // ---------------------------------------------------------------------------
-// AgentTown — the team at work, below the chat box (FRONT-SIMPLE).
+// AgentTown — the team at work, below the globe (2026-11-26, user's
+// order: agents sit on their seats under the map, seen working when
+// he gives them a task). Each agent is a SEAT card: avatar circle on
+// top, name below, status under it. A working seat shows its task
+// (clamped to 2 lines) and the bubble above it carries the screen
+// button; the auto-open effect in chat.tsx still fires from state,
+// so moving the town here changes nothing about it.
 // ---------------------------------------------------------------------------
 
 export function AgentTown({
   tasks,
   boardEntries,
-  persona,
-  uniqaStatus,
   onOpenAgent,
   onOpenOffice,
 }: {
   tasks: AgentTaskState[] | null;
   boardEntries: BoardEntry[];
-  persona: 'unique' | 'uniqa';
-  uniqaStatus: string;
   onOpenAgent: (key: string) => void;
   onOpenOffice: () => void;
 }) {
@@ -402,10 +404,13 @@ export function AgentTown({
   return (
     <section className="utown" data-testid="agent-town" dir="rtl" aria-label="ایجنٹ ٹاؤن — میری ٹیم">
       <div className="utown-title">
-        🏢 ایجنٹ ٹاؤن — میری ٹیم
+        <span>🏢 ایجنٹ ٹاؤن</span>
         {working.length > 0 && <span className="utown-live" aria-label="کام جاری ہے"> ● کام جاری ہے</span>}
+        <button type="button" className="utown-office-btn" onClick={onOpenOffice} data-testid="button-office-scene" title="دفتر دیکھیں">
+          🏢 دفتر
+        </button>
       </div>
-      {bubbles.length > 0 ? (
+      {bubbles.length > 0 && (
         <div className="utown-bubbles">
           {bubbles.map((t) => (
             <span key={t.key} className="utown-bubble" data-testid={`agent-bubble-${t.key}`}>
@@ -427,10 +432,6 @@ export function AgentTown({
             </span>
           ))}
         </div>
-      ) : (
-        <p className="utown-quiet">
-          {persona === 'uniqa' ? `💛 یونیکا: ${uniqaStatus}` : 'سب ایجنٹ تیار ہیں — کوئی کام دیں تو وہ یہیں اپنی اسکرین کے ساتھ دکھے گا۔'}
-        </p>
       )}
       <div className="utown-chips">
         <button
@@ -440,8 +441,10 @@ export function AgentTown({
           data-testid="agent-chip-uniqa"
           title="یونیکا — مینیجر — اس کی اسکرین دیکھیں"
         >
-          <span className="utown-dot idle" aria-hidden="true" />
-          <span aria-hidden="true">💛</span>
+          <span className="utown-avatar">
+            <span aria-hidden="true">💛</span>
+            <span className="utown-dot idle" aria-hidden="true" />
+          </span>
           <span className="utown-name">یونیکا</span>
           <span className="utown-state">مینیجر</span>
         </button>
@@ -458,18 +461,21 @@ export function AgentTown({
               data-testid={`agent-chip-${def.key}`}
               title={`${agentLabel(def)} — اس کی اسکرین دیکھیں`}
             >
-              <span className={`utown-dot${isWorking ? ' working' : ''}`} aria-hidden="true" />
-              <span aria-hidden="true">{def.icon}</span>
+              <span className="utown-avatar">
+                <span aria-hidden="true">{def.icon}</span>
+                <span className={`utown-dot${isWorking ? ' working' : ''}`} aria-hidden="true" />
+              </span>
               <span className="utown-name">{def.person}</span>
               <span className="utown-state">
-                {isWorking ? 'کام کر رہا ہے' : doneToday > 0 ? `آج ${doneToday} مکمل` : 'فارغ'}
+                {isWorking
+                  ? state?.detail
+                    ? <span className="utown-state-task">{state.detail}</span>
+                    : 'کام کر رہا ہے'
+                  : doneToday > 0 ? `آج ${doneToday} مکمل` : 'فارغ'}
               </span>
             </button>
           );
         })}
-        <button type="button" className="utown-office" onClick={onOpenOffice} data-testid="button-office-scene">
-          🏢 دفتر
-        </button>
       </div>
     </section>
   );

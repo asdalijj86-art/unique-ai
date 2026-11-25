@@ -4624,7 +4624,8 @@ export default function ChatPage() {
           />
         </div>
 
-        {/* LEFT: chat box, agents below it */}
+        {/* LEFT: chat box — stretches to the bottom now that
+            Agent Town moved under the globe (2026-11-26). */}
         <div className="usimple-side">
           <div className="uchat-col">
           <div className="uchat-panel" dir="rtl">
@@ -4889,23 +4890,21 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
-
-        {/* Agents below the chat box (FRONT-SIMPLE). */}
-        <AgentTown
-          tasks={agentTeam}
-          boardEntries={boardEntries}
-          persona={persona}
-          uniqaStatus={heroStatus}
-          onOpenAgent={openAgentWork}
-          onOpenOffice={() => setAgentTeamSceneOpen(true)}
-        />
       </div>
 
       {/* RIGHT: small rotatable globe — the big YOUR WORLD strip
           stays hidden; tap the globe (or the button under it) for
-          the full World Monitor. */}
+          the full World Monitor. Agent Town sits BELOW the globe
+          (2026-11-26, user's order): the agents on their seats,
+          visible working when he gives them a task. */}
       <div className="usimple-globe">
         <MiniGlobe onOpenMonitor={() => setWorldMonitorOpen(true)} />
+        <AgentTown
+          tasks={agentTeam}
+          boardEntries={boardEntries}
+          onOpenAgent={openAgentWork}
+          onOpenOffice={() => setAgentTeamSceneOpen(true)}
+        />
       </div>
       </div>
 
