@@ -270,10 +270,14 @@ export function applyBackup(storage: StorageLike, data: BrainBackup): { written:
 export type BackupCommand = 'create' | 'restore';
 
 const BACKUP_WORD_RE = /(بیک\s?اپ|backup|back\s?up)/i;
-const CREATE_VERB_RE = /(بنا|بناؤ|ڈاؤن\s?لوڈ|download|سیو|save|نکال|محفوظ)/i;
+// «بچا لو» is his own word for save («میموری USB میں بچا لو») —
+// without it his exact order parsed to null and fell through to
+// the brain. Roman «bacha/bachao» too.
+const CREATE_VERB_RE = /(بنا|بناؤ|بچا|بچاؤ|bacha|bachao|ڈاؤن\s?لوڈ|download|سیو|save|نکال|محفوظ)/i;
 const RESTORE_VERB_RE = /(واپس|بحال|restore|recover|لاؤ|لگاؤ|امپورٹ|import)/i;
 const USB_WORD_RE = /(usb|یو\s?ایس\s?بی)/i;
-const BRAIN_WORD_RE = /(میموری|دماغ|یادیں|باتیں)/;
+// English «memory» too: «save memory to USB» is the same order.
+const BRAIN_WORD_RE = /(میموری|دماغ|یادیں|باتیں|یادداشت|memory|memories)/;
 
 function countWords(text: string): number {
   return String(text || '').trim().split(/\s+/).filter(Boolean).length;
@@ -293,4 +297,19 @@ export function parseBackupCommand(rawText: string): BackupCommand | null {
   if (RESTORE_VERB_RE.test(text)) return 'restore';
   if (CREATE_VERB_RE.test(text)) return 'create';
   return null;
+}
+
+/**
+ * Is this order a USB memory save — «میموری USB میں بچا لو»,
+ * «save memory to USB», «memory USB mein bacha lo»? Same hijack-safe
+ * shape as parseBackupCommand (≤10 words, USB + brain/backup word +
+ * save verb). A long message merely TALKING about a USB parses to
+ * false and reaches the brain untouched.
+ */
+export function isUsbSaveOrder(rawText: string): boolean {
+  const text = String(rawText || '').trim();
+  if (!text || countWords(text) > 10) return false;
+  if (!USB_WORD_RE.test(text)) return false;
+  if (!BRAIN_WORD_RE.test(text) && !BACKUP_WORD_RE.test(text)) return false;
+  return CREATE_VERB_RE.test(text);
 }

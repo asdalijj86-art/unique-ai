@@ -654,6 +654,9 @@ export default function VideoMaker({ onClose, embedded = false, initialPrompt, a
       sceneTotal: scenes.length,
       format: 'video/webm',
       updatedAt: new Date().toISOString(),
+      // Timer (no-lie rule, 2026-11-26): the job's real start — the
+      // indicator and status answers read elapsed time from this.
+      startedAt: Date.now(),
     };
     updateJob({ ...jobBase, status: 'building', sceneIndex: 0, stage: 'شروع ہو رہا ہے', error: '' });
     setProgress('شروع ہو رہا ہے — پہلی آواز بن رہی ہے…');

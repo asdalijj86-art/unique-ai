@@ -20,6 +20,7 @@
 import { useEffect, useState } from 'react';
 import { secureAppStorage } from '@/lib/secure-app-storage';
 import { loadVideoMakerJob, type VideoJobState } from '@/lib/video-maker';
+import { elapsedSeconds, estimateVideoJobSeconds, formatJobElapsed, formatJobEstimate } from '@/lib/job-timer';
 
 function readJob(): VideoJobState | null {
   try {
@@ -31,9 +32,12 @@ function readJob(): VideoJobState | null {
 
 export default function VideoJobIndicator() {
   const [job, setJob] = useState<VideoJobState | null>(() => readJob());
+  // The timer ticks from the real clock every second (the store is
+  // polled on the same tick), so elapsed time is live, never stale.
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const refresh = () => setJob(readJob());
+    const refresh = () => { setJob(readJob()); setNow(Date.now()); };
     refresh();
     const timer = window.setInterval(refresh, 1000);
     const onStorage = (e: StorageEvent) => {
@@ -47,6 +51,15 @@ export default function VideoJobIndicator() {
   }, []);
 
   const active = job && (job.status === 'building' || job.status === 'rendering');
+  // Timer (no-lie rule, 2026-11-26): elapsed from the job's real
+  // start; the estimate is per-scene TTS + real-time render time,
+  // always «تقریباً» — past the estimate the bar says so and keeps
+  // counting, never a fake finish.
+  const startedAt = active ? (job.startedAt ?? Date.parse(job.updatedAt) ?? now) : 0;
+  const elapsed = active ? elapsedSeconds(startedAt, now) : 0;
+  const estimate = active ? estimateVideoJobSeconds(job.sceneTotal) : 0;
+  const overEstimate = active && elapsed > estimate;
+  const progress = active ? Math.min(100, Math.round((elapsed / estimate) * 100)) : 0;
   const base: React.CSSProperties = {
     margin: '8px 12px 0', padding: '10px 14px', borderRadius: 12, fontSize: 13.5, lineHeight: 1.8, direction: 'rtl',
   };
@@ -60,7 +73,22 @@ export default function VideoJobIndicator() {
   if (active) {
     return (
       <div dir="rtl" data-testid="job-indicator-working" style={{ ...base, background: 'rgba(37,99,235,0.25)', border: '1px solid rgba(96,165,250,0.6)', color: '#dbeafe', fontWeight: 700 }}>
-        ⏳ ویڈیو بن رہی ہے — «{job.title}» — {job.stage} (سین {job.sceneIndex + 1} از {job.sceneTotal})
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ flex: 1, minWidth: 220 }}>
+            ⏳ ویڈیو بن رہی ہے — «{job.title}» — {job.stage} (سین {job.sceneIndex + 1} از {job.sceneTotal})
+          </span>
+          <span data-testid="job-indicator-elapsed" style={{ whiteSpace: 'nowrap' }}>⏱️ {formatJobElapsed(elapsed)}</span>
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.15)', overflow: 'hidden' }}>
+            <div data-testid="job-indicator-progress" style={{ width: `${progress}%`, height: '100%', background: overEstimate ? '#fbbf24' : '#60a5fa', transition: 'width 1s linear' }} />
+          </div>
+          <div style={{ fontSize: 12.5, opacity: 0.9, marginTop: 2 }}>
+            {overEstimate
+              ? `تخمینہ (${formatJobEstimate(estimate)}) سے زیادہ وقت لگ رہا ہے — کام ابھی چل رہا ہے`
+              : `تخمینہ: ${formatJobEstimate(estimate)}`}
+          </div>
+        </div>
       </div>
     );
   }

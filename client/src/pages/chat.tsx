@@ -74,9 +74,19 @@ import {
   summarizeBackup,
   applyBackup,
   parseBackupCommand,
+  isUsbSaveOrder,
   type BrainBackup,
   type BackupSummary,
 } from '@/lib/backup';
+import { saveMemoryBackupToUsb } from '@/lib/usb-save';
+import JobTimerBar from '@/components/JobTimerBar';
+import {
+  AGENT_ESTIMATE_SECONDS,
+  BUILDER_ESTIMATE_SECONDS,
+  createJobTimer,
+  type JobTimerKind,
+  type JobTimerState,
+} from '@/lib/job-timer';
 import DevicePairing, { type ConversationHandover, type RemoteCommand, type CallUiState, type CallControl } from '@/components/DevicePairing';
 import CallIntoUnique, { type CallLinkState } from '@/components/CallIntoUnique';
 import { queryAllPermissions, requestAllPermissions } from '@/lib/permissions';
@@ -363,6 +373,26 @@ export default function ChatPage() {
     try { return loadBoardEntries(secureAppStorage); } catch { return []; }
   });
   const [buildLive, setBuildLive] = useState<{ title: string; startedAt: number } | null>(null);
+  // Real job timer (no-lie rule, 2026-11-26): ONE timer for the job
+  // actually running — agent task, builder job, or USB save. It
+  // starts only from a real job start and ends only at that job's
+  // terminal state; the bar ticks every second from the real clock.
+  // The video job has its own timer inside VideoJobIndicator (it
+  // reads the maker's real job store). Fast agent jobs get NO minute
+  // estimate — only ticking seconds.
+  const [jobTimer, setJobTimer] = useState<JobTimerState | null>(null);
+  const startJobTimer = (kind: JobTimerKind, title: string, estimateSeconds: number | null, detail?: string) => {
+    setJobTimer(createJobTimer(kind, title, estimateSeconds, detail));
+  };
+  const setJobTimerStage = (stage: string) => {
+    setJobTimer((t) => (t && t.status === 'running' ? { ...t, stage } : t));
+  };
+  const finishJobTimer = (kind: JobTimerKind, status: 'done' | 'failed', resultText?: string, errorText?: string) => {
+    setJobTimer((t) => {
+      if (!t || t.status !== 'running' || t.kind !== kind) return t;
+      return { ...t, status, resultText, errorText, finishedAt: Date.now() };
+    });
+  };
   // Call (Phase 4): DevicePairing owns the signalling; these mirror
   // just enough of it for sendMessage to reroute turns mid-call.
   const callControlRef = useRef<CallControl | null>(null);
@@ -1449,10 +1479,66 @@ export default function ChatPage() {
     return summarizeBackup(data);
   }
 
+  // USB memory save (2026-11-26, user order): the async flow behind
+  // «میموری USB میں بچا لو». Collects the encrypted brain backup —
+  // BOTH persona stores (Uniqa + Unique notes/learnings) plus
+  // conversations; memory entries travel as raw AES-GCM blobs, never
+  // plaintext — then writes via the folder picker or the honest
+  // download fallback (lib/usb-save), with the real job timer
+  // running throughout. The delivery lands in chat AND is spoken,
+  // like every other local command.
+  async function runUsbMemorySave(textValue: string): Promise<void> {
+    setDraft('');
+    startJobTimer('usb', 'میموری USB میں بچا رہی ہوں', null, 'دونوں شخصیتوں کی یادیں + گفتگوئیں');
+    let serialized: string;
+    let summary: BackupSummary;
+    try {
+      const data = collectBackup(backupStorage);
+      serialized = serializeBackup(data);
+      summary = summarizeBackup(data);
+    } catch {
+      finishJobTimer('usb', 'failed', undefined, 'میموری پڑھنے میں مسئلہ ہوا — کچھ نہیں لکھا گیا');
+      const reply = 'میموری پڑھنے میں مسئلہ ہوا — USB میں کچھ نہیں لکھا گیا۔ دوبارہ کوشش کریں۔';
+      appendWebsiteCommandExchange(textValue, reply);
+      void playAssistantMessage(reply);
+      return;
+    }
+    const fileName = backupFileName(new Date());
+    const outcome = await saveMemoryBackupToUsb(serialized, fileName, (stage) => setJobTimerStage(stage));
+    if (outcome.ok && outcome.via === 'usb') {
+      finishJobTimer('usb', 'done', `فائل «${outcome.fileName}» USB میں لکھ دی — ${outcome.bytes} بائٹس`);
+      const reply = `✅ میموری USB میں بچا لی — فائل «${outcome.fileName}» (${outcome.bytes} بائٹس)۔ اس میں ${summary.conversations} گفتگوئیں، ${summary.notes} یادیں${summary.learnings ? `، ${summary.learnings} سیکھی ہوئی باتیں` : ''} ہیں — یونیکا اور یونیک دونوں کی۔ یادیں (نوٹس اور سیکھی ہوئی باتیں) اس میں خفیہ ہیں — بغیر آپ کے پاس ورڈ کے کوئی انہیں نہیں پڑھ سکتا؛ گفتگو کا ریکارڈ سادہ متن میں ہے، جیسا کہ بیک اپ کی ترتیب ہے۔ API keys اس میں شامل نہیں ہیں۔`;
+      appendWebsiteCommandExchange(textValue, reply);
+      void playAssistantMessage(`میموری USB میں بچا لی — فائل ${outcome.fileName}، ${outcome.bytes} بائٹس۔ یادیں خفیہ ہیں۔`);
+      return;
+    }
+    if (outcome.ok) {
+      // Fallback download: the picker could not open — say so plainly.
+      finishJobTimer('usb', 'done', `فائل «${outcome.fileName}» ڈاؤن لوڈ ہو گئی — ${outcome.bytes} بائٹس (USB میں خود کاپی کر لیں)`);
+      const reply = `⚠️ ${outcome.note} فائل «${outcome.fileName}» (${outcome.bytes} بائٹس) ڈاؤن لوڈ ہو گئی ہے — اس میں ${summary.conversations} گفتگوئیں، ${summary.notes} یادیں${summary.learnings ? `، ${summary.learnings} سیکھی ہوئی باتیں` : ''} ہیں، یونیکا اور یونیک دونوں کی۔ یادیں (نوٹس اور سیکھی ہوئی باتیں) خفیہ ہیں — بغیر آپ کے پاس ورڈ کے کوئی انہیں نہیں پڑھ سکتا؛ گفتگو کا ریکارڈ سادہ متن میں ہے۔ اسے خود USB میں کاپی کر لیں۔ API keys اس میں شامل نہیں ہیں۔`;
+      appendWebsiteCommandExchange(textValue, reply);
+      void playAssistantMessage('براؤزر نے USB فولڈر نہیں کھولا — فائل ڈاؤن لوڈ ہو گئی ہے، اسے خود USB میں کاپی کر لیں۔');
+      return;
+    }
+    finishJobTimer('usb', 'failed', undefined, outcome.error);
+    appendWebsiteCommandExchange(textValue, outcome.error);
+    void playAssistantMessage(outcome.error);
+  }
+
   function handleBackupCommand(textValue: string): boolean {
     const cmd = parseBackupCommand(textValue);
     if (!cmd) return false;
     if (cmd === 'create') {
+      // USB memory save (2026-11-26, user order): «میموری USB میں
+      // بچا لو» — Uniqa writes the encrypted brain backup into a
+      // USB folder the user picks once, with a live timer + progress;
+      // if the browser blocks the picker she falls back to a download
+      // and SAYS SO plainly. The plain «بیک اپ بنا دو» order keeps
+      // the old download behaviour, unchanged.
+      if (isUsbSaveOrder(textValue)) {
+        void runUsbMemorySave(textValue);
+        return true;
+      }
       const summary = downloadBrainBackup();
       const reply = `🧠 دماغ کا بیک اپ تیار ہے — فائل ڈاؤن لوڈ ہو گئی ہے (${summary.conversations} گفتگوئیں، ${summary.notes} یادیں${summary.learnings ? `، ${summary.learnings} سیکھی ہوئی باتیں` : ''})۔ اسے USB میں رکھ لیں۔ ایک ضروری بات: اس فائل میں آپ کی API keys شامل نہیں ہیں — بحالی پر وہ ایک بار دوبارہ ڈالنی ہوں گی۔`;
       appendWebsiteCommandExchange(textValue, reply);
@@ -1649,6 +1735,11 @@ export default function ChatPage() {
     agentPredictedRef.current = predictedAgents;
     if (predictedAgents.length >= 1) {
       setAgentTeam(workingCards(predictedAgents, text.slice(0, 90)));
+      // Real job timer (no-lie rule, 2026-11-26): starts ONLY because
+      // a real agent job was predicted. Fast data calls get NO minute
+      // estimate — the bar shows live «کام جاری ہے» + ticking seconds.
+      const agentNames = predictedAgents.map((d) => d.person).join('، ');
+      startJobTimer('agent', `${agentNames} کام کر رہا ہے`, AGENT_ESTIMATE_SECONDS, text.slice(0, 90));
     } else {
       setAgentTeam(null);
     }
@@ -1778,6 +1869,9 @@ export default function ChatPage() {
         }
         setToolActions(result.actions as ChatAction[]);
         setAgentTeam(finalizeCards(agentPredictedRef.current, result.actions.map((a) => a.type), text.slice(0, 90)));
+        // Real job timer: the agents really ran — the delivery is the
+        // result cards in chat, named here.
+        finishJobTimer('agent', 'done', 'کام مکمل — نتائج چیٹ میں ہیں');
         recordCompletionsForActions(result.actions, text);
       } else if (result.actions && result.actions.length === 1) {
         // Server collapsed to a single executed action — treat it like
@@ -1786,11 +1880,20 @@ export default function ChatPage() {
         const singleAction = result.actions[0];
         result = { ...result, action: singleAction };
         setAgentTeam(null);
+        finishJobTimer('agent', 'done', 'کام مکمل — نتیجہ چیٹ میں ہے');
         recordCompletionsForActions([singleAction], text);
       } else if (agentPredictedRef.current.length >= 2) {
         // Predicted a team, but the reply is plain chat — the strip
         // must not claim work that never happened.
         setAgentTeam(null);
+        finishJobTimer('agent', 'failed', undefined, 'سرور نے کوئی ٹول نہیں چلایا — جواب چیٹ میں ہے');
+      } else if (agentPredictedRef.current.length === 1) {
+        // Same honesty rule for a single predicted agent: a plain
+        // chat reply leaves the strip stuck «کام کر رہا ہے» forever
+        // (no branch cleared it before this fix) — discard it and
+        // end the timer the same way.
+        setAgentTeam(null);
+        finishJobTimer('agent', 'failed', undefined, 'سرور نے کوئی ٹول نہیں چلایا — جواب چیٹ میں ہے');
       }
       // A direct singular action (no actions[] array): if an agent
       // genuinely completed work, pin it on today's board too.
@@ -1816,7 +1919,12 @@ export default function ChatPage() {
         // the job reach «done» (handleBuildReady), never at order
         // time; the live light goes out on any terminal state
         // (handleBuildSettled / handleBuildFailed).
-        setBuildLive({ title: result.action.title || text.slice(0, 40), startedAt: Date.now() });
+        const buildTitle = result.action.title || text.slice(0, 40);
+        setBuildLive({ title: buildTitle, startedAt: Date.now() });
+        // Real job timer: a whole-app build is a LONG job — the bar
+        // states the estimate (تقریباً 2 منٹ) and ticks until the
+        // build card reports done/failed.
+        startJobTimer('builder', `احمد — «${buildTitle}» بنا رہا ہے`, BUILDER_ESTIMATE_SECONDS, text.slice(0, 90));
         setToolAction(result.action as ChatAction);
       } else if (result.action?.type === 'open_tool') {
         // OLD TOOLS DELETED: legacy tool opens are ignored, chat continues.
@@ -1847,6 +1955,9 @@ export default function ChatPage() {
         messages: item.messages.filter((m) => m.id !== assistantId),
       }));
       const failureMessage = getErrorMessage(sendError);
+      // Real job timer: the send itself failed — the predicted agent
+      // job is over, honestly, with the real reason.
+      finishJobTimer('agent', 'failed', undefined, failureMessage.slice(0, 120));
       // CALL (Phase 4): a call utterance whose turn failed still gets
       // an answer on the caller — the same failure words this device
       // is about to speak locally, never silence.
@@ -2039,6 +2150,9 @@ export default function ChatPage() {
       }));
     }
     void playAssistantMessage('آپ کی چیز ریڈی ہو گئی ہے۔');
+    // Real job timer: the build is done — the delivery is the ready
+    // line above + the card below, named here with the real time.
+    finishJobTimer('builder', 'done', `«${title}» تیار — نیچے کارڈ سے کھولیں یا ڈاؤن لوڈ کر لیں`);
     // Office scene + board (Phase 4): احمد's build is truly done —
     // his cabin light goes out and the completion is pinned on
     // today's board (this is the ONLY place a build is recorded:
@@ -2060,6 +2174,7 @@ export default function ChatPage() {
   /** A build ended without a product (failed/vanished): احمد's
    *  cabin light goes out; nothing is pinned on the board. */
   function handleBuildFailed() {
+    finishJobTimer('builder', 'failed', undefined, 'ایپ نہیں بن سکی');
     setBuildLive(null);
   }
 
@@ -2229,6 +2344,15 @@ export default function ChatPage() {
     // only the face, its lines, the chat and the agents — everything
     // else is hidden behind. Naming one of those hidden things
     // brings it forward, the same way the map/Quran scenes open.
+    // USB/BACKUP guard (2026-11-26): an order that names memory to
+    // SAVE it («میموری USB میں بچا لو», «save memory to USB») is a
+    // backup order, NOT an "open the memory panel" order — the
+    // backup handler below owns it. Without this guard the panel
+    // rule hijacks every short memory-mentioning save order (the
+    // word «میموری» matches), the panel opens, and the USB save
+    // never runs at all (proven by a render test: the order opened
+    // the panel and the draft stayed put).
+    if (isUsbSaveOrder(recognizedText) || parseBackupCommand(recognizedText) !== null) return false;
     const panelTargets: Array<[RegExp, () => void, string]> = [
       [/(میموری|یادیں|یادداشت|memory)/i, () => setActivePanel('memory'), '🧠 میموری سامنے ہے۔'],
       [/(مہارت|مہارتیں|سکلز|skills)/i, () => setActivePanel('skills'), '🛠️ مہارتیں سامنے ہیں۔'],
@@ -4530,6 +4654,13 @@ export default function ChatPage() {
           honestly, and "no job running" when idle — never a fake
           working sign, and never a chat reply's guess. */}
       <VideoJobIndicator />
+
+      {/* Real job timer (no-lie rule, 2026-11-26): visible ONLY while
+          a job is running or its just-finished result is on screen —
+          agent task, builder job, or USB save. Ticks every second
+          from the job's real start; long jobs state their estimate
+          (تقریباً), fast jobs claim no minutes at all. */}
+      <JobTimerBar timer={jobTimer} onDismiss={() => setJobTimer(null)} />
 
       {speechNotice && (
         <div dir="rtl" data-testid="banner-speech-notice" style={{

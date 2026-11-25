@@ -8,6 +8,8 @@
 // audio's RMS envelope — the mouth moves only while its character is
 // actually speaking and closes in pauses. It is NOT syllable shapes,
 // and it must never be described as such.
+
+import { estimateVideoJobSeconds, formatJobElapsed } from './job-timer';
 //
 // Everything here is pure (no React, no canvas, no MediaRecorder) so
 // it is headlessly testable: scripts can import the parsers, the
@@ -47,6 +49,10 @@ export interface VideoJobState {
   /** Export format, always honest: the browser recorder's format. */
   format: string;
   updatedAt: string;
+  /** When this job run started (ms epoch) — the job timer reads
+   *  elapsed time from this. Older jobs lack it; readers fall back
+   *  to updatedAt. Set by VideoMaker.build() on every new run. */
+  startedAt?: number;
 }
 
 export const VIDEO_CHARACTERS_KEY = 'unique-ai-video-characters';
@@ -221,11 +227,18 @@ export function saveVideoMakerJob(storage: StorageLike, job: VideoJobState): voi
 /** Plain-words status from the REAL job — never a chat-only promise. */
 export function videoMakerStatusText(job: VideoJobState | null): string {
   if (!job) return 'کوئی ویڈیو جاب نہیں چل رہی — ویڈیو میکر میں ابھی کوئی کام شروع نہیں ہوا ہے، اس لیے کوئی لنک بھی نہیں دیا جا رہا۔';
+  // Timer (no-lie rule, 2026-11-26): elapsed from the job's real
+  // start; the estimate is per-scene TTS + real-time render time,
+  // always «تقریباً», never a promise.
+  const startedAt = job.startedAt ?? Date.parse(job.updatedAt) ?? Date.now();
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const estimateSec = estimateVideoJobSeconds(job.sceneTotal);
+  const timerBit = ` — گزرا وقت ${formatJobElapsed(elapsedSec)} (تخمینہ تقریباً ${formatJobElapsed(estimateSec)})`;
   if (job.status === 'building') {
-    return `آپ کی ویڈیو ابھی بن رہی ہے — ${job.stage} (سین ${job.sceneIndex + 1} از ${job.sceneTotal})۔ یہ چیٹ کا وعدہ نہیں، ویڈیو میکر کی اصل حالت ہے۔`;
+    return `آپ کی ویڈیو ابھی بن رہی ہے — ${job.stage} (سین ${job.sceneIndex + 1} از ${job.sceneTotal})${timerBit}۔ یہ چیٹ کا وعدہ نہیں، ویڈیو میکر کی اصل حالت ہے۔`;
   }
   if (job.status === 'rendering') {
-    return `آپ کی ویڈیو کی آوازیں تیار ہیں، اب ویڈیو رینڈر ہو رہی ہے — سین ${job.sceneIndex + 1} از ${job.sceneTotal}۔`;
+    return `آپ کی ویڈیو کی آوازیں تیار ہیں، اب ویڈیو رینڈر ہو رہی ہے — سین ${job.sceneIndex + 1} از ${job.sceneTotal}${timerBit}۔`;
   }
   if (job.status === 'done') {
     return `آپ کی ویڈیو بن چکی ہے — «${job.title}»۔ ویڈیو میکر کھولیں: اگر یہی سیشن چل رہا ہے تو وہیں ڈاؤن لوڈ بٹن ہوگا۔ فائل صرف اس سیشن میں رہتی ہے، اس لیے فوراً ڈاؤن لوڈ کر لیں۔`;
