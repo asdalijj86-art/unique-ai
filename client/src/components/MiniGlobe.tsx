@@ -346,6 +346,57 @@ export default function MiniGlobe({
         }
       }
 
+      // Cities — every city in the built-in list gets a dot on the
+      // front hemisphere, and a name label where it fits without
+      // overlapping another label, so the map shows cities + names
+      // without needing a search. (2026-11-26: the user reported no
+      // cities or city names visible on the map — only Muscat's dot
+      // and the searched city's label were ever drawn. First pass drew
+      // the names at ~6 CSS px — unreadable; this pass uses ~10 CSS
+      // px so the names can actually be read, with fewer labels at
+      // full-globe zoom and more as he zooms in.)
+      {
+        const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+        const fontPx = 16 * dpr * 0.62;
+        ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
+        // The canvas lives inside a dir="rtl" wrapper, so the context
+        // inherits direction rtl and the default textAlign 'start'
+        // right-anchors fillText — the text then spills LEFT out of
+        // its pill. Force left so text and pill agree. (2026-11-26:
+        // round-2 render caught every name hanging outside its pill.)
+        ctx.textAlign = 'left';
+        const pad = 5 * dpr * 0.62;
+        for (const c of CITIES) {
+          const { x, y, z } = project(c.lon, c.lat, R);
+          if (z <= 0.04) continue;
+          // Dot (Muscat already has its gold dot above).
+          if (c.name !== 'Muscat') {
+            ctx.beginPath();
+            ctx.arc(x, y, 2.2 * dpr * 0.62, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(224, 242, 254, 0.95)';
+            ctx.fill();
+          }
+          // Urdu name label, skipped when it would collide with a
+          // label already placed, so zooming in reveals more names.
+          const label = c.ur;
+          const tw = ctx.measureText(label).width;
+          const lx = Math.min(Math.max(x + 10 * dpr * 0.62, pad), W - tw - pad * 2);
+          const ly = Math.max(y - 10 * dpr * 0.62, 14 * dpr * 0.62);
+          const box = {
+            x0: lx - pad,
+            y0: ly - 14 * dpr * 0.62,
+            x1: lx + tw + pad,
+            y1: ly + 7 * dpr * 0.62,
+          };
+          if (placed.some((p) => box.x0 < p.x1 && box.x1 > p.x0 && box.y0 < p.y1 && box.y1 > p.y0)) continue;
+          placed.push(box);
+          ctx.fillStyle = 'rgba(2, 6, 16, 0.78)';
+          ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+          ctx.fillStyle = '#e0f2fe';
+          ctx.fillText(label, lx, ly + 4 * dpr * 0.62);
+        }
+      }
+
       // Focused city — cyan marker + its name written beside it,
       // so the city he typed is seen in front on the map.
       const f = focusRef.current;
@@ -363,6 +414,9 @@ export default function MiniGlobe({
           ctx.stroke();
           const label = `${f.name} · ${f.ur}`;
           ctx.font = `600 ${11 * dpr * 0.62}px system-ui, sans-serif`;
+          // Same RTL trap as the city labels below: force left so the
+          // name sits inside its pill. (2026-11-26.)
+          ctx.textAlign = 'left';
           const tw = ctx.measureText(label).width;
           const pad = 5 * dpr * 0.62;
           const lx = Math.min(Math.max(x + 10 * dpr * 0.62, pad), W - tw - pad * 2);

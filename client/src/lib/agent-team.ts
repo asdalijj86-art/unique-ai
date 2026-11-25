@@ -139,8 +139,13 @@ export function agentForActionType(actionType: string): AgentDef | undefined {
  * 2+ defs match; final states always come from the server's actions.
  */
 export function detectAgentTasks(text: string): AgentDef[] {
-  // TOOLS REMOVED 2026-10-31 by user order: no agent tool strip.
-  return [];
+  // Re-enabled 2026-11-26: the Agent Town working display depends on
+  // this — while it returned [] no agent could ever show 'working'
+  // and no agent's own screen could auto-open (verified by a real
+  // render: every chat left all seven chips فارغ). This restores NO
+  // deleted tool: the detectors below only match the chat's live
+  // data actions (search / weather / news / calc / translate / QR /
+  // prayer times).
   const t = String(text || '');
   if (!t.trim()) return [];
   const matched = AGENT_DEFS.filter((d) => {

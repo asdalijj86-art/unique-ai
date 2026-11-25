@@ -813,8 +813,7 @@ export default function ChatPage() {
     },
     onSpeak: (line) => {
       logActivity('Awareness — خود سے بولا');
-      appendAssistantMessage(line);
-      void playAssistantMessage(line);
+      if (appendAssistantMessage(line)) void playAssistantMessage(line);
     },
   });
 
@@ -849,14 +848,12 @@ export default function ChatPage() {
       if (obs.trigger === 'drift' && lastDriftRef.current) {
         const line = pickDriftFollowUpLine(lastDriftRef.current, obs, persona === 'uniqa');
         lastDriftRef.current = null;
-        appendAssistantMessage(line);
-        void playAssistantMessage(line);
+        if (appendAssistantMessage(line)) void playAssistantMessage(line);
         return;
       }
       if (obs.trigger === 'awareness' && !obs.facePresent) {
         const line = pickNoFaceLine(persona === 'uniqa');
-        appendAssistantMessage(line);
-        void playAssistantMessage(line);
+        if (appendAssistantMessage(line)) void playAssistantMessage(line);
       }
     },
   });
@@ -1296,8 +1293,17 @@ export default function ChatPage() {
 
   // Phase 1: Awareness speaks through the SAME channel as every other
   // assistant message — it is appended to the conversation (visible
-  // and persistent) and then spoken aloud by the caller.
-  function appendAssistantMessage(text: string) {
+  // and persistent) and then spoken aloud by the caller. Returns false
+  // when the line was NOT appended: the last assistant message is
+  // already this exact line, so repeating it would show (and speak)
+  // the same words twice in a row. (2026-11-26: the picker's
+  // last-line memory resets on every page reload, so one quiet evening
+  // repeated a single line three times in his chat.)
+  function appendAssistantMessage(text: string): boolean {
+    const current =
+      conversationsRef.current.find((c) => c.id === activeIdRef.current) ?? activeConversation;
+    const last = current?.messages[current.messages.length - 1];
+    if (last && last.role === 'assistant' && last.content === text) return false;
     const now = new Date().toISOString();
     let conversation = activeConversation;
     if (!conversation) {
@@ -1316,6 +1322,7 @@ export default function ChatPage() {
       updatedAt: now,
       messages: [...item.messages, { id: createId(), role: 'assistant' as const, content: text, createdAt: now }],
     }));
+    return true;
   }
 
   function toneConfirmation(next: ToneMode): string {
@@ -1631,14 +1638,16 @@ export default function ChatPage() {
         cameraLook.startLook('drift');
       }
     }
-    // Helper-agent team (Task D): predict whether this message asks
-    // for SEVERAL data tools at once. If so, the team strip appears on
-    // the chat screen with «کام کر رہا ہے…» cards — and is FINALIZED
-    // only from the actions the server actually returns (below). A
-    // plain chat reply discards the strip: no fake activity, ever.
+    // Helper-agent team (Task D): predict which agent(s) this message
+    // asks for. If any match, the team strip appears on the chat
+    // screen with «کام کر رہا ہے…» cards — and is FINALIZED only from
+    // the actions the server actually returns (below). A plain chat
+    // reply discards the strip: no fake activity, ever. (2026-11-26:
+    // was >= 2, now >= 1 — a single tasked agent must also show
+    // working and open its own screen, per the user's order.)
     const predictedAgents = attachedImage ? [] : detectAgentTasks(text);
     agentPredictedRef.current = predictedAgents;
-    if (predictedAgents.length >= 2) {
+    if (predictedAgents.length >= 1) {
       setAgentTeam(workingCards(predictedAgents, text.slice(0, 90)));
     } else {
       setAgentTeam(null);
