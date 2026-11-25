@@ -1,21 +1,29 @@
 /**
- * SettingsPanel — the ONE settings button of the app (Phase سادگی).
- * Everything settings-like lives behind this single gear: chat
- * language, privacy/location, permissions warm-up (🔓 اجازتیں), voice
- * (reply voice, continuous voice, voice test, Gemini keys, voice
- * selection), gestures, device pairing (📱 ڈیوائس جوڑیں), the brain
- * backup (🧠 دماغ کا بیک اپ — Phase 4) and chat clearing. Toggles
- * wired to chat.tsx state via props.
+ * SettingsPanel — the ONE settings place of the app (FRONT-SIMPLE,
+ * 2026-11-25): everything lives here as ROWS. Each row shows that
+ * tool's PICTURE/icon, its name written beside it («یہ اس چیز کی
+ * سیٹنگ ہے»), and its setting control in the same line (change it
+ * or not). Tap a row to open its controls in place — nothing is
+ * scattered in panels any more. Toggles, keys, voice, camera,
+ * pairing, backup, player, news, support, world monitor, hub —
+ * all of it is one list of rows.
+ *
+ * Rendered directly inside the SETTING node dialog (chat.tsx) —
+ * no gear button, no dropdown. The camera row's MediaLinkCard has
+ * NO video element: the camera video stays mounted (invisible) in
+ * the main layout so Uniqa's look keeps working while Settings is
+ * closed. His picture never shows on screen — the preview rule.
  */
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, MapPin, Mic, Hand, Volume2, Trash2, Smartphone } from 'lucide-react';
+import { MapPin, Mic, Hand, Volume2, Trash2, Smartphone } from 'lucide-react';
 import { testGeminiKey } from '../lib/api';
 import { changePassword, deleteOwnKey, getOwnKeyStatus, saveOwnKey } from '../lib/auth';
 import { rekeyVault } from '../lib/secure-app-storage';
 import { secureAppStorage } from '../lib/secure-app-storage';
 import { describeDeviceVoices, pickUrduMaleVoiceFrom, pickUrduFemaleVoiceFrom } from '../lib/persona';
 import PermissionsWarmup from './PermissionsWarmup';
+import { MediaLinkCard, HeadlinesCard, SupportButton, type CameraCardStatus } from './FrontExtras';
+import type { SystemStatus } from './StatusPanel';
 
 export type AppSettings = {
   locationEnabled: boolean;
@@ -29,26 +37,44 @@ type SettingsPanelProps = {
   onChange: (s: AppSettings) => void;
   onClearChat: () => void;
   onTestVoice?: () => void;
-  /** Chat reply language — moved here from the top bar (Phase سادگی). */
+  /** Chat reply language. */
   chatLang: string;
   onChatLangChange: (v: string) => void;
-  /** Opens the device-pairing panel (its entry lives here now). */
+  /** Opens the device-pairing panel. */
   onOpenPairing: () => void;
-  /** Brain backup (Phase 4): download the brain file / open the
-   *  restore picker (the pick stays the user's own tap). */
+  /** Brain backup: download the brain file / open the restore picker. */
   onBackupDownload: () => void;
   onBackupRestore: () => void;
-  /** Persona + tone (Phase 2): who is present, and the current لہجہ. */
+  /** Persona + tone: who is present, and the current لہجہ. */
   persona: 'unique' | 'uniqa';
   onPersonaChange: (p: 'unique' | 'uniqa') => void;
   tone: 'neutral' | 'serious' | 'romantic';
   onToneChange: (t: 'neutral' | 'serious' | 'romantic') => void;
-  /** Awareness (Phase 1): speaks first — title-bar switch mirrors
-   *  this same toggle. Optional: only chat.tsx wires it. */
+  /** Awareness: speaks first — the top-bar switch mirrors this. */
   awarenessEnabled?: boolean;
   onAwarenessChange?: (enabled: boolean) => void;
   /** Test path: shows the thought bubble, then speaks the line. */
   onTestAwareness?: () => void;
+  /** Live system status (one summary row on top). */
+  status?: SystemStatus;
+  /** Theme — moved here from the top bar (FRONT-SIMPLE). */
+  theme?: string;
+  onThemeChange?: (v: string) => void;
+  /** Camera permission + live look (the row's switch + card). */
+  cameraPermission?: boolean;
+  onCameraPermissionChange?: (v: boolean) => void;
+  cameraStatus?: CameraCardStatus;
+  cameraStatusMessage?: string;
+  micLive?: boolean;
+  lastCameraNote?: string | null;
+  onStopCameraLook?: () => void;
+  /** WhatsApp support number (the row's card). */
+  supportNumber?: string;
+  onSaveSupportNumber?: (n: string) => void;
+  /** Tools that come forward (Settings closes first, in chat.tsx). */
+  onOpenPlayer?: () => void;
+  onOpenHub?: () => void;
+  onOpenWorldMonitor?: () => void;
 };
 
 const chipStyle = (active: boolean): React.CSSProperties => ({
@@ -61,8 +87,135 @@ const chipStyle = (active: boolean): React.CSSProperties => ({
   cursor: 'pointer',
 });
 
+// ---------------------------------------------------------------------------
+// SettingRow — one row: [picture] [name + «یہ ... کی سیٹنگ ہے»]
+// [control in the same line]. Tap the name to open its controls
+// in place (accordion); toggles and actions work from the row.
+// ---------------------------------------------------------------------------
+
+function SettingRow({
+  icon,
+  name,
+  hint,
+  control,
+  children,
+  onNamesClick,
+  testId,
+}: {
+  icon: React.ReactNode;
+  name: string;
+  hint: string;
+  control?: React.ReactNode;
+  children?: React.ReactNode;
+  onNamesClick?: () => void;
+  testId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const expandable = children !== undefined && children !== null;
+  const handleNames = () => {
+    if (expandable) setOpen((v) => !v);
+    else if (onNamesClick) onNamesClick();
+  };
+  return (
+    <div className="usetting-row" dir="rtl" data-testid={testId}>
+      <div className="usetting-row-head">
+        <span className="usetting-row-icon" aria-hidden="true">{icon}</span>
+        <button
+          type="button"
+          className="usetting-row-names"
+          onClick={handleNames}
+          aria-expanded={expandable ? open : undefined}
+        >
+          <span className="usetting-row-name">{name}</span>
+          <span className="usetting-row-hint">{hint}</span>
+        </button>
+        <span className="usetting-row-control">
+          {control ?? (expandable ? (
+            <span className="usetting-row-chev" aria-hidden="true">{open ? '▾' : '▸'}</span>
+          ) : null)}
+        </span>
+      </div>
+      {expandable && open && <div className="usetting-row-body">{children}</div>}
+    </div>
+  );
+}
+
+function RowToggle({
+  icon,
+  name,
+  hint,
+  value,
+  onToggle,
+  testId,
+}: {
+  icon: React.ReactNode;
+  name: string;
+  hint: string;
+  value: boolean;
+  onToggle: () => void;
+  testId?: string;
+}) {
+  return (
+    <SettingRow
+      icon={icon}
+      name={name}
+      hint={hint}
+      testId={testId}
+      onNamesClick={onToggle}
+      control={(
+        <button
+          type="button"
+          className={`setting-switch${value ? ' on' : ''}`}
+          onClick={onToggle}
+          aria-pressed={value}
+          aria-label={name}
+        >
+          <i />
+        </button>
+      )}
+    />
+  );
+}
+
+function RowAction({
+  icon,
+  name,
+  hint,
+  actionLabel,
+  onAction,
+  danger,
+  testId,
+}: {
+  icon: React.ReactNode;
+  name: string;
+  hint: string;
+  actionLabel: string;
+  onAction: () => void;
+  danger?: boolean;
+  testId?: string;
+}) {
+  return (
+    <SettingRow
+      icon={icon}
+      name={name}
+      hint={hint}
+      testId={testId}
+      onNamesClick={onAction}
+      control={(
+        <button
+          type="button"
+          className={`usetting-row-open${danger ? ' danger' : ''}`}
+          onClick={onAction}
+        >
+          {actionLabel}
+        </button>
+      )}
+    />
+  );
+}
+
 /**
- * PersonaSelector (Phase 2) — who is "present": یونیکا (the default
+ * PersonaSelector — who is "present": یونیکا (the default
  * assistant, with her own voice) or یونیک (the male assistant). He
  * speaks only when picked here OR summoned by name («یونیک کو بلاؤ»).
  * The tone chips set the لہجہ until changed — independent of persona.
@@ -83,8 +236,7 @@ function PersonaSelector({ persona, onPersonaChange, tone, onToneChange }: {
     { v: 'romantic', t: 'رومینٹک' },
   ];
   return (
-    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
-      <span className="setting-label">💛 کون حاضر ہے؟</span>
+    <div dir="rtl" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {PERSONAS.map((p) => (
           <button
@@ -132,8 +284,7 @@ const CHAT_LANGS = [
 /** LanguageSelector — the chat-language chips, formerly the top bar. */
 function LanguageSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-      <span className="setting-label">🗣️ گفتگو کی زبان</span>
+    <div dir="rtl" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {CHAT_LANGS.map((l) => (
           <button
@@ -160,31 +311,30 @@ function LanguageSelector({ value, onChange }: { value: string; onChange: (v: st
   );
 }
 
-function Toggle({
-  label,
-  icon,
-  value,
-  onToggle,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  value: boolean;
-  onToggle: () => void;
-}) {
+const THEMES = [
+  { v: 'unique', t: 'Unique' },
+  { v: 'midnight', t: 'آدھی رات' },
+  { v: 'emerald', t: 'زمرد' },
+  { v: 'rose', t: 'گلابی' },
+];
+
+/** ThemeSelector — the colour theme, formerly the top bar. */
+function ThemeSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <button
-      type="button"
-      className={`setting-row${value ? ' on' : ''}`}
-      onClick={onToggle}
-      dir="rtl"
-      aria-pressed={value}
-    >
-      <span className="setting-icon">{icon}</span>
-      <span className="setting-label">{label}</span>
-      <span className={`setting-switch${value ? ' on' : ''}`} aria-hidden="true">
-        <i />
-      </span>
-    </button>
+    <div dir="rtl" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {THEMES.map((t) => (
+        <button
+          key={t.v}
+          type="button"
+          onClick={() => onChange(t.v)}
+          aria-pressed={value === t.v}
+          data-testid={`button-theme-${t.v}`}
+          style={chipStyle(value === t.v)}
+        >
+          {t.t}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -218,34 +368,31 @@ function VoiceSelector() {
   ];
 
   return (
-    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-      <span className="setting-label">🎚️ آواز منتخب کریں</span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {options.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            onClick={() => select(opt.id)}
-            style={{
-              background: voice === opt.id ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255,255,255,0.06)',
-              border: voice === opt.id ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 8,
-              padding: '6px 10px',
-              color: 'inherit',
-              fontSize: 13,
-              cursor: 'pointer',
-              textAlign: 'right',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <span>{opt.label}</span>
-            <span style={{ fontSize: 11, opacity: 0.6 }}>{opt.desc}</span>
-            {voice === opt.id && <span>✅</span>}
-          </button>
-        ))}
-      </div>
+    <div dir="rtl" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {options.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          onClick={() => select(opt.id)}
+          style={{
+            background: voice === opt.id ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255,255,255,0.06)',
+            border: voice === opt.id ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 8,
+            padding: '6px 10px',
+            color: 'inherit',
+            fontSize: 13,
+            cursor: 'pointer',
+            textAlign: 'right',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>{opt.label}</span>
+          <span style={{ fontSize: 11, opacity: 0.6 }}>{opt.desc}</span>
+          {voice === opt.id && <span>✅</span>}
+        </button>
+      ))}
     </div>
   );
 }
@@ -292,8 +439,7 @@ function DeviceVoiceDiagnostic() {
   const femalePick = voices ? pickUrduFemaleVoiceFrom(voices) : undefined;
 
   return (
-    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-      <span className="setting-label">🔍 اس ڈیوائس کی آوازیں (صرف جانچ)</span>
+    <div dir="rtl" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
       <span style={{ fontSize: 11, opacity: 0.6 }}>
         یہ فہرست صرف دکھاتی ہے کہ اس لیپ ٹاپ/فون میں کون سی آوازیں ہیں اور کون سی یونیک یا یونیکا کے لیے منظور ہوتی ہیں۔ یہ کوئی آواز نہیں بدلتی۔
       </span>
@@ -393,8 +539,7 @@ function ApiKeySetting() {
   };
 
   return (
-    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-      <span className="setting-label">🔑 اپنی Gemini Key (آواز + چیٹ کے لیے)</span>
+    <div dir="rtl" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
       <span style={{ fontSize: 11, opacity: 0.6 }}>
         {status?.hasKey
           ? `محفوظ ہے — …${status.keyLast4} (مکمل key کبھی دکھائی نہیں دیتی)`
@@ -515,8 +660,7 @@ function PasswordSection() {
   };
 
   return (
-    <div className="setting-row" dir="rtl" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-      <span className="setting-label">🔒 اپنا پاسورڈ بدلیں</span>
+    <div dir="rtl" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
       <span style={{ fontSize: 11, opacity: 0.6 }}>پاسورڈ ہی آپ کی خفیہ میموری کی چابی ہے — بدلنے پر میموری بھی نئے پاسورڈ سے خفیہ ہو جائے گی۔</span>
       <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="پرانا پاسورڈ" autoComplete="current-password" style={inputStyle} />
       <input type="password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="نیا پاسورڈ (8+ حرف)" autoComplete="new-password" style={inputStyle} />
@@ -547,179 +691,259 @@ function PasswordSection() {
   );
 }
 
-export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange, awarenessEnabled, onAwarenessChange, onTestAwareness }: SettingsPanelProps) {
-  const [open, setOpen] = useState(false);
-
+export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange, awarenessEnabled, onAwarenessChange, onTestAwareness, status, theme, onThemeChange, cameraPermission, onCameraPermissionChange, cameraStatus, cameraStatusMessage, micLive, lastCameraNote, onStopCameraLook, supportNumber, onSaveSupportNumber, onOpenPlayer, onOpenHub, onOpenWorldMonitor }: SettingsPanelProps) {
   const toggle = (key: keyof AppSettings) =>
     onChange({ ...settings, [key]: !settings[key] });
 
+  const cameraLive = cameraStatus === 'looking' || cameraStatus === 'starting';
+  const statusLine = status
+    ? `آواز ${status.speaking ? 'چل رہی ہے' : status.thinking ? 'سوچ رہا ہے' : 'تیار'} · مائیک ${status.micActive ? 'آن' : 'بند'} · مسلسل آواز ${status.continuousVoice ? 'آن' : 'بند'} · اشارے ${status.gesturesOn ? 'آن' : 'بند'} · ایجنٹ ٹیم تیار`
+    : 'سب سسٹم فعال ہیں';
+
   return (
-    <div className="settings-wrap">
-      <button
-        type="button"
-        className="settings-gear"
-        onClick={() => setOpen(!open)}
-        aria-label={open ? 'سیٹنگز بند کریں' : 'سیٹنگز کھولیں'}
-        aria-expanded={open}
-      >
-        <SettingsIcon size={18} />
-      </button>
-      {open && createPortal(
-        <div className="settings-dropdown" dir="rtl" role="dialog" aria-label="سیٹنگز">
-          <div className="settings-head">
-            <span>سیٹنگز</span>
+    <div className="usettings" dir="rtl">
+      {/* One-line system status — the old status rows, in one line. */}
+      <div className="usetting-row" dir="rtl">
+        <div className="usetting-row-head">
+          <span className="usetting-row-icon" aria-hidden="true">🟢</span>
+          <span className="usetting-row-names" style={{ cursor: 'default' }}>
+            <span className="usetting-row-name">سسٹم کی حالت</span>
+            <span className="usetting-row-hint">{statusLine}</span>
+          </span>
+        </div>
+      </div>
+
+      <SettingRow icon={<span aria-hidden="true">🗣️</span>} name="گفتگو کی زبان" hint="یہ گفتگو کی زبان کی سیٹنگ ہے" testId="setting-row-language">
+        <LanguageSelector value={chatLang} onChange={onChatLangChange} />
+      </SettingRow>
+
+      <SettingRow icon={<span aria-hidden="true">💛</span>} name="کون حاضر ہے؟" hint="یہ ساتھی اور لہجے کی سیٹنگ ہے" testId="setting-row-persona">
+        <PersonaSelector
+          persona={persona}
+          onPersonaChange={onPersonaChange}
+          tone={tone}
+          onToneChange={onToneChange}
+        />
+      </SettingRow>
+
+      <SettingRow icon={<span aria-hidden="true">🎨</span>} name="تھیم" hint="یہ رنگ کی سیٹنگ ہے" testId="setting-row-theme">
+        <ThemeSelector value={theme ?? 'unique'} onChange={(v) => onThemeChange?.(v)} />
+      </SettingRow>
+
+      {onAwarenessChange && (
+        <SettingRow
+          icon={<span aria-hidden="true">✨</span>}
+          name="Awareness — خود پہلے بولے"
+          hint="یہ خود پہلے بولنے کی سیٹنگ ہے"
+          testId="setting-row-awareness"
+          control={(
             <button
               type="button"
-              className="settings-close"
-              onClick={() => setOpen(false)}
-              aria-label="بند کریں"
+              className={`setting-switch${awarenessEnabled ? ' on' : ''}`}
+              onClick={() => onAwarenessChange(!(awarenessEnabled ?? true))}
+              aria-pressed={awarenessEnabled ?? true}
+              aria-label="Awareness"
             >
-              <X size={16} />
-            </button>
-          </div>
-          <div className="settings-group">زبان</div>
-          <LanguageSelector value={chatLang} onChange={onChatLangChange} />
-          <div className="settings-group">ساتھی</div>
-          <PersonaSelector
-            persona={persona}
-            onPersonaChange={onPersonaChange}
-            tone={tone}
-            onToneChange={onToneChange}
-          />
-          <div className="settings-group">پرائیویسی اور مقام</div>
-          <Toggle
-            label="مقام (میری جگہ)"
-            icon={<MapPin size={16} />}
-            value={settings.locationEnabled}
-            onToggle={() => toggle('locationEnabled')}
-          />
-          <div className="settings-group">اجازتیں</div>
-          <PermissionsWarmup />
-          <div className="settings-group">آواز</div>
-          <Toggle
-            label="آواز (بول کر جواب)"
-            icon={<Volume2 size={16} />}
-            value={settings.voiceEnabled}
-            onToggle={() => toggle('voiceEnabled')}
-          />
-          <Toggle
-            label="مسلسل آواز"
-            icon={<Mic size={16} />}
-            value={settings.continuousVoice}
-            onToggle={() => toggle('continuousVoice')}
-          />
-          {onTestVoice && (
-            <button
-              type="button"
-              className="setting-row"
-              onClick={onTestVoice}
-              dir="rtl"
-              aria-label="آواز ٹیسٹ کریں"
-            >
-              <span className="setting-icon"><Volume2 size={16} /></span>
-              <span className="setting-label">🔊 آواز ٹیسٹ کریں</span>
+              <i />
             </button>
           )}
-          {onAwarenessChange && (
-            <>
-              <div className="settings-group">✨ Awareness — پہلے بولنا</div>
-              <Toggle
-                label="Awareness (خود پہلے بولے)"
-                icon={<span aria-hidden="true">✨</span>}
-                value={awarenessEnabled ?? true}
-                onToggle={() => onAwarenessChange(!(awarenessEnabled ?? true))}
-              />
-              <div className="setting-row" dir="rtl" style={{ cursor: 'default' }}>
-                <span style={{ fontSize: 11.5, opacity: 0.65, lineHeight: 1.8 }}>
-                  جب آپ کام میں مصروف ہوں، رات دیر ہو جائے، یا کافی دیر خاموشی ہو — تو یونیک خود پہلے بولے گا، اور بولنے سے پہلے
-                  سوچ کا بلبلہ دکھائے گا۔ کیمرہ کبھی استعمال نہیں ہوتا — صرف کام، وقت اور خاموشی دیکھی جاتی ہے۔
-                </span>
-              </div>
-              {onTestAwareness && (
-                <button
-                  type="button"
-                  className="setting-row"
-                  onClick={onTestAwareness}
-                  dir="rtl"
-                  aria-label="Awareness آزمائیں"
-                  data-testid="button-awareness-test"
-                >
-                  <span className="setting-icon">💭</span>
-                  <span className="setting-label">💭 Awareness آزمائیں — بلبلہ دکھائیں</span>
-                </button>
-              )}
-            </>
-          )}
-          <ApiKeySetting />
-          <PasswordSection />
-          <VoiceSelector />
-          <DeviceVoiceDiagnostic />
-          <div className="settings-group">کنٹرول</div>
-          <Toggle
-            label="ہاتھ کے اشارے"
-            icon={<Hand size={16} />}
-            value={settings.gesturesEnabled}
-            onToggle={() => toggle('gesturesEnabled')}
-          />
-          <div className="settings-group">ڈیوائس</div>
-          <button
-            type="button"
-            className="setting-row"
-            onClick={() => { setOpen(false); onOpenPairing(); }}
-            dir="rtl"
-            aria-label="ڈیوائس جوڑیں"
-            data-testid="button-open-pairing"
-          >
-            <span className="setting-icon"><Smartphone size={16} /></span>
-            <span className="setting-label">📱 ڈیوائس جوڑیں — فون ⇄ لیپ ٹاپ</span>
-          </button>
-          <div className="settings-group">🧠 دماغ کا بیک اپ</div>
-          <button
-            type="button"
-            className="setting-row"
-            onClick={() => { onBackupDownload(); }}
-            dir="rtl"
-            aria-label="بیک اپ ڈاؤن لوڈ کریں"
-            data-testid="button-backup-download"
-          >
-            <span className="setting-icon">⬇️</span>
-            <span className="setting-label">بیک اپ ڈاؤن لوڈ کریں — ایک فائل، USB کے لیے</span>
-          </button>
-          <button
-            type="button"
-            className="setting-row"
-            onClick={() => { setOpen(false); onBackupRestore(); }}
-            dir="rtl"
-            aria-label="بیک اپ واپس لائیں"
-            data-testid="button-backup-restore"
-          >
-            <span className="setting-icon">⬆️</span>
-            <span className="setting-label">بیک اپ واپس لائیں — فائل سے دماغ زندہ کریں</span>
-          </button>
-          <div className="setting-row" dir="rtl" style={{ cursor: 'default' }}>
+        >
+          <div dir="rtl" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 11.5, opacity: 0.65, lineHeight: 1.8 }}>
-              بیک اپ میں گفتگوئیں، یادیں، سیٹنگز اور شخصیت — سب شامل ہے۔ مگر آپ کی <strong>API keys شامل نہیں</strong> ہوتیں
-              (حفاظت کی خاطر) — بحالی کے بعد وہ ایک بار دوبارہ ڈالنی ہوں گی۔
+              جب آپ کام میں مصروف ہوں، رات دیر ہو جائے، یا کافی دیر خاموشی ہو — تو یونیک خود پہلے بولے گا، اور بولنے سے پہلے
+              سوچ کا بلبلہ دکھائے گا۔ کیمرہ کبھی استعمال نہیں ہوتا — صرف کام، وقت اور خاموشی دیکھی جاتی ہے۔
             </span>
+            {onTestAwareness && (
+              <button
+                type="button"
+                className="setting-row"
+                onClick={onTestAwareness}
+                dir="rtl"
+                aria-label="Awareness آزمائیں"
+                data-testid="button-awareness-test"
+              >
+                <span className="setting-icon">💭</span>
+                <span className="setting-label">💭 Awareness آزمائیں — بلبلہ دکھائیں</span>
+              </button>
+            )}
           </div>
-          <div className="settings-group">ڈیٹا</div>
+        </SettingRow>
+      )}
+
+      <SettingRow
+        icon={<span aria-hidden="true">📷</span>}
+        name="کیمرہ"
+        hint={cameraLive ? 'یہ کیمرے کی سیٹنگ ہے — کیمرہ لائیو ہے، یونیکا دیکھ رہی ہے' : cameraPermission ? 'یہ کیمرے کی اجازت کی سیٹنگ ہے — اجازت آن ہے' : 'یہ کیمرے کی اجازت کی سیٹنگ ہے — اجازت بند ہے'}
+        testId="setting-row-camera"
+        control={(
           <button
             type="button"
-            className="setting-row danger"
-            onClick={() => {
-              if (window.confirm('کیا واقعی چیٹ صاف کرنی ہے؟')) {
-                onClearChat();
-                setOpen(false);
-              }
-            }}
-            dir="rtl"
+            className={`setting-switch${cameraPermission ? ' on' : ''}`}
+            onClick={() => onCameraPermissionChange?.(!(cameraPermission ?? false))}
+            aria-pressed={cameraPermission ?? false}
+            aria-label="کیمرہ اجازت"
           >
-            <span className="setting-icon"><Trash2 size={16} /></span>
-            <span className="setting-label">چیٹ صاف کریں</span>
+            <i />
           </button>
-        </div>,
-        document.body
+        )}
+      >
+        <MediaLinkCard
+          micLive={micLive ?? false}
+          cameraStatus={cameraStatus ?? 'idle'}
+          cameraStatusMessage={cameraStatusMessage ?? ''}
+          cameraPermission={cameraPermission ?? false}
+          onToggleCameraPermission={() => onCameraPermissionChange?.(!(cameraPermission ?? false))}
+          lastCameraNote={lastCameraNote ?? null}
+          onStopCameraLook={() => onStopCameraLook?.()}
+        />
+      </SettingRow>
+
+      <RowToggle
+        icon={<Volume2 size={16} />}
+        name="آواز"
+        hint="یہ بول کر جواب دینے کی سیٹنگ ہے"
+        value={settings.voiceEnabled}
+        onToggle={() => toggle('voiceEnabled')}
+        testId="setting-row-voice"
+      />
+      <RowToggle
+        icon={<Mic size={16} />}
+        name="مسلسل آواز"
+        hint="یہ مسلسل سننے کی سیٹنگ ہے"
+        value={settings.continuousVoice}
+        onToggle={() => toggle('continuousVoice')}
+        testId="setting-row-continuous-voice"
+      />
+
+      {onTestVoice && (
+        <RowAction
+          icon={<Volume2 size={16} />}
+          name="آواز ٹیسٹ کریں"
+          hint="یہ آواز سننے کی سیٹنگ ہے"
+          actionLabel="سنو"
+          onAction={onTestVoice}
+          testId="setting-row-test-voice"
+        />
       )}
+
+      <SettingRow icon={<span aria-hidden="true">🎚️</span>} name="آواز منتخب کریں" hint="یہ آواز چننے کی سیٹنگ ہے" testId="setting-row-voice-select">
+        <VoiceSelector />
+      </SettingRow>
+
+      <SettingRow icon={<span aria-hidden="true">🔍</span>} name="اس ڈیوائس کی آوازیں" hint="یہ ڈیوائس کی آوازیں جانچنے کی سیٹنگ ہے" testId="setting-row-device-voices">
+        <DeviceVoiceDiagnostic />
+      </SettingRow>
+
+      <RowToggle
+        icon={<MapPin size={16} />}
+        name="مقام (میری جگہ)"
+        hint="یہ مقام کی سیٹنگ ہے"
+        value={settings.locationEnabled}
+        onToggle={() => toggle('locationEnabled')}
+        testId="setting-row-location"
+      />
+
+      <SettingRow icon={<span aria-hidden="true">🔓</span>} name="اجازتیں" hint="یہ اجازتوں کی سیٹنگ ہے" testId="setting-row-permissions">
+        <PermissionsWarmup />
+      </SettingRow>
+
+      <RowToggle
+        icon={<Hand size={16} />}
+        name="ہاتھ کے اشارے"
+        hint="یہ ہاتھ کے اشاروں کی سیٹنگ ہے"
+        value={settings.gesturesEnabled}
+        onToggle={() => toggle('gesturesEnabled')}
+        testId="setting-row-gestures"
+      />
+
+      <RowAction
+        icon={<Smartphone size={16} />}
+        name="ڈیوائس جوڑیں"
+        hint="یہ فون جوڑنے کی سیٹنگ ہے"
+        actionLabel="جوڑیں"
+        onAction={() => { onOpenPairing(); }}
+        testId="setting-row-pairing"
+      />
+
+      <RowAction
+        icon={<span aria-hidden="true">⬇️</span>}
+        name="بیک اپ ڈاؤن لوڈ کریں"
+        hint="یہ دماغ کا بیک اپ محفوظ کرنے کی سیٹنگ ہے"
+        actionLabel="ڈاؤن لوڈ"
+        onAction={onBackupDownload}
+        testId="setting-row-backup-download"
+      />
+      <RowAction
+        icon={<span aria-hidden="true">⬆️</span>}
+        name="بیک اپ واپس لائیں"
+        hint="یہ بیک اپ واپس لانے کی سیٹنگ ہے"
+        actionLabel="واپس لائیں"
+        onAction={onBackupRestore}
+        testId="setting-row-backup-restore"
+      />
+
+      {onOpenPlayer && (
+        <RowAction
+          icon={<span aria-hidden="true">🎵</span>}
+          name="Unique Player"
+          hint="یہ موسیقی چلانے کا ٹول ہے"
+          actionLabel="کھولیں"
+          onAction={onOpenPlayer}
+          testId="setting-row-player"
+        />
+      )}
+
+      <SettingRow icon={<span aria-hidden="true">📰</span>} name="خبریں" hint="یہ خبروں کا ٹول ہے" testId="setting-row-news">
+        <HeadlinesCard />
+      </SettingRow>
+
+      <SettingRow icon={<span aria-hidden="true">💬</span>} name="WhatsApp سپورٹ" hint="یہ WhatsApp سپورٹ کا ٹول ہے" testId="setting-row-support">
+        <SupportButton supportNumber={supportNumber ?? ''} onSaveNumber={(n) => onSaveSupportNumber?.(n)} />
+      </SettingRow>
+
+      {onOpenWorldMonitor && (
+        <RowAction
+          icon={<span aria-hidden="true">🗺️</span>}
+          name="ورلڈ مانیٹر"
+          hint="یہ دنیا دیکھنے کا ٹول ہے"
+          actionLabel="کھولیں"
+          onAction={onOpenWorldMonitor}
+          testId="setting-row-world-monitor"
+        />
+      )}
+
+      {onOpenHub && (
+        <RowAction
+          icon={<span aria-hidden="true">🎨</span>}
+          name="بصری مرکز"
+          hint="یہ ڈرائنگ دیکھنے کا ٹول ہے"
+          actionLabel="کھولیں"
+          onAction={onOpenHub}
+          testId="setting-row-hub"
+        />
+      )}
+
+      <SettingRow icon={<span aria-hidden="true">🔑</span>} name="اپنی Gemini Key" hint="یہ آپ کی Gemini Key کی سیٹنگ ہے" testId="setting-row-api-key">
+        <ApiKeySetting />
+      </SettingRow>
+
+      <SettingRow icon={<span aria-hidden="true">🔒</span>} name="اپنا پاسورڈ بدلیں" hint="یہ آپ کا پاسورڈ بدلنے کی سیٹنگ ہے" testId="setting-row-password">
+        <PasswordSection />
+      </SettingRow>
+
+      <RowAction
+        icon={<Trash2 size={16} />}
+        name="چیٹ صاف کریں"
+        hint="یہ چیٹ صاف کرنے کی سیٹنگ ہے"
+        actionLabel="صاف کریں"
+        danger
+        onAction={() => {
+          if (window.confirm('کیا واقعی چیٹ صاف کرنی ہے؟')) {
+            onClearChat();
+          }
+        }}
+        testId="setting-row-clear-chat"
+      />
     </div>
   );
 }

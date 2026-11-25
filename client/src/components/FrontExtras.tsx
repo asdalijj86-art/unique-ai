@@ -171,8 +171,10 @@ export function MediaLinkCard({
   onToggleCameraPermission: () => void;
   /** The look's video — always mounted but NEVER shown on screen
       (user rule 2026-11-25: his own picture must never appear).
-      Face detection reads from it, so the camera still works for Uniqa. */
-  cameraVideoRef: RefObject<HTMLVideoElement | null>;
+      Face detection reads from it, so the camera still works for Uniqa.
+      Optional: the video lives mounted in the main layout (chat.tsx)
+      so the look keeps working while this card is hidden in Settings. */
+  cameraVideoRef?: RefObject<HTMLVideoElement | null>;
   lastCameraNote: string | null;
   onStopCameraLook: () => void;
 }) {
@@ -195,17 +197,21 @@ export function MediaLinkCard({
       {/* USER RULE (2026-11-25): his own picture must NEVER be shown.
           The video stays mounted but invisible — face detection still
           reads from it — so the camera works for Uniqa without him
-          ever seeing himself. Only the live label + stop button show. */}
-      <video
-        ref={cameraVideoRef}
-        className="ucam-preview"
-        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-        muted
-        playsInline
-        autoPlay
-        aria-hidden="true"
-        data-testid="video-camera-look"
-      />
+          ever seeing himself. Only the live label + stop button show.
+          (When this card is hidden in Settings, the same video stays
+          mounted in the main layout — see chat.tsx.) */}
+      {cameraVideoRef && (
+        <video
+          ref={cameraVideoRef}
+          className="ucam-preview"
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+          muted
+          playsInline
+          autoPlay
+          aria-hidden="true"
+          data-testid="video-camera-look"
+        />
+      )}
       <div className="ucam-preview-wrap" hidden={!live}>
         <p className="ucam-live-label">
           <span className="ucam-live-dot" aria-hidden="true" />

@@ -112,14 +112,14 @@ import VisualHub, { extractSteps } from '@/components/VisualHub';
 // Front 2.0 (2026-11-24, Stonic-video build): the front is the orb
 // with attached nodes + Agent Town; panels open as dialogs over it.
 import { FrontStage, AgentTown, AgentWorkView, NodeDialog, VoicesPanel, type FrontNodeKey, type AgentWorkSubject } from '@/components/StonicFront';
-import { UniquePlayer, MediaLinkCard, HeadlinesCard, SupportButton, readSupportNumber, SkillsDialog, LibraryStrip, type LibraryItem } from '@/components/FrontExtras';
+import { UniquePlayer, SkillsDialog, LibraryStrip, readSupportNumber, type LibraryItem } from '@/components/FrontExtras';
 // Front 3.0 (2026-11-25, Stonic front screenshot): the left YOUR WORLD
 // column — globe, three things, news, weather.
-import WorldPanel from '@/components/WorldPanel';
+import MiniGlobe from '@/components/MiniGlobe';
 import WorldMonitor from '@/components/WorldMonitor';
 import { loadCustomSkills, addCustomSkill, deleteCustomSkill, formatCustomSkills, type CustomSkill } from '@/lib/custom-skills';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
-import StatusPanel from '@/components/StatusPanel';
+import SettingsPanel from '@/components/SettingsPanel';
 import MapWidget from '@/components/MapWidget';
 import WhatsAppSender from '@/components/WhatsAppSender';
 import QuranReader from '@/components/QuranReader';
@@ -404,7 +404,11 @@ export default function ChatPage() {
     catch { return 'unique'; }
   });
   const [chatTab, setChatTab] = useState<'voice' | 'agent' | 'notes'>('voice');
-  const [hubOpen, setHubOpen] = useState(() => !window.matchMedia('(max-height: 820px)').matches);
+  // Visual Hub + Player live in dialogs now (FRONT-SIMPLE): they
+  // open only when called — from the chat header, a Settings row,
+  // or by voice — never as visible strips on the front.
+  const [hubDialogOpen, setHubDialogOpen] = useState(false);
+  const [playerOpen, setPlayerOpen] = useState(false);
   /** A Library drawing opened from the strip — the hub shows it until cleared. */
   const [hubFocus, setHubFocus] = useState<{ text: string; at: number } | null>(null);
   const [workView, setWorkView] = useState<AgentWorkSubject | null>(null);
@@ -479,16 +483,6 @@ export default function ChatPage() {
   function changeTheme(next: string) {
     setTheme(next);
     try { secureAppStorage.setItem('unique-ai-theme', next); } catch { /* ignore */ }
-  }
-  function handleStartAI() {
-    logActivity('START AI — یونیکا چالو');
-    if (!continuousVoice) toggleContinuousVoice();
-  }
-  function handleTerminate() {
-    interruptSpeech();
-    if (recording) toggleRecording();
-    if (continuousVoice) toggleContinuousVoice();
-    logActivity('TERMINATE — کام روکا گیا');
   }
   function openAgentWork(key: string) {
     if (key === 'uniqa') {
@@ -2217,6 +2211,29 @@ export default function ChatPage() {
         if (view === 'quran' && wantsRecite) {
           requestQuran(1, true);
         }
+        appendWebsiteCommandExchange(recognizedText, reply);
+        playAssistantMessage(reply);
+        return true;
+      }
+    }
+    // PANEL commands (FRONT-SIMPLE, 2026-11-25): the front shows
+    // only the face, its lines, the chat and the agents — everything
+    // else is hidden behind. Naming one of those hidden things
+    // brings it forward, the same way the map/Quran scenes open.
+    const panelTargets: Array<[RegExp, () => void, string]> = [
+      [/(میموری|یادیں|یادداشت|memory)/i, () => setActivePanel('memory'), '🧠 میموری سامنے ہے۔'],
+      [/(مہارت|مہارتیں|سکلز|skills)/i, () => setActivePanel('skills'), '🛠️ مہارتیں سامنے ہیں۔'],
+      [/(کردار|character)/i, () => setActivePanel('character'), '👤 کردار سامنے ہے۔'],
+      [/(سیٹنگ|سیٹنگز|settings)/i, () => setActivePanel('settings'), '⚙️ سیٹنگز سامنے ہیں — ہر چیز ایک لائن میں ہے۔'],
+      [/(ورلڈ مانیٹر|دنیا دکھاؤ|دنیا کھولو|گلوب|world monitor)/i, () => setWorldMonitorOpen(true), '🗺️ ورلڈ مانیٹر سامنے ہے۔'],
+      [/(پلیئر|موسیقی|میوزک|player)/i, () => setPlayerOpen(true), '🎵 پلیئر سامنے ہے۔'],
+      [/(بصری مرکز|visual hub|ہب کھولو)/i, () => setHubDialogOpen(true), '🎨 بصری مرکز سامنے ہے۔'],
+      [/(کال کرو|کال کریں|\bcall\b)/i, () => setCallPanelOpen(true), '📞 کال کھول دی ہے۔'],
+    ];
+    for (const [pattern, open, reply] of panelTargets) {
+      const gateOk = hasVerb || (isShort && !isQuestion);
+      if (pattern.test(recognizedText) && gateOk) {
+        open();
         appendWebsiteCommandExchange(recognizedText, reply);
         playAssistantMessage(reply);
         return true;
@@ -4385,7 +4402,7 @@ export default function ChatPage() {
         );
       case 'settings':
         return (
-          <StatusPanel
+          <SettingsPanel
             status={{
               micActive: micLive,
               speaking: isSpeaking,
@@ -4394,7 +4411,7 @@ export default function ChatPage() {
               continuousVoice,
             }}
             settings={appSettings}
-            onSettingsChange={setAppSettings}
+            onChange={setAppSettings}
             persona={persona}
             onPersonaChange={changePersona}
             tone={tone}
@@ -4404,9 +4421,9 @@ export default function ChatPage() {
               setChatLang(v);
               try { secureAppStorage.setItem('unique-ai-chat-lang', v); } catch { /* ignore */ }
             }}
-            onOpenPairing={() => setPairingOpen(true)}
+            onOpenPairing={() => { setActivePanel(null); setPairingOpen(true); }}
             onBackupDownload={() => { downloadBrainBackup(); }}
-            onBackupRestore={() => backupInputRef.current?.click()}
+            onBackupRestore={() => { setActivePanel(null); backupInputRef.current?.click(); }}
             onClearChat={() => {
               interruptSpeech('chat-cleared'); // the cleared chat's reply stops with it
               if (activeConversation) {
@@ -4414,6 +4431,7 @@ export default function ChatPage() {
                   c.id === activeConversation.id ? { ...c, messages: [] } : c
                 ));
               }
+              setActivePanel(null);
             }}
             onTestVoice={() => {
               void playAssistantMessage('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
@@ -4421,6 +4439,20 @@ export default function ChatPage() {
             awarenessEnabled={awarenessEnabled}
             onAwarenessChange={toggleAwareness}
             onTestAwareness={() => awareness.fireNow('quiet')}
+            theme={theme}
+            onThemeChange={changeTheme}
+            cameraPermission={cameraPermission}
+            onCameraPermissionChange={(v) => toggleCameraPermission(v)}
+            cameraStatus={cameraLook.status}
+            cameraStatusMessage={cameraLook.statusMessage}
+            micLive={micLive}
+            lastCameraNote={lastCameraNote}
+            onStopCameraLook={() => cameraLook.stopLook()}
+            supportNumber={supportNumber}
+            onSaveSupportNumber={setSupportNumber}
+            onOpenPlayer={() => { setActivePanel(null); setPlayerOpen(true); }}
+            onOpenHub={() => { setActivePanel(null); setHubDialogOpen(true); }}
+            onOpenWorldMonitor={() => { setActivePanel(null); setWorldMonitorOpen(true); }}
           />
         );
       default:
@@ -4437,7 +4469,9 @@ export default function ChatPage() {
 
   return (
     <main className={`unique-shell${busy || isSpeaking ? ' working' : ''}`} lang="ur" data-theme={theme} data-testid="page-maira-chat">
-      {/* ======= TOP BAR: brand + Awareness switch + live status ======= */}
+      {/* ======= TOP BAR (FRONT-SIMPLE): brand + security + logout
+          only. Theme, Awareness and the live status moved into
+          Settings / the face — nothing else shows up here. ======= */}
       <header className="unique-topbar">
         <div className="unique-brand" data-testid="brand-maira">
           <img src="/logo.png" alt="Unique AI" className="unique-brand-logo" />
@@ -4451,35 +4485,7 @@ export default function ChatPage() {
             {persona === 'uniqa' ? '💛 یونیکا' : 'یونیک'}
           </span>
         </div>
-        <label className="unique-theme" title="تھیم بدلیں">
-          <span aria-hidden="true">🎨</span>
-          <select value={theme} onChange={(e) => changeTheme(e.target.value)} aria-label="تھیم" data-testid="select-theme">
-            <option value="unique">Unique</option>
-            <option value="midnight">آدھی رات</option>
-            <option value="emerald">زمرد</option>
-            <option value="rose">گلابی</option>
-          </select>
-        </label>
-        {/* Language selection moved into Settings (Phase سادگی): the
-            top bar carries the brand, the theme, the Awareness switch,
-            and the live status. */}
         <div className="unique-top-right">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={awarenessEnabled}
-            aria-label="Awareness — خود پہلے بولے"
-            className={`unique-awareness${awarenessEnabled ? ' on' : ''}`}
-            onClick={() => toggleAwareness(!awarenessEnabled)}
-            data-testid="switch-awareness"
-            title={awarenessEnabled ? 'Awareness آن ہے — بند کرنے کے لیے دبائیں' : 'Awareness بند ہے — چالو کرنے کے لیے دبائیں'}
-          >
-            <span aria-hidden="true">✨</span>
-            <span className="unique-awareness-label">Awareness</span>
-            <span className="unique-awareness-track" aria-hidden="true"><i /></span>
-          </button>
-          <span className={`unique-live-dot${busy || isSpeaking ? ' pulse' : ''}`} aria-hidden="true" />
-          <span className="unique-live-text" dir="rtl" data-testid="status-assistant">{heroStatus}</span>
           {isOwner && (
             <button
               type="button"
@@ -4554,19 +4560,28 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* ======= MAIN: slim world strip on TOP, then face | chat;
-          Agent Town sits below the face inside the front column ======= */}
-      <div className="unique-main">
-        {/* YOUR WORLD — slim top strip (map on TOP, agents below). */}
-        <WorldPanel
-          awarenessEnabled={awarenessEnabled}
-          picks={worldPicks}
-          onEnableAwareness={() => toggleAwareness(true)}
-          onOpenMonitor={() => setWorldMonitorOpen(true)}
+      {/* ======= MAIN (FRONT-SIMPLE, 2026-11-25): chat + agents |
+          face | globe. Nothing else is visible — no world strip, no
+          hub, no library, no bottom strip. Everything hidden opens
+          only when named or tapped. ======= */}
+      <div className="unique-main usimple-main">
+        {/* Camera look video — ALWAYS mounted but NEVER shown on
+            screen (preview rule: his own picture never appears).
+            Face detection reads from it; the MEDIA LINK card in
+            Settings shows only the live label + stop button. */}
+        <video
+          ref={cameraLook.videoRef}
+          className="ucam-preview"
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+          muted
+          playsInline
+          autoPlay
+          aria-hidden="true"
+          data-testid="video-camera-look"
         />
 
-        {/* FRONT: nodes attached to the face, orb, Agent Town, hub */}
-        <div className="ufront-col">
+        {/* CENTER: the face with its node lines */}
+        <div className="usimple-center">
           <FrontStage
             persona={persona}
             tone={tone}
@@ -4574,10 +4589,8 @@ export default function ChatPage() {
             isSpeaking={isSpeaking}
             isThinking={busy || isPreparingVoice}
             isPreparingVoice={isPreparingVoice}
-            isActive={busy || isSpeaking || isPreparingVoice || recording || continuousVoice}
             faceState={faceState}
             faceStateLabel={faceStateLabel}
-            heroStatus={heroStatus}
             speakingText={speakingText}
             waveMode={waveMode}
             recording={recording}
@@ -4596,70 +4609,15 @@ export default function ChatPage() {
               if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
             }}
             onStopSpeech={() => interruptSpeech()}
-            onStartAI={handleStartAI}
-            onTerminate={handleTerminate}
-            onOpenCall={() => setCallPanelOpen(true)}
-            awarenessEnabled={awarenessEnabled}
-            onToggleAwareness={() => toggleAwareness(!awarenessEnabled)}
             cameraLive={cameraLook.status === 'looking' || cameraLook.status === 'starting'}
-            cameraPermission={cameraPermission}
-            onToggleCamera={() => toggleCameraPermission(!cameraPermission)}
+            onStopCameraLook={() => cameraLook.stopLook()}
             memoryLine={latestMemoryLine}
-          />
-
-          <AgentTown
-            tasks={agentTeam}
-            boardEntries={boardEntries}
-            persona={persona}
-            uniqaStatus={heroStatus}
-            onOpenAgent={openAgentWork}
-            onOpenOffice={() => setAgentTeamSceneOpen(true)}
-          />
-
-          <section className="uhub-wrap" data-testid="visual-hub-wrap" aria-label="بصری مرکز">
-            <button
-              type="button"
-              className="uhub-wrap-head"
-              onClick={() => setHubOpen((v) => !v)}
-              aria-expanded={hubOpen}
-              data-testid="button-toggle-hub"
-            >
-              <span>🎨 بصری مرکز</span>
-              <span aria-hidden="true">{hubOpen ? '▾' : '▸'}</span>
-            </button>
-            {hubOpen && (
-              <VisualHub
-                latestAssistantText={lastAssistant?.content ?? null}
-                latestAt={lastAssistant ? Date.parse(lastAssistant.createdAt) || null : null}
-                onSendPrompt={(prompt) => { void sendMessage(prompt); }}
-                gesturesOn={gesturesEnabled}
-                onToggleGestures={() => {
-                  const next = !gesturesEnabled;
-                  setGesturesEnabled(next);
-                  setAppSettings((s: any) => ({ ...s, gesturesEnabled: next }));
-                  logActivity(next ? 'اشارے آن کیے گئے' : 'اشارے بند کیے گئے');
-                }}
-                worldPicks={worldPicks}
-                activity={activityLog}
-                focusText={hubFocus?.text ?? null}
-                focusAt={hubFocus?.at ?? null}
-                onClearFocus={() => setHubFocus(null)}
-              />
-            )}
-          </section>
-
-          {/* LIBRARY: the hub's saved drawings — tap one to see it again. */}
-          <LibraryStrip
-            items={libraryItems}
-            onOpenItem={(it) => {
-              setHubFocus({ text: it.text, at: it.at });
-              setHubOpen(true);
-            }}
           />
         </div>
 
-        {/* CHAT PANEL (right): VOICE / AGENT / NOTES + composer */}
-        <div className="uchat-col">
+        {/* LEFT: chat box, agents below it */}
+        <div className="usimple-side">
+          <div className="uchat-col">
           <div className="uchat-panel" dir="rtl">
             <div className="uchat-tabs" role="tablist" aria-label="گفتگو کے ٹیب">
               <button
@@ -4717,6 +4675,24 @@ export default function ChatPage() {
                   data-testid="button-continuous-voice"
                 >
                   🎙️ مسلسل آواز
+                </button>
+                <button
+                  type="button"
+                  className="uchat-mini-btn"
+                  onClick={() => setHubDialogOpen(true)}
+                  data-testid="button-open-hub"
+                  title="بصری مرکز کھولیں"
+                >
+                  🎨 بصری مرکز
+                </button>
+                <button
+                  type="button"
+                  className="uchat-mini-btn"
+                  onClick={() => setCallPanelOpen(true)}
+                  data-testid="button-open-call"
+                  title="فون سے یونیک کو کال کریں — لیپ ٹاپ آن ہو تو کہیں سے بھی"
+                >
+                  📞 کال کریں
                 </button>
               </div>
             </div>
@@ -4904,23 +4880,24 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
+
+        {/* Agents below the chat box (FRONT-SIMPLE). */}
+        <AgentTown
+          tasks={agentTeam}
+          boardEntries={boardEntries}
+          persona={persona}
+          uniqaStatus={heroStatus}
+          onOpenAgent={openAgentWork}
+          onOpenOffice={() => setAgentTeamSceneOpen(true)}
+        />
       </div>
 
-      {/* Bottom strip: player / media link / headlines / WhatsApp support */}
-      <div className="unique-bottom-strip">
-        <UniquePlayer />
-        <MediaLinkCard
-          micLive={micLive}
-          cameraStatus={cameraLook.status}
-          cameraStatusMessage={cameraLook.statusMessage}
-          cameraPermission={cameraPermission}
-          onToggleCameraPermission={() => toggleCameraPermission(!cameraPermission)}
-          cameraVideoRef={cameraLook.videoRef}
-          lastCameraNote={lastCameraNote}
-          onStopCameraLook={() => cameraLook.stopLook()}
-        />
-        <HeadlinesCard />
-        <SupportButton supportNumber={supportNumber} onSaveNumber={setSupportNumber} />
+      {/* RIGHT: small rotatable globe — the big YOUR WORLD strip
+          stays hidden; tap the globe (or the button under it) for
+          the full World Monitor. */}
+      <div className="usimple-globe">
+        <MiniGlobe onOpenMonitor={() => setWorldMonitorOpen(true)} />
+      </div>
       </div>
 
       {/* World Monitor — full-screen overlay (real map, news, weather,
@@ -4932,6 +4909,45 @@ export default function ChatPage() {
           cameraStatusMessage={cameraLook.statusMessage}
           cameraPermission={cameraPermission}
         />
+      )}
+
+      {/* Visual Hub — dialog now (FRONT-SIMPLE): opens only when
+          called (chat header, a Settings row, or voice). The
+          Library strip lives inside it. */}
+      {hubDialogOpen && (
+        <NodeDialog title="🎨 بصری مرکز" onClose={() => setHubDialogOpen(false)} testId="dialog-visual-hub">
+          <VisualHub
+            latestAssistantText={lastAssistant?.content ?? null}
+            latestAt={lastAssistant ? Date.parse(lastAssistant.createdAt) || null : null}
+            onSendPrompt={(prompt) => { void sendMessage(prompt); }}
+            gesturesOn={gesturesEnabled}
+            onToggleGestures={() => {
+              const next = !gesturesEnabled;
+              setGesturesEnabled(next);
+              setAppSettings((s: any) => ({ ...s, gesturesEnabled: next }));
+              logActivity(next ? 'اشارے آن کیے گئے' : 'اشارے بند کیے گئے');
+            }}
+            worldPicks={worldPicks}
+            activity={activityLog}
+            focusText={hubFocus?.text ?? null}
+            focusAt={hubFocus?.at ?? null}
+            onClearFocus={() => setHubFocus(null)}
+          />
+          <LibraryStrip
+            items={libraryItems}
+            onOpenItem={(it) => {
+              setHubFocus({ text: it.text, at: it.at });
+            }}
+          />
+        </NodeDialog>
+      )}
+
+      {/* Unique Player — dialog now (FRONT-SIMPLE): opens only when
+          called (a Settings row, or voice). */}
+      {playerOpen && (
+        <NodeDialog title="🎵 Unique Player" onClose={() => setPlayerOpen(false)} testId="dialog-player">
+          <UniquePlayer />
+        </NodeDialog>
       )}
 
       {/* Node panel — a dialog over the front (not a side panel). */}

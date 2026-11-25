@@ -3292,3 +3292,166 @@ body {
   flex-wrap: wrap;
 }
 .usec-bad { color: #fca5a5; }
+
+/* =====================================================================
+   FRONT-SIMPLE (2026-11-25, user's eyes-on order): the front shows
+   ONLY — big avatar in the centre, the four node LINES attached to
+   her picture with the character's own words along each line, a chat
+   box on one side, the agents below the chat box, and a small
+   rotatable globe on the other side. Everything else lives behind
+   (Settings rows, dialogs) and comes forward only when named or
+   tapped. Stonic-simple: nothing extra visible.
+   ===================================================================== */
+
+/* ---- Simple main grid: chat | face | globe (explicit columns, so
+   the DOM order does not decide the visual order) ---- */
+.usimple-main {
+  display: grid;
+  grid-template-columns: minmax(320px, 5fr) minmax(0, 6fr) 216px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 14px;
+  direction: ltr;
+}
+.usimple-side {
+  grid-column: 1;
+  display: flex; flex-direction: column;
+  min-height: 0; overflow-y: auto; scrollbar-width: thin;
+  gap: 10px;
+  direction: rtl;
+}
+.usimple-side .uchat-col { flex: 1; min-height: 0; }
+.usimple-center {
+  grid-column: 2;
+  display: flex; flex-direction: column;
+  min-height: 0; overflow-y: auto; scrollbar-width: thin;
+  direction: rtl;
+}
+.usimple-globe {
+  grid-column: 3;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding-top: 10px;
+  direction: rtl;
+}
+@media (max-width: 1099px) {
+  .usimple-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    overflow-y: auto;
+  }
+  .usimple-center { grid-column: 1; order: 1; overflow: visible; }
+  .usimple-side { grid-column: 1; order: 2; overflow: visible; }
+  .usimple-side .uchat-col { flex: none; }
+  .usimple-globe { grid-column: 1; order: 3; padding-top: 0; }
+}
+
+/* ---- Node LINES: thin rules running into the face, each carrying
+   its label and the character's own words along it ---- */
+.unode-lines {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; justify-content: space-evenly; gap: 8px;
+  flex-shrink: 0; width: 218px;
+}
+.unode-line {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: rgba(8, 17, 33, 0.78);
+  border: 1px solid var(--node-color, #22d3ee);
+  color: #eaf9ff;
+  cursor: pointer;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--node-color, #22d3ee) 25%, transparent);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  text-align: start;
+  font-family: inherit;
+}
+.unode-line:hover { transform: translateY(-1px); }
+.unode-line.active {
+  box-shadow: 0 0 18px color-mix(in srgb, var(--node-color, #22d3ee) 60%, transparent);
+  background: rgba(20, 32, 54, 0.9);
+}
+.unode-line-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.unode-line-label { font-size: 11.5px; font-weight: 800; letter-spacing: 1px; color: var(--node-color, #22d3ee); white-space: nowrap; }
+.unode-line-words { font-size: 11.5px; line-height: 1.6; color: #a5e3f5; }
+.unode-line-rule {
+  flex: 1; height: 1px; min-width: 12px;
+  background: var(--node-color, #22d3ee);
+  opacity: 0.65;
+}
+.unode-line-badge {
+  position: absolute; top: -7px; inset-inline-start: -7px;
+  background: var(--uq-accent); color: #fff;
+  font-size: 11px; font-weight: 700;
+  border-radius: 999px; padding: 1px 7px;
+}
+
+/* The camera LIVE pill on the face is a button now (tap to stop). */
+.uface-cam-live { cursor: pointer; font-family: inherit; }
+
+/* ---- Settings rows: [picture] [name + «یہ ... کی سیٹنگ ہے»]
+   [control in the same line] ---- */
+.usettings { display: flex; flex-direction: column; }
+.usetting-row {
+  border: 1px solid rgba(56, 189, 248, 0.16);
+  border-radius: 12px;
+  background: rgba(8, 17, 33, 0.55);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.usetting-row-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+}
+.usetting-row-icon {
+  width: 34px; height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; line-height: 1;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 10px;
+  color: #a5e3f5;
+}
+.usetting-row-names {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  background: none; border: none; padding: 0;
+  color: inherit; cursor: pointer; text-align: start;
+  font-family: inherit;
+}
+.usetting-row-names[style*="default"] { cursor: default; }
+.usetting-row-name { font-size: 13.5px; font-weight: 700; color: #eaf9ff; }
+.usetting-row-hint { font-size: 11.5px; line-height: 1.6; color: #7cc4e4; }
+.usetting-row-control { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+.usetting-row-chev { color: #7cc4e4; font-size: 13px; }
+.usetting-row-body {
+  border-top: 1px solid rgba(56, 189, 248, 0.14);
+  padding: 10px 12px;
+}
+.usetting-row-open {
+  padding: 5px 13px; border-radius: 999px; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; font-family: inherit;
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd;
+  white-space: nowrap;
+}
+.usetting-row-open.danger {
+  background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.45); color: #fca5a5;
+}
+
+/* ---- Mini globe: small, draggable, on the side of the front ---- */
+.uminiglobe { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.uminiglobe-canvas {
+  border-radius: 50%;
+  cursor: grab;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.35), inset 0 0 24px rgba(34, 211, 238, 0.18);
+  touch-action: none;
+}
+.uminiglobe-canvas:active { cursor: grabbing; }
+.uminiglobe-open {
+  padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; font-family: inherit;
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd;
+}
+.uminiglobe-caption { font-size: 11.5px; line-height: 1.7; color: #7cc4e4; text-align: center; }

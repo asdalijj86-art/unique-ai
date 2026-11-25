@@ -7,7 +7,7 @@
  *     central orb — NOT side panels. Clicking a node opens its panel
  *     as a dialog over the front.
  *   - Orb with a TERMINATE / START AI pill below it (mic icon).
- *   - Agent Town (bottom-centre): agent chips with status dots and
+ *   - Agent Town (below the chat box): agent chips with status dots and
  *     thought bubbles; clicking a chip opens that agent's OWN live
  *     work view (real Wikipedia search + its real task), and the same
  *     view opens itself when an agent is given a task.
@@ -139,6 +139,21 @@ export function VoicesPanel({
 // FrontStage — nodes + orb + power pill + side box.
 // ---------------------------------------------------------------------------
 
+/**
+ * The four lines attached to the face (2026-11-25, FRONT-SIMPLE
+ * RULE): thin lines, each with the character's OWN words written
+ * ALONG it — Memory on one line, Skills on the next, and so on.
+ * Clicking a line opens that thing's panel; otherwise nothing else
+ * shows on the front. The MEMORY line carries the newest memory
+ * when there is one, else her own words.
+ */
+const NODE_WORDS: Record<FrontNodeKey, { uniqa: string; unique: string }> = {
+  memory: { uniqa: 'میں تمہاری ہر بات یاد رکھتی ہوں', unique: 'میں تمہاری ہر بات یاد رکھتا ہوں' },
+  skills: { uniqa: 'میرے ہنر تمہارے کام آتے ہیں', unique: 'میرے ہنر تمہارے کام آتے ہیں' },
+  character: { uniqa: 'میں یونیکا ہوں — تمہاری ساتھی', unique: 'میں یونیک ہوں — تمہارا معاون' },
+  settings: { uniqa: 'سب کچھ یہیں سے بدلتا ہے', unique: 'سب کچھ یہیں سے بدلتا ہے' },
+};
+
 const NODES: { key: FrontNodeKey; icon: string; label: string; urdu: string; color: string; testId: string }[] = [
   { key: 'memory', icon: '🧠', label: 'MEMORY', urdu: 'میموری', color: '#22d3ee', testId: 'button-panel-memory' },
   { key: 'skills', icon: '🛠️', label: 'SKILLS', urdu: 'مہارتیں', color: '#34d399', testId: 'button-panel-skills' },
@@ -153,10 +168,8 @@ export function FrontStage({
   isSpeaking,
   isThinking,
   isPreparingVoice,
-  isActive,
   faceState,
   faceStateLabel,
-  heroStatus,
   speakingText,
   waveMode,
   recording,
@@ -173,16 +186,11 @@ export function FrontStage({
   onOpenNode,
   onOrbClick,
   onStopSpeech,
-  onStartAI,
-  onTerminate,
-  onOpenCall,
-  awarenessEnabled,
-  onToggleAwareness,
   cameraLive,
-  cameraPermission,
-  onToggleCamera,
-  /** The newest memory, one short line — Stonic's pattern: a thin
-   *  line with the memory beside it, then a thin divider below. */
+  /** Stop Uniqa's camera look (the LIVE pill on the face). */
+  onStopCameraLook,
+  /** The newest memory, one short line — carried on the MEMORY
+   *  line itself when there is one. */
   memoryLine,
 }: {
   persona: 'unique' | 'uniqa';
@@ -191,10 +199,8 @@ export function FrontStage({
   isSpeaking: boolean;
   isThinking: boolean;
   isPreparingVoice: boolean;
-  isActive: boolean;
   faceState: 'listening' | 'thinking' | 'speaking' | 'ready';
   faceStateLabel: string;
-  heroStatus: string;
   speakingText: string | null;
   waveMode: WaveMode;
   recording: boolean;
@@ -211,20 +217,10 @@ export function FrontStage({
   onOpenNode: (key: FrontNodeKey) => void;
   onOrbClick: () => void;
   onStopSpeech: () => void;
-  onStartAI: () => void;
-  onTerminate: () => void;
-  /** Open the «📞 کال — کہیں سے بھی» panel (Stonic Remote-style). */
-  onOpenCall: () => void;
-  /** Awareness switch state — the front shows it, not just the top bar. */
-  awarenessEnabled: boolean;
-  /** Toggle Awareness (same as the title-bar switch). */
-  onToggleAwareness: () => void;
   /** True while Uniqa's own camera look is running (LIVE pill). */
   cameraLive: boolean;
-  /** Camera permission — her own look only runs while this is on. */
-  cameraPermission: boolean;
-  /** Toggle the camera permission (same as the MEDIA LINK switch). */
-  onToggleCamera: () => void;
+  /** Stop the camera look (the face pill calls this). */
+  onStopCameraLook: () => void;
   /** The newest memory, one short line (or null when there is none). */
   memoryLine: string | null;
 }) {
@@ -244,36 +240,42 @@ export function FrontStage({
           the speaking line in its small side box. */}
       <div className="ufront-face-row">
         <div className="ufront-face-core">
-          {/* Connector lines: each node chip joins the face panel. */}
-          <svg className="ufront-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            <polyline points="24,12 27,12 27,30 31,30" stroke="#22d3ee" />
-            <polyline points="24,37 27,37 27,42 31,42" stroke="#34d399" />
-            <polyline points="24,62 27,62 27,58 31,58" stroke="#fb7185" />
-            <polyline points="24,87 27,87 27,70 31,70" stroke="#94a3b8" />
-          </svg>
-
-          {/* The four nodes — stacked chips attached to the front. */}
-          <div className="ufront-nodes-col">
-            {NODES.map((n) => (
-              <button
-                key={n.key}
-                type="button"
-                className={`ufront-node ufront-node-${n.key}${activeNode === n.key ? ' active' : ''}`}
-                style={{ ['--node-color' as string]: n.color }}
-                onClick={() => onOpenNode(n.key)}
-                aria-pressed={activeNode === n.key}
-                data-testid={n.testId}
-              >
-                <span className="ufront-node-icon" aria-hidden="true">{n.icon}</span>
-                <span className="ufront-node-text">
-                  <span className="ufront-node-label">{n.label}</span>
-                  <span className="ufront-node-urdu">{n.urdu}</span>
-                </span>
-                {n.key === 'memory' && memoryCount > 0 && (
-                  <span className="ufront-node-badge">{memoryCount}</span>
-                )}
-              </button>
-            ))}
+          {/* The four LINES attached to the face (FRONT-SIMPLE):
+              each line carries its label and the character's own
+              words along it, and runs into the face. Clicking a
+              line opens that thing; nothing else shows here. */}
+          <div className="unode-lines">
+            {NODES.map((n) => {
+              const words =
+                n.key === 'memory' && memoryLine
+                  ? memoryLine.length > 52
+                    ? `${memoryLine.slice(0, 52)}…`
+                    : memoryLine
+                  : NODE_WORDS[n.key][persona];
+              return (
+                <button
+                  key={n.key}
+                  type="button"
+                  className={`unode-line${activeNode === n.key ? ' active' : ''}`}
+                  style={{ ['--node-color' as string]: n.color }}
+                  onClick={() => onOpenNode(n.key)}
+                  aria-pressed={activeNode === n.key}
+                  data-testid={n.testId}
+                  title={`${n.urdu} کھولیں`}
+                >
+                  <span className="unode-line-text">
+                    <span className="unode-line-label">
+                      <span aria-hidden="true">{n.icon}</span> {n.label} · {n.urdu}
+                    </span>
+                    <span className="unode-line-words" dir="rtl">{words}</span>
+                  </span>
+                  <span className="unode-line-rule" aria-hidden="true" />
+                  {n.key === 'memory' && memoryCount > 0 && (
+                    <span className="unode-line-badge">{memoryCount}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* The face, in its glowing frame — the orb keeps its lip
@@ -286,14 +288,19 @@ export function FrontStage({
           >
             <span className="uface-panel-tag" aria-hidden="true">● LIVE</span>
             {cameraLive && (
-              <span
+              <button
+                type="button"
                 className="uface-cam-live"
                 data-testid="camera-live-pill"
-                title="کیمرہ آن ہے — یونیکا دیکھ رہی ہے"
+                title="کیمرہ آن ہے — یونیکا دیکھ رہی ہے — بند کرنے کے لیے دبائیں"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStopCameraLook();
+                }}
               >
                 <span className="uface-cam-dot" aria-hidden="true" />
-                📷 کیمرہ لائیو
-              </span>
+                📷 کیمرہ لائیو — بند کریں
+              </button>
             )}
             <AiOrb isSpeaking={isSpeaking} isThinking={isThinking} size={orbSize} persona={persona} />
             <div className={`uface-panel-state uface-state-${faceState}`} dir="rtl" data-testid="face-state">
@@ -323,7 +330,6 @@ export function FrontStage({
           {persona === 'uniqa' ? '💛 یونیکا حاضر ہے' : 'یونیک حاضر ہے'}
           {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
         </span>
-        <span className="unique-name-sub" dir="rtl" data-testid="text-avatar-status">{heroStatus}</span>
         {(isSpeaking || isThinking || isPreparingVoice) && (
           <button
             type="button"
@@ -336,70 +342,6 @@ export function FrontStage({
             ⏹ رکو
           </button>
         )}
-      </div>
-
-      {/* MEMORY LINE — Stonic's own pattern (2026-11-25, the user's
-          words): a thin line with the memory beside it, the memory
-          below it, then another thin line. One short line only — the
-          full memory lives in the MEMORY node panel. */}
-      <div className="umem-block" dir="rtl" data-testid="memory-line">
-        <div className="umem-head">
-          <span className="umem-rule" aria-hidden="true" />
-          <span className="umem-label">🧠 میموری</span>
-        </div>
-        <p className="umem-text">
-          {memoryLine ?? 'ابھی کوئی یادداشت نہیں — کچھ یاد رکھنے کو کہیں، میں سنبھال لوں گی۔'}
-        </p>
-        <span className="umem-rule-full" aria-hidden="true" />
-      </div>
-
-      {/* The front's pills in ONE slim row (2026-11-25 declutter):
-          Awareness, camera, START/TERMINATE, call — same buttons,
-          same handlers, no more stacked tower under the face. */}
-      <div className="ufront-pills">
-      <button
-        type="button"
-        className={`uaware-chip${awarenessEnabled ? '' : ' off'}`}
-        onClick={onToggleAwareness}
-        aria-pressed={awarenessEnabled}
-        data-testid="button-awareness-front"
-        title={awarenessEnabled ? 'آگاہی بند کرنے کے لیے دبائیں' : 'آگاہی آن کرنے کے لیے دبائیں'}
-      >
-        {awarenessEnabled ? '👁️ آگاہی آن ہے' : '🙈 آگاہی بند ہے'}
-      </button>
-
-      <button
-        type="button"
-        className={`ucam-chip${cameraPermission ? '' : ' off'}`}
-        onClick={onToggleCamera}
-        aria-pressed={cameraPermission}
-        data-testid="button-camera-front"
-        title={cameraPermission ? 'کیمرہ اجازت بند کرنے کے لیے دبائیں — یونیکا پھر خود آن نہیں کرے گی' : 'کیمرہ اجازت آن کرنے کے لیے دبائیں'}
-      >
-        {cameraPermission ? '📷 کیمرہ آن ہے' : '📷 کیمرہ بند ہے'}
-      </button>
-
-      <button
-        type="button"
-        className={`ufront-power${isActive ? ' active' : ''}`}
-        onClick={isActive ? onTerminate : onStartAI}
-        data-testid="button-ai-power"
-        title={isActive ? 'کام اور آواز روکیں' : 'یونیکا کو چالو کریں — وہ سنے گی'}
-      >
-        <span aria-hidden="true">🎙️</span>
-        <span>{isActive ? 'TERMINATE' : 'START AI'}</span>
-      </button>
-
-      <button
-        type="button"
-        className="ufront-call"
-        onClick={onOpenCall}
-        data-testid="button-open-call"
-        title="فون سے یونیک کو کال کریں — لیپ ٹاپ آن ہو تو کہیں سے بھی"
-      >
-        <span aria-hidden="true">📞</span>
-        <span>کال کریں</span>
-      </button>
       </div>
 
       <div className="unique-wave">
@@ -434,7 +376,7 @@ export function FrontStage({
 }
 
 // ---------------------------------------------------------------------------
-// AgentTown — the team at work, bottom-centre of the front.
+// AgentTown — the team at work, below the chat box (FRONT-SIMPLE).
 // ---------------------------------------------------------------------------
 
 export function AgentTown({
