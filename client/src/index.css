@@ -2272,7 +2272,8 @@ body {
    Stonic's Love glow), violet-blue for Unique. */
 .uface-panel {
   position: relative; z-index: 1;
-  flex: 1; min-width: 0;
+  flex: 1; min-width: 180px; /* never narrower than the orb itself —
+    the face can wrap below the lines, never clip to a sliver */
   display: flex; align-items: center; justify-content: center;
   padding: 8px 8px 30px;
   border-radius: 16px;
@@ -2394,13 +2395,15 @@ body {
   border-radius: 0;
 }
 
-/* Speaking line — the SMALL SIDE BOX beside the face panel. */
+/* Speaking line — the SMALL SIDE BOX beside the face panel.
+   It may shrink (never crush the face: the face keeps its width
+   and this box gives way first). */
 .ufront-face-row .uface-line {
   width: 200px; max-width: 200px;
   margin: 0;
   max-height: 150px;
   overflow-y: auto;
-  flex-shrink: 0;
+  flex-shrink: 1; min-width: 140px;
   text-align: right;
 }
 .ufront-face-row .uface-line::before {
@@ -2661,13 +2664,22 @@ body {
   padding: 6px 10px;
 }
 .utown-title { font-size: 12px; font-weight: 700; color: #7dd3fc; margin-bottom: 4px; }
+.utown-live { color: #4ade80; animation: brand-pulse 1.2s ease-in-out infinite; }
 .utown-bubbles { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .utown-bubble {
-  display: flex; gap: 6px; align-items: baseline;
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
   font-size: 12.5px; line-height: 1.7; color: #eaf9ff;
   background: rgba(34, 197, 94, 0.08);
   border: 1px solid rgba(34, 197, 94, 0.25);
   border-radius: 10px; padding: 4px 9px;
+}
+/* The working agent's own browser, one tap away. */
+.utown-bubble-screen {
+  margin-inline-start: auto;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  font-size: 12px; font-weight: 700; font-family: inherit;
+  background: rgba(34, 197, 94, 0.18); border: 1px solid rgba(34, 197, 94, 0.5); color: #bbf7d0;
+  white-space: nowrap;
 }
 .utown-quiet { font-size: 12.5px; line-height: 1.8; color: #7c93a8; margin: 0 0 6px; }
 .utown-chips { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
@@ -2891,14 +2903,14 @@ body {
 /* ---- Chat panel (right): VOICE / AGENT / NOTES ---- */
 .uchat-panel {
   display: flex; flex-direction: column;
-  flex: 1; min-height: 0;
+  flex: 1; min-height: 0; min-width: 0;
   background: rgba(8, 17, 33, 0.62);
   border: 1px solid rgba(56, 189, 248, 0.14);
   border-radius: 18px;
   overflow: hidden;
 }
 .uchat-tabs {
-  display: flex; gap: 4px; align-items: center;
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
   padding: 8px 10px 0;
   flex-shrink: 0;
 }
@@ -2912,7 +2924,7 @@ body {
   border-color: rgba(56, 189, 248, 0.25);
   color: #fff;
 }
-.uchat-tab-actions { margin-inline-start: auto; display: flex; gap: 6px; }
+.uchat-tab-actions { margin-inline-start: auto; display: flex; flex-wrap: wrap; gap: 6px; }
 .uchat-mini-btn {
   padding: 5px 9px; border-radius: 999px; cursor: pointer; font-size: 12px;
   background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.2); color: #a5e3f5;
@@ -3008,6 +3020,7 @@ body {
   .ufront-lines { display: none; }
   .ufront-face-row { flex-direction: column; }
   .ufront-face-core { flex-direction: column; }
+  .unode-lines { flex: none; width: 100%; max-width: 440px; margin-inline-end: 0; }
   .ufront-nodes-col {
     flex-direction: row; flex-wrap: wrap; gap: 8px; justify-content: center;
     width: auto;
@@ -3304,10 +3317,17 @@ body {
    ===================================================================== */
 
 /* ---- Simple main grid: chat | face | globe (explicit columns, so
-   the DOM order does not decide the visual order) ---- */
+   the DOM order does not decide the visual order). 2026-11-25 FIX:
+   the chat tab row (tabs + 5 buttons, no wrap) had a ~700px
+   min-content width and the side column had no min-width: 0, so
+   grid gave the chat column most of the width and starved the
+   center until the orb clipped away inside .uface-panel
+   (overflow: hidden) — the face vanished while the fixed 216px
+   globe survived. minmax(0, …) + min-width: 0 on every track item
+   and a wrapping tab row keep the face's share guaranteed. ---- */
 .usimple-main {
   display: grid;
-  grid-template-columns: minmax(320px, 5fr) minmax(0, 6fr) 216px;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr) 216px;
   grid-template-rows: minmax(0, 1fr);
   gap: 12px;
   padding: 10px 14px;
@@ -3316,21 +3336,24 @@ body {
 .usimple-side {
   grid-column: 1;
   display: flex; flex-direction: column;
-  min-height: 0; overflow-y: auto; scrollbar-width: thin;
+  /* Never scrolls the town away: the chat scrolls internally,
+     Agent Town stays pinned at the bottom, always visible. */
+  min-height: 0; min-width: 0; overflow: hidden;
   gap: 10px;
   direction: rtl;
 }
-.usimple-side .uchat-col { flex: 1; min-height: 0; }
+.usimple-side .uchat-col { flex: 1; min-height: 0; min-width: 0; }
 .usimple-center {
   grid-column: 2;
   display: flex; flex-direction: column;
-  min-height: 0; overflow-y: auto; scrollbar-width: thin;
+  min-height: 0; min-width: 0; overflow-y: auto; scrollbar-width: thin;
   direction: rtl;
 }
 .usimple-globe {
   grid-column: 3;
   display: flex; flex-direction: column; align-items: center;
   gap: 8px; padding-top: 10px;
+  min-width: 0;
   direction: rtl;
 }
 @media (max-width: 1099px) {
@@ -3345,43 +3368,72 @@ body {
   .usimple-globe { grid-column: 1; order: 3; padding-top: 0; }
 }
 
-/* ---- Node LINES: thin rules running into the face, each carrying
-   its label and the character's own words along it ---- */
+/* ---- Node LINES: thin rules radiating OUT OF the face, each
+   carrying its label and the character's own words written ON it
+   (2026-11-25, user's words: the lines come out of the face, the
+   words sit on the lines, exactly as Stonic's face has them).
+   Each line is a real button: the line runs the full width of the
+   button behind the words, straight into the face panel's edge,
+   and clicking it opens that thing's real panel. The face-core
+   wraps instead of clipping: if the column ever gets too narrow
+   the face drops below the lines — fully visible, never cut off. ---- */
+.ufront-face-core { flex-wrap: wrap; }
 .unode-lines {
   position: relative; z-index: 2;
   display: flex; flex-direction: column; justify-content: space-evenly; gap: 8px;
-  flex-shrink: 0; width: 218px;
+  flex: 0 1 218px; min-width: 170px;
+  /* Reach into the 8px gap so each line ends flush at the face
+     panel's edge — the lines visibly come OUT OF the face. */
+  margin-inline-end: -8px;
 }
 .unode-line {
   position: relative;
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center;
   width: 100%;
-  padding: 7px 9px;
-  border-radius: 10px;
-  background: rgba(8, 17, 33, 0.78);
-  border: 1px solid var(--node-color, #22d3ee);
+  padding: 7px 2px;
+  /* No box: the button IS the line. The words sit on it. */
+  background: transparent;
+  border: none;
+  box-shadow: none;
   color: #eaf9ff;
   cursor: pointer;
-  box-shadow: 0 0 14px color-mix(in srgb, var(--node-color, #22d3ee) 25%, transparent);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
   text-align: start;
   font-family: inherit;
 }
-.unode-line:hover { transform: translateY(-1px); }
-.unode-line.active {
-  box-shadow: 0 0 18px color-mix(in srgb, var(--node-color, #22d3ee) 60%, transparent);
-  background: rgba(20, 32, 54, 0.9);
+/* The line itself — solid at the face end (left, the face sits
+   to the left of the lines in this RTL row), fading outward. */
+.unode-line::before {
+  content: "";
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: 2px; transform: translateY(-50%);
+  background: linear-gradient(to right, var(--node-color, #22d3ee), color-mix(in srgb, var(--node-color, #22d3ee) 22%, transparent));
+  opacity: 0.9;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--node-color, #22d3ee) 55%, transparent);
 }
-.unode-line-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.unode-line:hover::before { opacity: 1; height: 3px; }
+.unode-line.active::before {
+  height: 3px;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--node-color, #22d3ee) 80%, transparent);
+}
+/* The words, written ON the line: the chip's own background
+   interrupts the line, so the text reads as sitting on it. */
+.unode-line-text {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  background: rgba(8, 17, 33, 0.94);
+  border: 1px solid color-mix(in srgb, var(--node-color, #22d3ee) 55%, transparent);
+  border-radius: 9px;
+  padding: 4px 9px;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--node-color, #22d3ee) 22%, transparent);
+}
+.unode-line.active .unode-line-text {
+  background: rgba(20, 32, 54, 0.95);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--node-color, #22d3ee) 55%, transparent);
+}
 .unode-line-label { font-size: 11.5px; font-weight: 800; letter-spacing: 1px; color: var(--node-color, #22d3ee); white-space: nowrap; }
 .unode-line-words { font-size: 11.5px; line-height: 1.6; color: #a5e3f5; }
-.unode-line-rule {
-  flex: 1; height: 1px; min-width: 12px;
-  background: var(--node-color, #22d3ee);
-  opacity: 0.65;
-}
 .unode-line-badge {
-  position: absolute; top: -7px; inset-inline-start: -7px;
+  position: absolute; top: -7px; inset-inline-start: -7px; z-index: 2;
   background: var(--uq-accent); color: #fff;
   font-size: 11px; font-weight: 700;
   border-radius: 999px; padding: 1px 7px;
@@ -3454,4 +3506,29 @@ body {
   font-size: 12.5px; font-weight: 700; font-family: inherit;
   background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd;
 }
-.uminiglobe-caption { font-size: 11.5px; line-height: 1.7; color: #7cc4e4; text-align: center; }
+/* Globe search + zoom (2026-11-25): type a city, the globe turns
+   to it and zooms in; wheel / + / − zoom too. Still no tiles, no
+   network — the city list lives in the component. */
+.uminiglobe-search { display: flex; gap: 6px; width: 100%; max-width: 216px; }
+.uminiglobe-search input {
+  flex: 1; min-width: 0;
+  background: rgba(10, 20, 38, 0.8); border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 999px; padding: 5px 11px;
+  color: #eaf9ff; font-size: 12px; font-family: inherit;
+}
+.uminiglobe-search input::placeholder { color: #5b7a8c; }
+.uminiglobe-search button {
+  padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  font-size: 12px; font-weight: 700; font-family: inherit;
+  background: rgba(34, 211, 238, 0.16); border: 1px solid rgba(56, 189, 248, 0.45); color: #bae6fd;
+  white-space: nowrap;
+}
+.uminiglobe-zoom { display: flex; gap: 6px; align-items: center; }
+.uminiglobe-zoom button {
+  min-width: 30px; height: 28px; padding: 0 9px; border-radius: 999px; cursor: pointer;
+  font-size: 13px; font-weight: 700; font-family: inherit;
+  background: rgba(34, 211, 238, 0.1); border: 1px solid rgba(56, 189, 248, 0.35); color: #bae6fd;
+}
+.uminiglobe-zoom button:disabled { opacity: 0.4; cursor: default; }
+.uminiglobe-found { font-size: 11.5px; line-height: 1.6; color: #67e8f9; text-align: center; min-height: 18px; }
+.uminiglobe-found.miss { color: #fca5a5; }

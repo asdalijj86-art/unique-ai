@@ -240,10 +240,14 @@ export function FrontStage({
           the speaking line in its small side box. */}
       <div className="ufront-face-row">
         <div className="ufront-face-core">
-          {/* The four LINES attached to the face (FRONT-SIMPLE):
-              each line carries its label and the character's own
-              words along it, and runs into the face. Clicking a
-              line opens that thing; nothing else shows here. */}
+          {/* The four LINES attached to the face (FRONT-SIMPLE,
+              2026-11-25, user's own words): the lines come OUT OF
+              the face itself, radiating from it like Stonic's, and
+              the option is written RIGHT ALONG each line — the
+              words sit ON the line, which runs straight into the
+              face panel. Clicking a line opens that thing's real
+              panel (MEMORY = her real memory, SKILLS = real skills,
+              and so on — working controls, never decoration). */}
           <div className="unode-lines">
             {NODES.map((n) => {
               const words =
@@ -261,7 +265,7 @@ export function FrontStage({
                   onClick={() => onOpenNode(n.key)}
                   aria-pressed={activeNode === n.key}
                   data-testid={n.testId}
-                  title={`${n.urdu} کھولیں`}
+                  title={`${n.urdu} کھولیں — اصل ڈیٹا دکھے گا`}
                 >
                   <span className="unode-line-text">
                     <span className="unode-line-label">
@@ -269,7 +273,6 @@ export function FrontStage({
                     </span>
                     <span className="unode-line-words" dir="rtl">{words}</span>
                   </span>
-                  <span className="unode-line-rule" aria-hidden="true" />
                   {n.key === 'memory' && memoryCount > 0 && (
                     <span className="unode-line-badge">{memoryCount}</span>
                   )}
@@ -398,13 +401,29 @@ export function AgentTown({
   const bubbles = working.slice(0, 3);
   return (
     <section className="utown" data-testid="agent-town" dir="rtl" aria-label="ایجنٹ ٹاؤن — میری ٹیم">
-      <div className="utown-title">🏢 ایجنٹ ٹاؤن — میری ٹیم</div>
+      <div className="utown-title">
+        🏢 ایجنٹ ٹاؤن — میری ٹیم
+        {working.length > 0 && <span className="utown-live" aria-label="کام جاری ہے"> ● کام جاری ہے</span>}
+      </div>
       {bubbles.length > 0 ? (
         <div className="utown-bubbles">
           {bubbles.map((t) => (
             <span key={t.key} className="utown-bubble" data-testid={`agent-bubble-${t.key}`}>
               <span aria-hidden="true">{t.icon}</span>
               <span>{t.detail ? `${t.label}: ${t.detail}` : `${t.label} کام کر رہا ہے`}</span>
+              {/* The working agent's own browser, one tap away —
+                  it also opens itself the moment the agent starts
+                  working, and this button brings it back if it was
+                  closed while the agent still works. */}
+              <button
+                type="button"
+                className="utown-bubble-screen"
+                onClick={() => onOpenAgent(t.key)}
+                data-testid={`button-agent-screen-${t.key}`}
+                title={`${t.label} کی اسکرین دیکھیں`}
+              >
+                👁️ اسکرین دیکھیں
+              </button>
             </span>
           ))}
         </div>
