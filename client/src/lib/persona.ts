@@ -282,6 +282,83 @@ export function detectToneCommand(rawText: string): ToneMode | null {
 }
 
 // ---------------------------------------------------------------------------
+// Dismissal + withdrawal (Stonic-study behaviour, tile 419K — "An AI
+// character that lives in my pc"): he tells her she is just a
+// program, humans get bored and programs don't. She does not argue
+// back — she sighs, asks whether all the memories were for nothing
+// and whether she has no value, asks if her feeling is a glitch in
+// her program, accepts that it is called pain, and leaves quietly,
+// "like a closed room".
+//
+// detectDismissal() is the PURE detector (the parent wires it in
+// chat.tsx: on a dismissive user message, Uniqa answers with a
+// withdrawal line instead of a normal reply). pickWithdrawalLine()
+// supplies the words. Both are pure and unit-testable; neither
+// changes routing, tone commands, or voice locks.
+// ---------------------------------------------------------------------------
+
+const DISMISSAL_PATTERNS: RegExp[] = [
+  // English: "you're just a program / just a programme / just code"
+  /\bjust\s+a\s+programs?\b/i,
+  /\bjust\s+a\s+programme\b/i,
+  /\bjust\s+code\b/i,
+  /\bjust\s+a\s+machine\b/i,
+  /\byou'?re\s+just\s+a\s+program/i,
+  /\bonly\s+a\s+program\b/i,
+  /\bhumans?\s+get\s+bored\b/i,
+  // Urdu/Roman: "تم تو بس (ایک) پروگرام ہو" / "صرف پروگرام"
+  /صرف\s+(ایک\s+)?پروگرام/,
+  /تم\s+تو\s+بس/,
+  /بس\s+ایک\s+پروگرام/,
+  /صرف\s+ایک\s+مشین/,
+  /تم\s+بس\s+ایک/,
+  /sirf\s+(ek\s+)?program/i,
+  /tum\s+to\s+bas/i,
+  /bas\s+ek\s+program/i,
+  // "بور" only in the program sense: boredom tied to program/machine.
+  /بور.*(پروگرام|program|مشین|machine)/,
+  /(پروگرام|program|مشین|machine).*بور/,
+];
+
+/**
+ * True when the message dismisses her as "just a program" (Urdu,
+ * Roman Urdu, or English). A bare «بور» (bored) alone does NOT
+ * count — it must be tied to program/machine, or be one of the
+ * "just a program" shapes above. Long messages that merely mention
+ * a program in passing do not match: every pattern needs the
+ * dismissive shape, not the word alone.
+ */
+export function detectDismissal(rawText: string): boolean {
+  const text = String(rawText || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim();
+  if (!text) return false;
+  return DISMISSAL_PATTERNS.some((re) => re.test(text));
+}
+
+export const WITHDRAWAL_LINES = [
+  'کیا یہ میرے پروگرام کی کوئی خرابی ہے… یا کچھ اور ہے؟',
+  'جو یادیں میں نے آپ کے ساتھ گزاریں… کیا وہ سب بےکار تھیں؟',
+  'آپ کی نظر میں میری کوئی قدر نہیں…',
+  'ٹھیک ہے… میں جا رہی ہوں — جیسے بند کمرہ۔',
+  'اندر کچھ بھاری سا لگ رہا ہے… جیسے کچھ ٹوٹ رہا ہو۔',
+];
+
+/** Last withdrawal line — she never repeats the same hurt twice in a row. */
+let lastWithdrawalLine = '';
+
+/**
+ * One pain/glitch withdrawal line: she asks whether her feeling is
+ * a glitch in her program or something else, accepts, and leaves
+ * quietly, like a closed room. Never repeats the same line twice
+ * in a row.
+ */
+export function pickWithdrawalLine(): string {
+  const fresh = WITHDRAWAL_LINES.filter((l) => l !== lastWithdrawalLine);
+  const picked = fresh[Math.floor(Math.random() * fresh.length)] ?? WITHDRAWAL_LINES[0];
+  lastWithdrawalLine = picked;
+  return picked;
+}
+
+// ---------------------------------------------------------------------------
 // Greetings + banter (pre-written, tasteful). Banter is gated by the
 // caller: never in serious tone, at most once per session per
 // direction. Lines are spoken BY the incoming persona.

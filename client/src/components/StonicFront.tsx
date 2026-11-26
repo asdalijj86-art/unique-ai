@@ -192,6 +192,19 @@ export function FrontStage({
   /** The newest memory, one short line — carried on the MEMORY
    *  line itself when there is one. */
   memoryLine,
+  /** TERMINATE / START AI (Stonic screen, 2026-11-26 study): true
+   *  while she is asleep/off. State lives in chat.tsx. */
+  aiTerminated = false,
+  /** Put her to sleep (TERMINATE pill). */
+  onTerminate,
+  /** Wake her (START AI button). */
+  onStartAi,
+  /** "What do you remember?" — asks her about her memory. */
+  onAskMemory,
+  /** STAYED QUIET chip (study reel 6): true when she stayed quiet
+   *  because it sounded like he was talking to someone else.
+   *  The flag comes from useAwareness; the parent wires it. */
+  stayedQuiet = false,
 }: {
   persona: 'unique' | 'uniqa';
   tone: 'neutral' | 'serious' | 'romantic';
@@ -223,7 +236,21 @@ export function FrontStage({
   onStopCameraLook: () => void;
   /** The newest memory, one short line (or null when there is none). */
   memoryLine: string | null;
+  aiTerminated?: boolean;
+  onTerminate?: () => void;
+  onStartAi?: () => void;
+  onAskMemory?: () => void;
+  stayedQuiet?: boolean;
 }) {
+  // While terminated she is asleep: the face dims, the status says
+  // so, and the speaking side-box stays hidden.
+  const shownFaceStateLabel = aiTerminated
+    ? persona === 'uniqa'
+      ? '😴 سو رہی ہے — START AI دبائیں'
+      : '😴 سو رہا ہے — START AI دبائیں'
+    : faceStateLabel;
+  const effectivelySpeaking = isSpeaking && !aiTerminated;
+  const effectivelyPreparing = isPreparingVoice && !aiTerminated;
   return (
     <section className="ufront-stage" aria-label="فرنٹ">
       {awarenessBubble && (
@@ -284,9 +311,9 @@ export function FrontStage({
           {/* The face, in its glowing frame — the orb keeps its lip
               motion while speaking; tap it to interrupt. */}
           <div
-            className={`uface-panel${isSpeaking || isPreparingVoice ? ' tappable' : ''}`}
+            className={`uface-panel${effectivelySpeaking || effectivelyPreparing ? ' tappable' : ''}${aiTerminated ? ' terminated' : ''}`}
             onClick={onOrbClick}
-            title={isSpeaking || isPreparingVoice ? 'رکنے کے لیے دبائیں' : undefined}
+            title={effectivelySpeaking || effectivelyPreparing ? 'رکنے کے لیے دبائیں' : undefined}
             data-testid="face-panel"
           >
             <span className="uface-panel-tag" aria-hidden="true">● LIVE</span>
@@ -305,14 +332,14 @@ export function FrontStage({
                 📷 کیمرہ لائیو — بند کریں
               </button>
             )}
-            <AiOrb isSpeaking={isSpeaking} isThinking={isThinking} size={orbSize} persona={persona} />
-            <div className={`uface-panel-state uface-state-${faceState}`} dir="rtl" data-testid="face-state">
+            <AiOrb isSpeaking={effectivelySpeaking} isThinking={isThinking && !aiTerminated} size={orbSize} persona={persona} />
+            <div className={`uface-panel-state uface-state-${aiTerminated ? 'ready' : faceState}`} dir="rtl" data-testid="face-state">
               <span className="uface-state-dot" aria-hidden="true" />
-              {faceStateLabel}
+              {shownFaceStateLabel}
             </div>
           </div>
         </div>
-        {speakingText && (isSpeaking || isPreparingVoice) && (
+        {speakingText && !aiTerminated && (effectivelySpeaking || effectivelyPreparing) && (
           <FaceLine
             text={speakingText}
             label={persona === 'uniqa' ? '💛 یونیکا بول رہی ہے…' : '🤖 یونیک بول رہا ہے…'}
@@ -320,6 +347,47 @@ export function FrontStage({
           />
         )}
       </div>
+
+      {/* TERMINATE / START AI (Stonic screen, 2026-11-26 study) —
+          the red pill under the avatar. TERMINATE puts her to sleep
+          (face dims, status says so); START AI wakes her. Uses the
+          existing .ufront-power CSS — red .active = TERMINATE. */}
+      <div className="ufront-power-row" dir="rtl">
+        {aiTerminated ? (
+          <button
+            type="button"
+            className="ufront-power"
+            onClick={onStartAi}
+            data-testid="button-start-ai"
+            title="یونیکا کو جگائیں"
+          >
+            <span aria-hidden="true">🎙️</span> START AI
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="ufront-power active"
+            onClick={onTerminate}
+            data-testid="button-terminate"
+            title="یونیکا کو سلائیں — کچھ حذف نہیں ہوگا، صرف سو جائے گی"
+          >
+            <span aria-hidden="true">⏻</span> TERMINATE
+          </button>
+        )}
+      </div>
+
+      {/* STAYED QUIET (study reel 6): she stayed quiet because it
+          sounded like he was talking to someone else — wake word
+          is her name. Shown only when the parent says so. */}
+      {stayedQuiet && !aiTerminated && (
+        <div className="uquiet-chip" dir="rtl" data-testid="stayed-quiet-chip">
+          <span aria-hidden="true">🤫</span>
+          <span>
+            <strong>STAYED QUIET</strong> — لگ رہا تھا آپ کسی اور سے بات کر رہے ہیں۔ مجھے بلانے کے لیے «
+            {persona === 'uniqa' ? 'یونیکا' : 'یونیک'}» کہیں۔
+          </span>
+        </div>
+      )}
 
       <div className="unique-name">
         <span className={`unique-name-text${persona === 'uniqa' ? ' uniqa' : ''}`}>
@@ -374,6 +442,27 @@ export function FrontStage({
           <span className="unique-attach-hint">{attachedImage.startsWith('data:video/') ? 'ویڈیو تیار ہے — سوال لکھیں یا بھیج دیں 🎬' : 'تصویر تیار ہے — سوال لکھیں یا بھیج دیں 📷'}</span>
         </div>
       ) : null}
+
+      {/* "What do you remember?" (Stonic screen, 2026-11-26 study) —
+          bottom of the centre panel: the question beside a small
+          CSS/SVG 3D cube. Tapping it asks her about her memory. */}
+      <button
+        type="button"
+        className="umem-prompt"
+        onClick={onAskMemory}
+        disabled={!onAskMemory}
+        data-testid="button-ask-memory"
+        title="یونیکا سے پوچھیں — تمہیں کیا یاد ہے؟"
+      >
+        <svg className="umem-cube" viewBox="0 0 48 48" aria-hidden="true">
+          <polygon points="24,4 44,14 24,24 4,14" fill="#67e8f9" opacity="0.9" />
+          <polygon points="4,14 24,24 24,44 4,34" fill="#0891b2" />
+          <polygon points="44,14 24,24 24,44 44,34" fill="#155e75" />
+          <polygon points="24,4 44,14 24,24 4,14" fill="none" stroke="#a5f3fc" strokeWidth="1.5" />
+        </svg>
+        <span className="umem-prompt-text" dir="ltr">What do you remember?</span>
+        <span className="umem-prompt-urdu" dir="rtl">تمہیں کیا یاد ہے؟</span>
+      </button>
     </section>
   );
 }

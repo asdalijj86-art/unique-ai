@@ -22,8 +22,11 @@
  * exact design.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { authFetch } from '@/lib/auth';
+import { secureAppStorage } from '@/lib/secure-app-storage';
+import { loadNotes } from '@/lib/memory';
+import { loadLearnings } from '@/lib/learnings';
 import type { WorldPick } from './VisualHub';
 
 type NewsItem = { title: string; link: string; source: string };
@@ -74,6 +77,15 @@ export default function WorldPanel({
   picks,
   onEnableAwareness,
   onOpenMonitor,
+  /** Whose stored notes/learnings the digest reads (read-only). */
+  persona = 'uniqa',
+  /** Today's message count, from the parent's conversation. */
+  messageCount = 0,
+  /** Front-column mount (Stonic study 2026-11-26): false renders
+   *  ONLY the digest card — the full strip (picks/news/weather) is
+   *  too tall for the globe column and squeezes Agent Town to a
+   *  sliver. The strip lives in the World Monitor instead. */
+  showStrip = true,
 }: {
   /** Awareness switch state — the three things need it ON. */
   awarenessEnabled: boolean;
@@ -83,6 +95,9 @@ export default function WorldPanel({
   onEnableAwareness: () => void;
   /** Open the full-screen World Monitor. */
   onOpenMonitor: () => void;
+  persona?: 'unique' | 'uniqa';
+  messageCount?: number;
+  showStrip?: boolean;
 }) {
   const [news, setNews] = useState<NewsItem[] | null>(null);
   const [wx, setWx] = useState<Wx | 'loading' | 'unavailable'>('loading');
@@ -92,6 +107,33 @@ export default function WorldPanel({
     day: 'numeric',
     month: 'long',
   });
+
+  // DAILY DIGEST — "آج کی جھلک" (Stonic study, 2026-11-26, reel 6:
+  // "once a day I'll read your memories, search the web, and show
+  // you here what matters to you"). Read-only, from REAL stored
+  // data only — latest learning, today's work, latest note, today's
+  // message count. Nothing is invented; an empty day says so.
+  const digest = useMemo(() => {
+    let latestLearning: string | null = null;
+    let latestNote: string | null = null;
+    try {
+      const learnings = loadLearnings(secureAppStorage, persona);
+      latestLearning = learnings[learnings.length - 1]?.text ?? null;
+    } catch { /* storage unavailable — digest just shows less */ }
+    try {
+      const notes = loadNotes(secureAppStorage, persona);
+      latestNote = notes[notes.length - 1]?.text ?? null;
+    } catch { /* storage unavailable — digest just shows less */ }
+    const todayWork = picks.find((p) => p.source === 'آج کے کام') ?? null;
+    return { latestLearning, latestNote, todayWork, messageCount };
+  }, [persona, picks, messageCount]);
+  const digestEmpty =
+    !digest.latestLearning && !digest.latestNote && !digest.todayWork && digest.messageCount === 0;
+  // Collapsed by default (Stonic-study render fix 2026-11-26): the
+  // full digest is tall enough to push Agent Town below the fold at
+  // 1366x768, and the town must stay visible under the globe. The
+  // strip shows the title + one line; a tap expands the full list.
+  const [digestOpen, setDigestOpen] = useState(false);
 
   // Real headlines from the app's own /api/news endpoint.
   useEffect(() => {
@@ -149,6 +191,8 @@ export default function WorldPanel({
   }, []);
 
   return (
+    <>
+    {showStrip && (
     <div className="uworld-strip" data-testid="world-panel" dir="rtl">
       <div className="uworld-strip-brand">
         <GlobeMini />
@@ -216,5 +260,61 @@ export default function WorldPanel({
         🗺️ ورلڈ مانیٹر
       </button>
     </div>
+    )}
+
+      {/* DAILY DIGEST — "آج کی جھلک": once a day, what matters today,
+          from real stored data only (see digest above). */}
+      <div className="uworld-digest" data-testid="daily-digest" dir="rtl">
+        <button
+          type="button"
+          className="uworld-digest-head"
+          onClick={() => setDigestOpen((v) => !v)}
+          data-testid="button-digest-toggle"
+          aria-expanded={digestOpen}
+        >
+          <span className="uworld-digest-title">✨ آج کی جھلک</span>
+          <span className="uworld-digest-date">{today}</span>
+          <span className="uworld-digest-toggle">{digestOpen ? '▲' : '▼'}</span>
+        </button>
+        {!digestOpen && (
+          <p className="uworld-digest-summary">
+            {digestEmpty
+              ? 'آج کے لیے ابھی کچھ محفوظ نہیں — تفصیل دیکھنے کے لیے کھولیں۔'
+              : `${digest.messageCount > 0 ? `آج ${digest.messageCount} پیغام` : ''}${digest.latestNote ? ' • تازہ یادداشت ہے' : ''}${digest.latestLearning ? ' • کچھ سکھایا ہوا ہے' : ''} — تفصیل دیکھنے کے لیے کھولیں۔`}
+          </p>
+        )}
+        {digestOpen && (digestEmpty ? (
+          <p className="uworld-digest-empty">
+            آج کے لیے ابھی کچھ محفوظ نہیں — جیسے ہی آپ مجھے کچھ سکھائیں گے، کوئی کام مکمل ہوگا یا کوئی یادداشت بنے گی، وہ یہاں آ جائے گی۔
+          </p>
+        ) : (
+          <ul className="uworld-digest-list">
+            {digest.latestLearning && (
+              <li className="uworld-digest-item">
+                <strong>آپ نے مجھے یہ سکھایا:</strong> {digest.latestLearning}
+              </li>
+            )}
+            {digest.todayWork && (
+              <li className="uworld-digest-item">
+                <strong>{digest.todayWork.title}:</strong> {digest.todayWork.detail}
+              </li>
+            )}
+            {digest.latestNote && (
+              <li className="uworld-digest-item">
+                <strong>تازہ یادداشت:</strong> {digest.latestNote}
+              </li>
+            )}
+            {digest.messageCount > 0 && (
+              <li className="uworld-digest-item">
+                <strong>آج کی گفتگو:</strong> آج آپ نے {digest.messageCount} پیغام بھیجے
+              </li>
+            )}
+          </ul>
+        ))}
+        {digestOpen && (
+          <p className="uworld-digest-src">آپ کی اپنی محفوظ یادوں اور کام سے — کچھ بھی بناوٹی نہیں۔</p>
+        )}
+      </div>
+    </>
   );
 }

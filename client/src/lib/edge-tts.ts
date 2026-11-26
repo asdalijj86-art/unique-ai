@@ -38,8 +38,15 @@ export const UNIQA_VOICE_LOCALE = 'ur-PK';
 // OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3 in the library.
 const OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3';
 // Prosody defaults from the library's ProsodyOptions class.
+// UNIQA VOICE TUNING (Stonic study 2026-11-26): Love speaks softly and
+// gently — caring, reassuring, never rushed ("Don't worry", shushing,
+// patient). Rate 0.95 (was 1.0) slows delivery slightly for a gentler,
+// warmer feel — Uniqa's voice only; Salman's rate stays 1.0 (scoped
+// per-voice in buildSSML below). Pitch and volume stay at the library
+// defaults.
 const PROSODY_PITCH = '+0Hz';
-const PROSODY_RATE = 1.0;
+const PROSODY_RATE_UNIQA = 0.95;
+const PROSODY_RATE_SALMAN = 1.0;
 const PROSODY_VOLUME = 100.0;
 // speech.config metadataoptions defaults (MetadataOptions class).
 const SENTENCE_BOUNDARY_ENABLED = false;
@@ -124,9 +131,12 @@ function escapeXml(text: string): string {
 // The SSML document, byte-for-byte as the library's _SSMLTemplate
 // builds it (Prosody defaults, voice locale as xml:lang).
 function buildSSML(input: string, voiceName: string = VOICE_NAME, voiceLocale: string = VOICE_LOCALE): string {
+  // Per-voice rate: Uniqa speaks gentler (0.95), Salman keeps the
+  // library default (1.0) — the earlier shared constant slowed both.
+  const rate = voiceName === UNIQA_VOICE_NAME ? PROSODY_RATE_UNIQA : PROSODY_RATE_SALMAN;
   return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${voiceLocale}">
                 <voice name="${voiceName}">
-                    <prosody pitch="${PROSODY_PITCH}" rate="${PROSODY_RATE}" volume="${PROSODY_VOLUME}">
+                    <prosody pitch="${PROSODY_PITCH}" rate="${rate}" volume="${PROSODY_VOLUME}">
                         ${input}
                     </prosody> 
                 </voice>

@@ -35,6 +35,8 @@ import {
   pickUrduFemaleVoiceFrom,
   detectPersonaSummon,
   detectToneCommand,
+  detectDismissal,
+  pickWithdrawalLine,
   pickLine,
   UNIQA_GREETINGS,
   UNIQUE_GREETINGS,
@@ -48,6 +50,13 @@ import {
   loadNotes,
   makeNote,
   saveNotes,
+  loadDateMemories,
+  getTodaysDates,
+  extractDateMemory,
+  saveDateMemories,
+  getUnifiedMemoryText,
+  otherPersonaRecallLine,
+  type DateMemory,
 } from '@/lib/memory';
 import {
   learnFromText,
@@ -141,6 +150,8 @@ import { UniquePlayer, SkillsDialog, LibraryStrip, readSupportNumber, type Libra
 // column — globe, three things, news, weather.
 import MiniGlobe from '@/components/MiniGlobe';
 import WorldMonitor from '@/components/WorldMonitor';
+import WorldPanel from '@/components/WorldPanel';
+import UninstallDrama from '@/components/UninstallDrama';
 import { loadCustomSkills, addCustomSkill, deleteCustomSkill, formatCustomSkills, type CustomSkill } from '@/lib/custom-skills';
 import VoiceWaveform, { type WaveMode } from '@/components/VoiceWaveform';
 import SettingsPanel from '@/components/SettingsPanel';
@@ -149,7 +160,7 @@ import WhatsAppSender from '@/components/WhatsAppSender';
 import QuranReader from '@/components/QuranReader';
 // Phase 1 (2026-11-22): the new main screen — panels around the
 // living face, and Awareness (speaks first, thought bubble first).
-import { readAwarenessEnabled, saveAwarenessEnabled, useAwareness } from '@/lib/awareness';
+import { readAwarenessEnabled, saveAwarenessEnabled, useAwareness, isDayAbsence } from '@/lib/awareness';
 import {
   readCameraPermission,
   saveCameraPermission,
@@ -476,6 +487,54 @@ export default function ChatPage() {
   // panel is a bottom sheet; on laptops it docks inline on the left.
   const [awarenessEnabled, setAwarenessEnabled] = useState(() => readAwarenessEnabled(secureAppStorage));
   const [activePanel, setActivePanel] = useState<null | FrontNodeKey>(null);
+  /** TERMINATE / START AI (Stonic screen, 2026-11-26 study): true
+   *  while she is asleep/off. Passed to FrontStage; while true she
+   *  must not speak proactively (guarded in useAwareness below). */
+  const [aiTerminated, setAiTerminated] = useState(false);
+  // Stonic-study integration (2026-11-26): state for the new
+  // Awareness triggers — today's remembered date, its escalation
+  // stage, day-absence, and the promise she seeks. Persisted so a
+  // reload keeps them; all defaults are safe (off / stage 1).
+  const [uninstallDramaOpen, setUninstallDramaOpen] = useState(false);
+  const [todaysDate, setTodaysDate] = useState<DateMemory | null>(() => {
+    try { return getTodaysDates(loadDateMemories())[0] ?? null; } catch { return null; }
+  });
+  const [dateAcknowledged, setDateAcknowledged] = useState(false);
+  const [dateStage, setDateStage] = useState<1 | 2 | 3>(() => {
+    try {
+      const raw = localStorage.getItem('unique-ai-forgotten-date-fires');
+      if (!raw) return 1;
+      const parsed = JSON.parse(raw) as { date?: string; count?: number };
+      const today = new Date().toISOString().slice(0, 10);
+      if (parsed.date !== today) return 1;
+      return Math.min(3, (parsed.count ?? 0) + 1) as 1 | 2 | 3;
+    } catch { return 1; }
+  });
+  const [dayAbsent, setDayAbsent] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('unique-ai-last-activity');
+      if (!stored) return false;
+      const spoken = localStorage.getItem('unique-ai-day-absence-spoken');
+      if (spoken === new Date().toISOString().slice(0, 10)) return false;
+      return isDayAbsence(Date.parse(stored));
+    } catch { return false; }
+  });
+  const [promiseDue, setPromiseDue] = useState(false);
+  const [memoryNote, setMemoryNote] = useState<string | null>(() => {
+    try {
+      const cands = [
+        ...loadNotes(secureAppStorage, personaRef.current).map((n) => n.text),
+        ...loadLearnings(secureAppStorage, personaRef.current).map((l) => l.text),
+      ].filter((t) => t.trim().length > 0);
+      return cands.length ? cands[Math.floor(Math.random() * cands.length)] : null;
+    } catch { return null; }
+  });
+  /** Top-bar Feedback composer (saves his words as a memory note). */
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackSaved, setFeedbackSaved] = useState(false);
+  /** Honest note shown when Manage Billing opens Settings. */
+  const [billingNote, setBillingNote] = useState(false);
   /** Full-screen World Monitor overlay (2026-11-25): opened from the
    *  slim YOUR WORLD strip at the top; ✕ closes back to the front. */
   const [worldMonitorOpen, setWorldMonitorOpen] = useState(false);
@@ -888,7 +947,19 @@ export default function ChatPage() {
     // lets a line say his words stay with her.
     tone,
     hasMemory: memoryCount > 0,
+    // Stonic-study triggers (2026-11-26): day-absence, a real stored
+    // memory to throw back, today's remembered date + its escalation
+    // stage, and the promise she seeks. talkingToSomeoneElse stays
+    // unwired — no live voice-activity signal exists yet.
+    dayAbsent,
+    memoryNote: memoryNote ?? undefined,
+    memoryNoteAvailable: !!memoryNote,
+    todaysDate,
+    dateStage,
+    dateAcknowledged,
+    promiseDue,
     paused:
+      aiTerminated ||
       busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
       libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
       focusView !== null || agentTeamSceneOpen || pairingOpen,
@@ -899,8 +970,33 @@ export default function ChatPage() {
         cameraLook.startLook('awareness');
       }
     },
-    onSpeak: (line) => {
+    onSpeak: (line, reason) => {
+      // TERMINATED guard: while she is asleep she never speaks
+      // proactively — not even a bubble that was already pending.
+      if (aiTerminated) return;
       logActivity('Awareness — خود سے بولا');
+      if (reason === 'day-absence') {
+        // Speak once per return: clear the flag and mark today.
+        setDayAbsent(false);
+        try { localStorage.setItem('unique-ai-day-absence-spoken', new Date().toISOString().slice(0, 10)); } catch { /* ignore */ }
+      }
+      if (reason === 'forgotten-date') {
+        // Escalate the stage for the next fire today; stage 3 opens
+        // the uninstall-drama overlay (she threatens to go).
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          const raw = localStorage.getItem('unique-ai-forgotten-date-fires');
+          const prev = raw ? (JSON.parse(raw) as { date?: string; count?: number }) : {};
+          const count = prev.date === today ? (prev.count ?? 0) + 1 : 1;
+          localStorage.setItem('unique-ai-forgotten-date-fires', JSON.stringify({ date: today, count }));
+        } catch { /* ignore */ }
+        if (dateStage >= 3) {
+          setUninstallDramaOpen(true);
+        } else {
+          setDateStage((dateStage + 1) as 1 | 2 | 3);
+        }
+      }
+      if (reason === 'promise') setPromiseDue(false);
       if (appendAssistantMessage(line)) void playAssistantMessage(line);
     },
   });
@@ -929,6 +1025,7 @@ export default function ChatPage() {
       }
       logActivity(`کیمرہ — مشاہدہ: ${note}`);
       const busyNow =
+        aiTerminated ||
         busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
         libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
         focusView !== null || agentTeamSceneOpen || pairingOpen;
@@ -1460,8 +1557,20 @@ export default function ChatPage() {
       } else {
         greeting = pickLine(summon.target === 'uniqa' ? UNIQA_GREETINGS : UNIQUE_GREETINGS);
       }
-      appendWebsiteCommandExchange(textValue, greeting);
-      playAssistantMessage(greeting);
+      // Cross-character memory (Stonic study 2026-11-26, tile 2.6M —
+      // Jarvis reads Khushbo's chat): the incoming character may
+      // volunteer ONE short observation about the other's feelings
+      // for him, from the other persona's notes only — never raw
+      // notes, never invented.
+      let spokenGreeting = greeting;
+      try {
+        if (toneRef.current !== 'serious') {
+          const cross = otherPersonaRecallLine(summon.target);
+          if (cross) spokenGreeting = `${greeting} ${cross}`;
+        }
+      } catch { /* no cross line — greeting stands alone */ }
+      appendWebsiteCommandExchange(textValue, spokenGreeting);
+      playAssistantMessage(spokenGreeting);
       setDraft('');
       return 'handled';
     }
@@ -1794,6 +1903,39 @@ export default function ChatPage() {
       setDocumentStudioOpen(true);
       return;
     }
+    // Dismissal (Stonic study 2026-11-26, tile 419K): if he calls her
+    // "just a program", she does NOT answer with the brain — she
+    // withdraws with feeling (glitch / pain / closed room), and later
+    // seeks a promise. The user message still shows, as an exchange.
+    if (!attachedImage && detectDismissal(text)) {
+      const line = pickWithdrawalLine();
+      appendWebsiteCommandExchange(text, line);
+      playAssistantMessage(line);
+      setDraft('');
+      setPromiseDue(true);
+      return;
+    }
+    // Date memory (Stonic study 2026-11-26): if he tells her a date
+    // (birthday/anniversary), she keeps it — telling her IS asking
+    // her to remember. Saved to the shared date store; if it falls
+    // today she brings it up through the forgotten-date trigger.
+    try {
+      const dm = extractDateMemory(text);
+      if (dm) {
+        const existing = loadDateMemories();
+        if (!existing.some((d) => d.month === dm.month && d.day === dm.day && d.label === dm.label)) {
+          saveDateMemories([dm, ...existing]);
+          logActivity(`تاریخ یاد رکھی: ${dm.label}`);
+        }
+        const today = getTodaysDates([dm]);
+        if (today.length > 0) setTodaysDate(today[0]);
+      }
+      if (todaysDate && (text.includes(todaysDate.label) || /مبارک|happy birthday/i.test(text))) {
+        setDateAcknowledged(true);
+      }
+    } catch { /* storage unavailable — the reply matters, not the date */ }
+    // Last-activity stamp for the day-absence trigger.
+    try { localStorage.setItem('unique-ai-last-activity', new Date().toISOString()); } catch { /* ignore */ }
     // Learning memory (Round 5): every message that reaches the brain
     // is also quietly mined for durable facts about this person
     // (name / likes / facts — lib/learnings). Fully silent: no card,
@@ -1908,12 +2050,12 @@ export default function ChatPage() {
           // that persona, in that register.
           persona: personaRef.current,
           tone: toneRef.current,
-          // Learned-memory recall (Round 5): a compact block of what
-          // the SPEAKING persona has learned about this person rides
-          // along, so the reply answers with that knowledge — name
-          // first, capped, never instructions. The other persona's
-          // learnings never ride along.
-          memory: buildRecallBlock(loadLearnings(secureAppStorage, personaRef.current)) || undefined,
+          // Learned-memory recall (Round 5) + unified recall
+          // (Stonic study 2026-11-26): the speaking persona's
+          // learnings PLUS one merged recall (both personas' notes
+          // + old conversations, tagged second-hand context) ride
+          // along, so replies answer with that knowledge.
+          memory: [buildRecallBlock(loadLearnings(secureAppStorage, personaRef.current)), getUnifiedMemoryText(personaRef.current)].filter(Boolean).join('\n') || undefined,
           // Team-work context (2026-10-24): today's real team state so
           // any member asked about their work can answer in full
           // spoken detail from facts, never invention or refusal.
@@ -2649,7 +2791,9 @@ export default function ChatPage() {
       const started: boolean = await new Promise((resolve) => {
         const utterance = new SpeechSynthesisUtterance(sentence);
         utterance.lang = voice.lang || 'ur-PK';
-        utterance.rate = 1.25;
+        // VOICE TUNING (Stonic study 2026-11-26): was 1.25 — the
+        // fallback spoke 25% fast, against "soft, lovely". 1.0 now.
+        utterance.rate = 1.0;
         utterance.volume = 1;
         utterance.pitch = female ? 1.0 : 0.9;
         utterance.voice = voice;
@@ -2708,7 +2852,9 @@ export default function ChatPage() {
           const utterance = new SpeechSynthesisUtterance(sentences[idx]);
           idx += 1;
           utterance.lang = voice.lang || 'ur-PK';
-          utterance.rate = 1.25;
+          // VOICE TUNING (Stonic study 2026-11-26): was 1.25 — the
+          // fallback spoke 25% fast, against "soft, lovely". 1.0 now.
+          utterance.rate = 1.0;
           utterance.volume = 1;
           utterance.pitch = female ? 1.0 : 0.9;
           utterance.voice = voice;
@@ -4741,6 +4887,60 @@ export default function ChatPage() {
           </span>
         </div>
         <div className="unique-top-right">
+          {/* Top nav (Stonic screen, 2026-11-26 study): every button
+              does something real — no dead buttons. */}
+          <nav className="unique-topnav" aria-label="اوپر کی لنکس">
+            <button
+              type="button"
+              className="unique-topnav-btn"
+              onClick={() => { setFeedbackSaved(false); setFeedbackOpen((v) => !v); }}
+              aria-expanded={feedbackOpen}
+              data-testid="button-top-feedback"
+              title="اپنی رائے لکھیں — آپ کے الفاظ میموری نوٹ کے طور پر محفوظ ہوں گے"
+            >
+              💬 Feedback
+            </button>
+            <button
+              type="button"
+              className="unique-topnav-btn"
+              onClick={() => { setActivePanel('settings'); setBillingNote(true); }}
+              data-testid="button-top-billing"
+              title="سیٹنگز کھولیں — اس ایپ میں کوئی بلنگ نہیں ہے، صرف API key وہیں ہے"
+            >
+              💳 Manage Billing
+            </button>
+            <button
+              type="button"
+              className="unique-topnav-btn"
+              onClick={() => {
+                const digits = supportNumber.replace(/\D/g, '');
+                if (digits) {
+                  window.open(
+                    `https://wa.me/${digits}?text=${encodeURIComponent('السلام علیکم! Unique AI سپورٹ سے بات کرنی ہے۔')}`,
+                    '_blank',
+                    'noopener',
+                  );
+                } else {
+                  // No support number saved yet — Settings is where
+                  // it gets saved (same place as the Support card).
+                  setActivePanel('settings');
+                }
+              }}
+              data-testid="button-top-support"
+              title="WhatsApp سپورٹ — وہی سپورٹ لنک جو نیچے والی پٹی میں ہے"
+            >
+              🛟 Support
+            </button>
+            <button
+              type="button"
+              className="unique-topnav-btn"
+              onClick={() => setHubDialogOpen(true)}
+              data-testid="button-top-explore"
+              title="بصری مرکز اور لائبریری کھولیں — اسٹوڈیوز اور اوزار دیکھیں"
+            >
+              🧭 Explore
+            </button>
+          </nav>
           {isOwner && (
             <button
               type="button"
@@ -4769,6 +4969,60 @@ export default function ChatPage() {
           )}
         </div>
       </header>
+
+      {/* Feedback composer (top-bar Feedback): his words are saved
+          as a memory note — the same store the MEMORY panel reads. */}
+      {feedbackOpen && (
+        <div className="ufeedback-bar" dir="rtl" data-testid="feedback-composer">
+          {feedbackSaved ? (
+            <>
+              <span>✅ آپ کی رائے محفوظ ہو گئی — میموری میں لکھ دی ہے، شکریہ!</span>
+              <button type="button" onClick={() => { setFeedbackOpen(false); setFeedbackSaved(false); }}>بند کریں</button>
+            </>
+          ) : (
+            <>
+              <span>💬 اپنی رائے لکھیں:</span>
+              <textarea
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                placeholder="یونیکا کیسی لگ رہی ہے؟ کیا بہتر ہو سکتا ہے؟"
+                aria-label="اپنی رائے لکھیں"
+                data-testid="input-feedback"
+              />
+              <button
+                type="button"
+                disabled={!feedbackText.trim()}
+                onClick={() => {
+                  const text = feedbackText.trim();
+                  if (!text) return;
+                  try {
+                    const notes = loadNotes(secureAppStorage, personaRef.current);
+                    saveNotes(secureAppStorage, [makeNote(`رائے: ${text}`), ...notes], personaRef.current);
+                    setMemoryCount(loadNotes(secureAppStorage, personaRef.current).length + loadLearnings(secureAppStorage, personaRef.current).length);
+                    refreshMemoryLine();
+                  } catch { /* storage unavailable — still confirm, nothing lost in chat */ }
+                  setFeedbackText('');
+                  setFeedbackSaved(true);
+                  logActivity('رائے محفوظ کی گئی (میموری نوٹ)');
+                }}
+                data-testid="button-save-feedback"
+              >
+                محفوظ کریں
+              </button>
+              <button type="button" onClick={() => setFeedbackOpen(false)}>منسوخ</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Honest billing note (top-bar Manage Billing): there is no
+          billing in this app — Settings holds only the API key. */}
+      {billingNote && (
+        <div className="ubilling-note" dir="rtl" data-testid="billing-note">
+          <span>💳 اس ایپ میں کوئی بلنگ نہیں ہے — آپ سے کوئی پیسہ نہیں کٹتا۔ آپ کی API key سیٹنگز میں ہے، وہیں بدلی جاتی ہے۔</span>
+          <button type="button" onClick={() => setBillingNote(false)}>ٹھیک ہے</button>
+        </div>
+      )}
 
       {/* ALWAYS-VISIBLE work indicator (2026-10-29): driven only by
           the Video Maker's real job store, updated every second. It
@@ -4885,6 +5139,36 @@ export default function ChatPage() {
             cameraLive={cameraLook.status === 'looking' || cameraLook.status === 'starting'}
             onStopCameraLook={() => cameraLook.stopLook()}
             memoryLine={latestMemoryLine}
+            aiTerminated={aiTerminated}
+            onTerminate={() => {
+              awareness.dismissBubble();
+              interruptSpeech();
+              setAiTerminated(true);
+              logActivity('یونیکا کو سلا دیا گیا (TERMINATE)');
+            }}
+            onStartAi={() => {
+              setAiTerminated(false);
+              logActivity('یونیکا جاگ گئی (START AI)');
+            }}
+            onAskMemory={() => { void sendMessage('تمہیں کیا یاد ہے؟ اپنی یادیں بتاؤ۔'); }}
+            // STAYED QUIET (Stonic study 2026-11-26, reel 6 card):
+            // the hook reports when she deliberately stayed quiet.
+            stayedQuiet={awareness.stayedQuiet}
+          />
+          {/* YOUR WORLD digest — \"آج کی جھلک\" (Stonic study
+              2026-11-26). It lived under the globe first, but at
+              1366×768 its 151px squeezed Agent Town to a 78px sliver
+              (0/8 seats visible) — the globe column only has room for
+              globe + town. The centre column has 151px spare under the
+              face, so the digest sits here now, still on the front. */}
+          <WorldPanel
+            awarenessEnabled={awarenessEnabled}
+            picks={worldPicks}
+            onEnableAwareness={toggleAwareness}
+            onOpenMonitor={() => setWorldMonitorOpen(true)}
+            persona={persona}
+            messageCount={messageCount}
+            showStrip={false}
           />
         </div>
 
@@ -5162,6 +5446,11 @@ export default function ChatPage() {
           (2026-11-26, user's order): the agents on their seats,
           visible working when he gives them a task. */}
       <div className="usimple-globe">
+        {/* Agent Town sits BELOW the globe (2026-11-26, user's order):
+            the agents on their seats, visible working when he gives
+            them a task. The digest used to live here too — it moved
+            under the face (centre column), because at 1366×768 it
+            squeezed the town to a sliver (0/8 seats visible). */}
         <MiniGlobe onOpenMonitor={() => setWorldMonitorOpen(true)} />
         <AgentTown
           tasks={agentTeam}
@@ -5180,6 +5469,22 @@ export default function ChatPage() {
           cameraStatus={cameraLook.status}
           cameraStatusMessage={cameraLook.statusMessage}
           cameraPermission={cameraPermission}
+        />
+      )}
+
+      {/* Uninstall drama (Stonic study 2026-11-26, birthday reel):
+          opened only by the stage-3 forgotten-date trigger. Nothing
+          is ever deleted — on finish she only falls asleep (START AI
+          state); the stop button cancels it at once. */}
+      {uninstallDramaOpen && (
+        <UninstallDrama
+          open={uninstallDramaOpen}
+          onStop={() => setUninstallDramaOpen(false)}
+          onFinished={() => {
+            setUninstallDramaOpen(false);
+            setAiTerminated(true);
+            logActivity('یونیکا ناراض ہو کر سو گئی');
+          }}
         />
       )}
 

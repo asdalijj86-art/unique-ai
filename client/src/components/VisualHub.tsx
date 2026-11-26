@@ -54,12 +54,17 @@ function formatTime(at: number): string {
 }
 
 /** Suggestion chips send REAL prompts to chat; the reply's steps
- *  then draw themselves in the hub. Own prompts, not Stonic's. */
+ *  then draw themselves in the hub. Our own prompts first, then
+ *  Stonic's four (2026-11-26 study, reel 3/6) — ours stay. */
 const SUGGESTIONS: { label: string; prompt: string }[] = [
   { label: '🕌 وضو کے مراحل', prompt: 'وضو کے مراحل قدم بہ قدم بتائیں' },
   { label: '🌙 چاند گرہن کیسے ہوتا ہے؟', prompt: 'چاند گرہن کیسے ہوتا ہے؟ قدم بہ قدم سمجھائیں' },
   { label: '💧 پانی کا چکر', prompt: 'پانی کا چکر (water cycle) قدم بہ قدم سمجھائیں' },
   { label: '🕌 نمازوں کی ترتیب', prompt: 'آج کی پانچ نمازوں کی ترتیب اور ان کے وقت بتائیں' },
+  { label: '🚀 SpaceX Starship بلیو پرنٹ', prompt: 'Draw a SpaceX Starship blueprint — قدم بہ قدم سمجھائیں' },
+  { label: '🕳️ بلیک ہول روشنی کو کیسے موڑتا ہے؟', prompt: 'Show how a black hole bends light — قدم بہ قدم سمجھائیں' },
+  { label: '⚛️ فیوژن ری ایکٹر کے اندر', prompt: 'Look inside a fusion reactor — قدم بہ قدم سمجھائیں' },
+  { label: '🔴 انسانوں کا مریخ مشن', prompt: 'Explain a crewed mission to Mars — قدم بہ قدم سمجھائیں' },
 ];
 
 const TABS: { key: HubTab; label: string }[] = [

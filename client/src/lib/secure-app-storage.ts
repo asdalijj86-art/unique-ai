@@ -350,6 +350,22 @@ const BARE_KEEP = new Set([
   "unique-ai-vault-migrated",
   "unique-ai-gemini-key",
   "unique-ai-gemini-key-index",
+  // Bare keys read DIRECTLY from localStorage by the awareness /
+  // date / alarm features (chat.tsx state initializers, memory.ts
+  // loadDateMemories, alarm.ts via loadAlarms(localStorage)) — they
+  // are NOT secrets (a date label, a fire count, a timestamp, a
+  // one-day flag, an alarm time + short label), so keeping them bare
+  // does not weaken the security model: keys and vault material stay
+  // vaulted. If migration moved them into the namespaced vault, the
+  // raw reads would return null and the triggers that depend on them
+  // (forgotten-date drama, day-absence greeting, alarms) could never
+  // fire on a fresh profile — verified 2026-11-26, stage-3 drama
+  // never opened because the seeded date keys were migrated away.
+  "unique-ai-date-memories",
+  "unique-ai-forgotten-date-fires",
+  "unique-ai-last-activity",
+  "unique-ai-day-absence-spoken",
+  "unique-ai-alarms",
 ]);
 
 /**

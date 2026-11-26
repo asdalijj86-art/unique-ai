@@ -2461,6 +2461,119 @@ body {
 }
 .ufront-call:hover { background: rgba(34, 197, 94, 0.22); }
 
+/* ---- Stonic-study screen (2026-11-26) ---- */
+/* TERMINATE / START AI row under the avatar. The pill itself reuses
+   the existing .ufront-power rules above (red .active = TERMINATE). */
+.ufront-power-row {
+  display: flex; justify-content: center; width: 100%; margin-top: 2px;
+}
+.ufront-power-row .ufront-power { margin-top: 0; }
+/* Asleep face: dimmed, greyed — she is off until START AI. */
+.uface-panel.terminated { opacity: 0.45; filter: grayscale(0.65); }
+/* STAYED QUIET chip under the avatar (study reel 6). */
+.uquiet-chip {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin: 8px auto 0; padding: 6px 12px; max-width: 420px;
+  border-radius: 12px; font-size: 12.5px; line-height: 1.6; color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.4);
+}
+.uquiet-chip strong { letter-spacing: 1px; color: #fde68a; }
+/* "What do you remember?" + 3D cube — bottom of the centre panel. */
+.umem-prompt {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; margin-top: 10px; padding: 8px 12px;
+  background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 12px; cursor: pointer; color: #eaf9ff;
+}
+.umem-prompt:hover:not(:disabled) { background: rgba(34, 211, 238, 0.12); }
+.umem-prompt:disabled { opacity: 0.55; cursor: default; }
+.umem-cube { width: 30px; height: 30px; flex-shrink: 0; }
+.umem-prompt-text { font-size: 13.5px; font-weight: 700; color: #a5f3fc; }
+.umem-prompt-urdu { font-size: 12.5px; color: #c9ecf7; }
+/* Top-bar nav (Feedback / Manage Billing / Support / Explore) —
+   compact, laptop-friendly, same pill language as the top bar. */
+.unique-topnav { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.unique-topnav-btn {
+  padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  background: rgba(34, 211, 238, 0.07); border: 1px solid rgba(56, 189, 248, 0.22);
+  color: #a5e3f5; cursor: pointer; white-space: nowrap;
+}
+.unique-topnav-btn:hover { background: rgba(34, 211, 238, 0.16); }
+/* Feedback composer + billing note — small bars under the top bar. */
+.ufeedback-bar, .ubilling-note {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 8px 12px 0; padding: 10px 14px; border-radius: 12px;
+  background: rgba(34, 211, 238, 0.1); border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #eaf9ff; font-size: 13.5px; line-height: 1.8;
+}
+.ufeedback-bar textarea {
+  flex: 1; min-width: 220px; min-height: 38px; resize: vertical;
+  padding: 8px 10px; border-radius: 10px; font-size: 13.5px; line-height: 1.6;
+  background: rgba(4, 10, 22, 0.6); border: 1px solid rgba(56, 189, 248, 0.3); color: #eaf9ff;
+}
+.ufeedback-bar button, .ubilling-note button {
+  padding: 6px 14px; border-radius: 999px; font-weight: 700; cursor: pointer;
+  border: 1px solid rgba(56, 189, 248, 0.5); background: rgba(34, 211, 238, 0.2); color: #eaf9ff;
+}
+/* Daily digest card ("آج کی جھلک") under the YOUR WORLD strip. */
+.uworld-digest {
+  margin-top: 8px; padding: 10px 12px; border-radius: 14px;
+  background: rgba(8, 17, 33, 0.62); border: 1px solid rgba(56, 189, 248, 0.14);
+}
+.uworld-digest-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; width: 100%; padding: 0; background: none; border: none; cursor: pointer; font: inherit; text-align: inherit; }
+.uworld-digest-title { font-size: 13.5px; font-weight: 800; color: #fde68a; }
+.uworld-digest-date { font-size: 12px; color: #7c93a8; }
+.uworld-digest-toggle { font-size: 11px; color: #7c93a8; }
+.uworld-digest-summary { margin: 6px 0 0; font-size: 12.5px; line-height: 1.6; color: #c9ecf7; }
+.uworld-digest-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.uworld-digest-item {
+  font-size: 13px; line-height: 1.7; color: #eaf9ff;
+  background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(56, 189, 248, 0.16);
+  border-radius: 10px; padding: 7px 10px;
+}
+.uworld-digest-item strong { color: #a5f3fc; }
+.uworld-digest-empty { margin: 8px 0 0; font-size: 13px; line-height: 1.7; color: #c9ecf7; }
+.uworld-digest-src { margin: 8px 0 0; font-size: 11.5px; color: #7c93a8; }
+/* Uninstall drama overlay — theatre only, nothing is deleted. */
+.udrama-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(2, 6, 16, 0.82); backdrop-filter: blur(4px); padding: 16px;
+}
+.udrama-panel {
+  width: min(560px, 100%); padding: 20px; border-radius: 16px;
+  background: #0b1220; border: 1px solid rgba(239, 68, 68, 0.55);
+  box-shadow: 0 0 40px rgba(239, 68, 68, 0.25); color: #eaf9ff;
+}
+.udrama-banner {
+  padding: 10px 14px; border-radius: 10px; text-align: center;
+  background: rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.7);
+  color: #fecaca; font-size: 15px; font-weight: 800; letter-spacing: 0.5px;
+}
+.udrama-title { margin: 14px 0 4px; font-size: 17px; font-weight: 800; text-align: center; }
+.udrama-sub { margin: 0; font-size: 13.5px; line-height: 1.7; color: #c9ecf7; text-align: center; }
+.udrama-honest {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 10px;
+  background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(74, 222, 128, 0.45);
+  color: #bbf7d0; font-size: 13px; line-height: 1.7;
+}
+.udrama-bar {
+  height: 14px; margin-top: 14px; border-radius: 999px; overflow: hidden;
+  background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4);
+}
+.udrama-bar-fill { height: 100%; background: linear-gradient(to left, #ef4444, #f97316); transition: width 0.25s linear; }
+.udrama-stats {
+  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  margin-top: 8px; font-size: 12px; font-weight: 700; color: #fca5a5;
+}
+.udrama-note { margin: 12px 0 0; font-size: 13px; line-height: 1.7; color: #c9ecf7; text-align: center; }
+.udrama-stop {
+  display: block; width: 100%; margin-top: 16px; padding: 13px 18px;
+  border-radius: 999px; font-size: 17px; font-weight: 800; cursor: pointer;
+  background: rgba(34, 197, 94, 0.2); border: 2px solid rgba(74, 222, 128, 0.7); color: #bbf7d0;
+}
+.udrama-stop:hover { background: rgba(34, 197, 94, 0.32); }
+
 /* ---- YOUR WORLD column (left) + LIBRARY strip ---- */
 .uworld {
   display: flex; flex-direction: column; gap: 6px;
