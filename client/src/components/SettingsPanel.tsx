@@ -30,6 +30,10 @@ export type AppSettings = {
   voiceEnabled: boolean;
   continuousVoice: boolean;
   gesturesEnabled: boolean;
+  /** "Hey Unique" wake word (2026-11-28): listen while the app is
+   *  open for «Hey Unique» / «یونیک». Default ON; the mic still
+   *  needs one user click first (Chrome policy). */
+  wakeWordEnabled: boolean;
 };
 
 type SettingsPanelProps = {
@@ -75,6 +79,8 @@ type SettingsPanelProps = {
   onOpenPlayer?: () => void;
   onOpenHub?: () => void;
   onOpenWorldMonitor?: () => void;
+  /** "Hey Unique" wake word — plain-language live state for its row. */
+  wakeWordStatus?: string;
 };
 
 const chipStyle = (active: boolean): React.CSSProperties => ({
@@ -691,7 +697,7 @@ function PasswordSection() {
   );
 }
 
-export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange, awarenessEnabled, onAwarenessChange, onTestAwareness, status, theme, onThemeChange, cameraPermission, onCameraPermissionChange, cameraStatus, cameraStatusMessage, micLive, lastCameraNote, onStopCameraLook, supportNumber, onSaveSupportNumber, onOpenPlayer, onOpenHub, onOpenWorldMonitor }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange, awarenessEnabled, onAwarenessChange, onTestAwareness, status, theme, onThemeChange, cameraPermission, onCameraPermissionChange, cameraStatus, cameraStatusMessage, micLive, lastCameraNote, onStopCameraLook, supportNumber, onSaveSupportNumber, onOpenPlayer, onOpenHub, onOpenWorldMonitor, wakeWordStatus }: SettingsPanelProps) {
   const toggle = (key: keyof AppSettings) =>
     onChange({ ...settings, [key]: !settings[key] });
 
@@ -814,6 +820,39 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
         onToggle={() => toggle('continuousVoice')}
         testId="setting-row-continuous-voice"
       />
+      {/* "Hey Unique" WAKE WORD (2026-11-28): one row, one switch —
+          the same toggle as the front's listening indicator. The
+          body states the honest limit: the app must be OPEN (a
+          closed website cannot hear anything), and Chrome needs one
+          click before the mic starts. */}
+      <SettingRow
+        icon={<span aria-hidden="true">👂</span>}
+        name="«Hey Unique» — ویک ورڈ"
+        hint="ایپ کھلی ہو تو «Hey Unique» / «یونیک» کہتے ہی یونیکا جاگ جاتی ہے"
+        testId="setting-row-wake-word"
+        onNamesClick={() => toggle('wakeWordEnabled')}
+        control={(
+          <button
+            type="button"
+            className={`setting-switch${settings.wakeWordEnabled ? ' on' : ''}`}
+            onClick={() => toggle('wakeWordEnabled')}
+            aria-pressed={settings.wakeWordEnabled}
+            aria-label="Hey Unique"
+            data-testid="setting-toggle-wake-word"
+          >
+            <i />
+          </button>
+        )}
+      >
+        <p dir="rtl" style={{ fontSize: 13, lineHeight: 1.8, margin: '2px 0' }}>
+          حالت: {wakeWordStatus ?? '—'}
+        </p>
+        <p dir="rtl" style={{ fontSize: 12.5, lineHeight: 1.8, margin: '2px 0', opacity: 0.85 }}>
+          ایپ پوری بند ہو تو کوئی ویب سائٹ ویک ورڈ نہیں سن سکتی — اس لیے «Hey Google» فون کے اندر ہوتا ہے۔
+          یونیک کھلی ہو (مثلاً پن شدہ ٹیب) تو «Hey Unique» کہتے ہی وہ جاگ جاتی ہے، سلام کرتی ہے اور حکم سنتی ہے۔
+          مائیک شروع کرنے کے لیے Chrome کو ایک بار کلک چاہیے۔
+        </p>
+      </SettingRow>
 
       {onTestVoice && (
         <RowAction

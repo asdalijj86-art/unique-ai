@@ -20,13 +20,33 @@
 
 import { useEffect, useRef, useState } from 'react';
 import AiOrb from './AiOrb';
+import SilhouetteAvatar from './SilhouetteAvatar';
 import FaceLine from './FaceLine';
 import VoiceWaveform, { type WaveMode } from './VoiceWaveform';
 import AwarenessBubble from './AwarenessBubble';
+import { wakeWordReasonLabel } from '../lib/wake-word';
+import type { WakeWordStatus } from '../lib/use-wake-word';
 import { AGENT_DEFS, agentLabel, type AgentDef, type AgentTaskState } from '../lib/agent-team';
 import type { BoardEntry } from '../lib/task-board';
 
 export type FrontNodeKey = 'memory' | 'skills' | 'character' | 'settings';
+
+/** Front mode: 'new' = the silhouette panel (2026-11-28, user's
+ *  screenshot), 'classic' = the previous cyan-girl face (AiOrb).
+ *  A REAL persisted switch — both modes fully work. */
+export type FrontMode = 'new' | 'classic';
+
+/** Wake-word state, as the front shows it (from useWakeWord). */
+export type WakeWordFrontState = {
+  status: WakeWordStatus;
+  reason: string;
+  supported: boolean;
+  listening: boolean;
+  heardAt: number | null;
+  heardText: string;
+  /** Toggle listening on/off (Settings toggle calls the same). */
+  onToggle: () => void;
+};
 
 // ---------------------------------------------------------------------------
 // NodeDialog — a node panel as a centered dialog over the front.
@@ -156,9 +176,9 @@ const NODE_WORDS: Record<FrontNodeKey, { uniqa: string; unique: string }> = {
 
 const NODES: { key: FrontNodeKey; icon: string; label: string; urdu: string; color: string; testId: string }[] = [
   { key: 'memory', icon: '🧠', label: 'MEMORY', urdu: 'میموری', color: '#22d3ee', testId: 'button-panel-memory' },
-  { key: 'skills', icon: '🛠️', label: 'SKILLS', urdu: 'مہارتیں', color: '#34d399', testId: 'button-panel-skills' },
-  { key: 'character', icon: '👤', label: 'CHARACTER', urdu: 'کردار', color: '#fb7185', testId: 'button-panel-character' },
-  { key: 'settings', icon: '⚙️', label: 'SETTING', urdu: 'سیٹنگز', color: '#94a3b8', testId: 'button-panel-settings' },
+  { key: 'skills', icon: '📖', label: 'SKILLS', urdu: 'مہارتیں', color: '#34d399', testId: 'button-panel-skills' },
+  { key: 'character', icon: '🎭', label: 'CHARACTER', urdu: 'کردار', color: '#fb7185', testId: 'button-panel-character' },
+  { key: 'settings', icon: '⚙️', label: 'SETTING', urdu: 'سیٹنگز', color: '#60a5fa', testId: 'button-panel-settings' },
 ];
 
 export function FrontStage({
@@ -207,6 +227,17 @@ export function FrontStage({
    *  because it sounded like he was talking to someone else.
    *  The flag comes from useAwareness; the parent wires it. */
   stayedQuiet = false,
+  /** Front mode (2026-11-28): 'new' = silhouette panel from the
+   *  user's screenshot, 'classic' = the previous cyan-girl face.
+   *  Both fully work; the switch is persisted by the parent. */
+  frontMode = 'new',
+  /** Switch new ↔ classic (real, persisted). */
+  onFrontModeChange,
+  /** Mic button in the silhouette bottom bar — same action as the
+   *  composer mic (interrupt + listen, or start/stop recording). */
+  onMicClick,
+  /** "Hey Unique" wake-word state for the listening indicator. */
+  wakeWord,
 }: {
   persona: 'unique' | 'uniqa';
   tone: 'neutral' | 'serious' | 'romantic';
@@ -244,6 +275,10 @@ export function FrontStage({
   onAskMemory?: () => void;
   onOpenBrowser?: () => void;
   stayedQuiet?: boolean;
+  frontMode?: FrontMode;
+  onFrontModeChange?: (mode: FrontMode) => void;
+  onMicClick?: () => void;
+  wakeWord?: WakeWordFrontState;
 }) {
   // While terminated she is asleep: the face dims, the status says
   // so, and the speaking side-box stays hidden.
@@ -254,8 +289,33 @@ export function FrontStage({
     : faceStateLabel;
   const effectivelySpeaking = isSpeaking && !aiTerminated;
   const effectivelyPreparing = isPreparingVoice && !aiTerminated;
+  const isNewMode = frontMode === 'new';
+  // Silhouette bottom-bar status (the reference panel's line — it
+  // says "Uniqa is speaking", NEVER "Love").
+  const silStatus = aiTerminated
+    ? 'Uniqa is asleep — START AI'
+    : effectivelySpeaking || effectivelyPreparing
+      ? 'Uniqa is speaking'
+      : recording
+        ? 'Uniqa is listening…'
+        : isThinking
+          ? 'Uniqa is thinking…'
+          : 'Uniqa is ready';
+  const wakeLabel = wakeWord
+    ? wakeWord.status === 'listening'
+      ? '“Hey Unique” سن رہی ہے — بولیں'
+      : wakeWord.status === 'heard'
+        ? 'Hey Unique — جی، سن رہی ہوں'
+        : wakeWord.status === 'waiting-gesture'
+          ? '“Hey Unique” — مائیک کے لیے ایک بار کلک کریں'
+          : wakeWord.status === 'off'
+            ? '“Hey Unique” بند ہے — آن کرنے کے لیے دبائیں'
+            : wakeWord.status === 'unsupported'
+              ? '“Hey Unique” — اس براؤزر میں دستیاب نہیں'
+              : `“Hey Unique” — ${wakeWordReasonLabel(wakeWord.reason)}`
+    : '';
   return (
-    <section className="ufront-stage" aria-label="فرنٹ">
+    <section className={`ufront-stage${isNewMode ? ' usil-mode-new' : ''}`} aria-label="فرنٹ">
       {awarenessBubble && (
         <AwarenessBubble
           line={awarenessBubble.line}
@@ -263,6 +323,66 @@ export function FrontStage({
           onSpeakNow={onAwarenessSpeakNow}
           onDismiss={onAwarenessDismiss}
         />
+      )}
+
+      {/* Silhouette panel (2026-11-28, user's screenshot): the dark
+          rounded panel holding the top bar, the wake-word indicator,
+          the node pills + converging lines, and the avatar frame.
+          Classic mode reuses the same shell with no panel styling,
+          so the old face renders exactly as before. */}
+      <div className={isNewMode ? 'usil-panel' : 'usil-panel-classic'}>
+      {/* Top bar (reference): «new» + «classic» pills + gear. The
+          pills are a REAL switch — new = silhouette panel, classic
+          = the previous cyan-girl face, persisted. Gear opens the
+          Settings rows. */}
+      <div className="ufront-topbar" dir="ltr">
+        <button
+          type="button"
+          className={`ufront-mode-pill${isNewMode ? ' active' : ''}`}
+          onClick={() => onFrontModeChange?.('new')}
+          aria-pressed={isNewMode}
+          data-testid="button-front-mode-new"
+          title="نیا سلیوٹ والا فرنٹ"
+        >
+          <span className="ufront-mode-dot" aria-hidden="true" /> new
+        </button>
+        <button
+          type="button"
+          className={`ufront-mode-pill${!isNewMode ? ' active' : ''}`}
+          onClick={() => onFrontModeChange?.('classic')}
+          aria-pressed={!isNewMode}
+          data-testid="button-front-mode-classic"
+          title="پرانا چہرے والا فرنٹ"
+        >
+          classic
+        </button>
+        <button
+          type="button"
+          className="ufront-gear"
+          onClick={() => onOpenNode('settings')}
+          data-testid="button-front-gear"
+          aria-label="سیٹنگز کھولیں"
+          title="سیٹنگز"
+        >
+          ⚙️
+        </button>
+      </div>
+
+      {/* "Hey Unique" listening indicator — always visible, never
+          silent: it says plainly whether she is listening, waiting
+          for one click, off, or unsupported in this browser. Tap it
+          to turn wake-word listening on/off. */}
+      {wakeWord && (
+        <button
+          type="button"
+          className={`uwake-indicator uwake-${wakeWord.status}`}
+          onClick={wakeWord.onToggle}
+          data-testid="wake-word-indicator"
+          title="«Hey Unique» سننا آن / بند کریں — سیٹنگز میں بھی یہی سوئچ ہے"
+        >
+          <span className="uwake-dot" aria-hidden="true" />
+          <span>{wakeLabel}</span>
+        </button>
       )}
 
       {/* Face row (2026-11-25, Stonic front screenshot): node chips in a
@@ -311,10 +431,14 @@ export function FrontStage({
             })}
           </div>
 
-          {/* The face, in its glowing frame — the orb keeps its lip
+          {/* The face, in its glowing frame — NEW mode: Uniqa's
+              glowing faceless silhouette (2026-11-28, user's
+              screenshot) with the mic + status + power bar along
+              the bottom, exactly like the reference. CLASSIC mode:
+              the previous cyan-girl face (AiOrb) with its lip
               motion while speaking; tap it to interrupt. */}
           <div
-            className={`uface-panel${effectivelySpeaking || effectivelyPreparing ? ' tappable' : ''}${aiTerminated ? ' terminated' : ''}`}
+            className={`uface-panel${effectivelySpeaking || effectivelyPreparing ? ' tappable' : ''}${aiTerminated ? ' terminated' : ''}${isNewMode ? ' usil-frame' : ''}`}
             onClick={onOrbClick}
             title={effectivelySpeaking || effectivelyPreparing ? 'رکنے کے لیے دبائیں' : undefined}
             data-testid="face-panel"
@@ -335,11 +459,61 @@ export function FrontStage({
                 📷 کیمرہ لائیو — بند کریں
               </button>
             )}
-            <AiOrb isSpeaking={effectivelySpeaking} isThinking={isThinking && !aiTerminated} size={orbSize} persona={persona} />
-            <div className={`uface-panel-state uface-state-${aiTerminated ? 'ready' : faceState}`} dir="rtl" data-testid="face-state">
-              <span className="uface-state-dot" aria-hidden="true" />
-              {shownFaceStateLabel}
-            </div>
+            {isNewMode ? (
+              <>
+                <SilhouetteAvatar isSpeaking={effectivelySpeaking} terminated={aiTerminated} />
+                {/* Bottom bar (reference): mic | speaking status |
+                    power — all real. Mic = voice input, power =
+                    TERMINATE / START AI. The status says "Uniqa is
+                    speaking", never "Love". */}
+                <div className="usil-bottombar" dir="ltr" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className={`usil-mic${recording ? ' recording' : ''}`}
+                    onClick={() => onMicClick?.()}
+                    disabled={!onMicClick}
+                    data-testid="button-microphone-front"
+                    aria-label={recording ? 'ریکارڈنگ روکیں' : 'آواز ریکارڈ کریں'}
+                    title="آواز سے بولیں"
+                  >
+                    {recording ? '⏹' : '🎙️'}
+                  </button>
+                  <span className="usil-status" data-testid="face-state" title={shownFaceStateLabel}>
+                    <span className="usil-status-bars" aria-hidden="true">▂▄▆</span>
+                    {silStatus}
+                  </span>
+                  {aiTerminated ? (
+                    <button
+                      type="button"
+                      className="usil-power"
+                      onClick={() => onStartAi?.()}
+                      data-testid="button-start-ai"
+                      title="یونیکا کو جگائیں"
+                    >
+                      <span aria-hidden="true">⏻</span> START AI
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="usil-power"
+                      onClick={() => onTerminate?.()}
+                      data-testid="button-terminate"
+                      title="یونیکا کو سلائیں — کچھ حذف نہیں ہوگا، صرف سو جائے گی"
+                    >
+                      <span aria-hidden="true">⏻</span> TERMINATE
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <AiOrb isSpeaking={effectivelySpeaking} isThinking={isThinking && !aiTerminated} size={orbSize} persona={persona} />
+                <div className={`uface-panel-state uface-state-${aiTerminated ? 'ready' : faceState}`} dir="rtl" data-testid="face-state">
+                  <span className="uface-state-dot" aria-hidden="true" />
+                  {shownFaceStateLabel}
+                </div>
+              </>
+            )}
           </div>
         </div>
         {speakingText && !aiTerminated && (effectivelySpeaking || effectivelyPreparing) && (
@@ -350,9 +524,13 @@ export function FrontStage({
           />
         )}
       </div>
+      </div>
 
       {/* TERMINATE / START AI (Stonic screen, 2026-11-26 study) —
-          the red pill under the avatar. TERMINATE puts her to sleep
+          the red pill under the avatar. In NEW mode the power pill
+          lives in the silhouette bottom bar (reference), so this row
+          keeps only the browser button; in CLASSIC mode the pill
+          stays here exactly as before. TERMINATE puts her to sleep
           (face dims, status says so); START AI wakes her. Uses the
           existing .ufront-power CSS — red .active = TERMINATE. */}
       <div className="ufront-power-row" dir="rtl">
@@ -367,7 +545,7 @@ export function FrontStage({
             <span aria-hidden="true">🌐</span> براؤزر
           </button>
         )}
-        {aiTerminated ? (
+        {!isNewMode && (aiTerminated ? (
           <button
             type="button"
             className="ufront-power"
@@ -387,7 +565,7 @@ export function FrontStage({
           >
             <span aria-hidden="true">⏻</span> TERMINATE
           </button>
-        )}
+        ))}
       </div>
 
       {/* STAYED QUIET (study reel 6): she stayed quiet because it

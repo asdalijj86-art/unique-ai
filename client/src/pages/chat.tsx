@@ -146,7 +146,7 @@ import GameStudio, { isGameStudioOrder } from '@/components/GameStudio';
 import VisualHub, { extractSteps } from '@/components/VisualHub';
 // Front 2.0 (2026-11-24, Stonic-video build): the front is the orb
 // with attached nodes + Agent Town; panels open as dialogs over it.
-import { FrontStage, AgentTown, AgentWorkView, NodeDialog, VoicesPanel, type FrontNodeKey, type AgentWorkSubject } from '@/components/StonicFront';
+import { FrontStage, AgentTown, AgentWorkView, NodeDialog, VoicesPanel, type FrontNodeKey, type FrontMode, type AgentWorkSubject } from '@/components/StonicFront';
 import { UniquePlayer, SkillsDialog, LibraryStrip, readSupportNumber, type LibraryItem } from '@/components/FrontExtras';
 // Front 3.0 (2026-11-25, Stonic front screenshot): the left YOUR WORLD
 // column — globe, three things, news, weather.
@@ -182,6 +182,8 @@ import {
   type StudyContext,
 } from '@/lib/study';
 import { readAwarenessEnabled, saveAwarenessEnabled, useAwareness, isDayAbsence } from '@/lib/awareness';
+import { useWakeWord } from '@/lib/use-wake-word';
+import { wakeWordReasonLabel } from '@/lib/wake-word';
 // Own decision (2026-11-27): client-side re-check of the finished
 // reply — the server gate is primary; this backstop only fires if a
 // neutral answer to a decision-seeking message somehow got through.
@@ -396,12 +398,27 @@ export default function ChatPage() {
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   // App settings (persisted to secureAppStorage)
   const [appSettings, setAppSettings] = useState(() => {
+    // Older saved settings lack wakeWordEnabled — merge over the
+    // defaults so a returning user gets the wake word ON, never
+    // an undefined switch.
+    const defaults = { locationEnabled: true, voiceEnabled: true, continuousVoice: false, gesturesEnabled: false, wakeWordEnabled: true };
     try {
       const saved = secureAppStorage.getItem('unique-ai-settings');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...defaults, ...JSON.parse(saved) };
     } catch {}
-    return { locationEnabled: true, voiceEnabled: true, continuousVoice: false, gesturesEnabled: false };
+    return defaults;
   });
+  // Front mode (2026-11-28): 'new' = silhouette panel from the
+  // user's screenshot, 'classic' = the previous cyan-girl face.
+  // Both fully work; the switch is real and persisted.
+  const [frontMode, setFrontMode] = useState<FrontMode>(() => {
+    try { return secureAppStorage.getItem('unique-front-mode') === 'classic' ? 'classic' : 'new'; } catch { return 'new'; }
+  });
+  function changeFrontMode(mode: FrontMode) {
+    setFrontMode(mode);
+    logActivity(mode === 'new' ? 'نیا سلیوٹ والا فرنٹ' : 'پرانا چہرے والا فرنٹ');
+    try { secureAppStorage.setItem('unique-front-mode', mode); } catch { /* ignore */ }
+  }
   const [appBuild, setAppBuild] = useState<{ description: string } | null>(null);
   const [toolAction, setToolAction] = useState<ChatAction | null>(null);
   // Helper-agent team (Task D): when ONE message runs several data
@@ -1128,6 +1145,47 @@ export default function ChatPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isSpeaking, busy, isPreparingVoice]);
+
+  // "Hey Unique" WAKE WORD (2026-11-28, user order): while the app
+  // is OPEN she listens continuously for «Hey Unique» / «ہے یونیک» /
+  // «یونیک» and wakes at once — greets, then listens for the
+  // command. Paused while recording / continuous voice / speaking /
+  // a turn is in flight, so it never fights the main mic for the
+  // same audio. HONEST LIMIT: when the app is FULLY CLOSED no
+  // website can hear a wake word and open itself — that is why "Hey
+  // Google" lives in the phone/system itself.
+  const wakeWord = useWakeWord({
+    enabled: appSettings.wakeWordEnabled ?? true,
+    paused: recording || continuousVoice || isSpeaking || isPreparingVoice || busy,
+    onWake: (heardText: string) => {
+      logActivity(`«Hey Unique» سنا گیا — یونیکا جاگ گئی${heardText ? ` («${heardText}»)` : ''}`);
+      setAiTerminated(false);
+      // Greet briefly, then listen for the command. The greeting
+      // uses the existing browser-voice path; if this device has no
+      // voice it simply stays silent and listening still starts —
+      // never a fake claim of speech.
+      void (async () => {
+        await speakBrowserWhole('جی، میں سن رہی ہوں۔ بتائیے؟', undefined, persona === 'uniqa');
+        interruptSpeechAndListen();
+      })();
+    },
+  });
+  /** Plain-language wake-word state for the Settings row. */
+  const wakeWordStatusLabel = !wakeWord.supported
+    ? 'اس براؤزر میں آواز پہچاننے کی سہولت نہیں — Chrome استعمال کریں'
+    : wakeWord.status === 'listening'
+      ? 'سن رہی ہے — «Hey Unique» کہتے ہی جاگ جائے گی'
+      : wakeWord.status === 'heard'
+        ? 'جاگ گئی — اب سن رہی ہے'
+        : wakeWord.status === 'waiting-gesture'
+          ? 'مائیک شروع کرنے کے لیے ایک بار کہیں بھی کلک کریں (Chrome کی شرط)'
+          : wakeWord.status === 'error'
+            ? `سننا بند ہے — ${wakeWordReasonLabel(wakeWord.reason)}`
+            : 'بند ہے — سوئچ سے آن کریں';
+  /** One toggle for the indicator + the Settings row. */
+  const toggleWakeWord = () => {
+    setAppSettings((s: typeof appSettings) => ({ ...s, wakeWordEnabled: !(s.wakeWordEnabled ?? true) }));
+  };
 
   // Hand gestures (Phase 2): camera-based commands, all client-side.
   const {
@@ -5000,6 +5058,7 @@ export default function ChatPage() {
             onOpenPlayer={() => { setActivePanel(null); setPlayerOpen(true); }}
             onOpenHub={() => { setActivePanel(null); setHubDialogOpen(true); }}
             onOpenWorldMonitor={() => { setActivePanel(null); setWorldMonitorOpen(true); }}
+            wakeWordStatus={wakeWordStatusLabel}
           />
         );
       default:
@@ -5310,6 +5369,22 @@ export default function ChatPage() {
             // STAYED QUIET (Stonic study 2026-11-26, reel 6 card):
             // the hook reports when she deliberately stayed quiet.
             stayedQuiet={awareness.stayedQuiet}
+            // Silhouette panel + wake word (2026-11-28).
+            frontMode={frontMode}
+            onFrontModeChange={changeFrontMode}
+            onMicClick={() => {
+              if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
+              else void toggleRecording();
+            }}
+            wakeWord={{
+              status: wakeWord.status,
+              reason: wakeWord.reason,
+              supported: wakeWord.supported,
+              listening: wakeWord.listening,
+              heardAt: wakeWord.heardAt,
+              heardText: wakeWord.heardText,
+              onToggle: toggleWakeWord,
+            }}
           />
           {/* YOUR WORLD digest — \"آج کی جھلک\" (Stonic study
               2026-11-26). It lived under the globe first, but at
