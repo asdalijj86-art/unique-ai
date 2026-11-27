@@ -201,36 +201,51 @@ export async function synthesizeMairaSpeech({ text, female }: { text: string; fe
   const cacheKey = makeTtsCacheKey(text, voiceName, !!female);
   const cached = ttsAudioCache.get(cacheKey);
   if (cached) return cached;
-  // SECURITY (2026-11-25): ONE server attempt, no client key, no
-  // rotation, no "night backup" env-key fallback — the server uses
-  // ONLY this account's own stored key. A guest with no key gets the
-  // honest 402, never the owner's key. (The old dead-key tracker /
-  // multi-key rotation is deleted with the keys.)
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20000);
-  let res: Response;
-  try {
-    res = await authFetch('/api/openai/speech', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voiceName }),
-      signal: ctrl.signal,
-    });
-  } catch (e: any) {
-    clearTimeout(timer);
-    if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
-      throw { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
+  // NIGHT BACKUP (2026-10-27 user-approved "rat wala backup",
+  // restored 2026-11-28 in its SECURE form): the server owns every
+  // key — the client never sees one, never sends one, and the old
+  // plaintext localStorage keys + client-side rotation stay deleted
+  // (2026-11-25 security build). When the account's own key hits
+  // quota, exactly ONE retry goes out with useBackup: true and the
+  // server answers THAT attempt from its own env key, owner-only.
+  // A guest gets the honest quota error, never the owner's key.
+  // Any other failure (no key, timeout, network) throws as-is —
+  // only quota earns a retry, so there is no infinite loop.
+  const attempt = async (useBackup: boolean) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    let res: Response;
+    try {
+      res = await authFetch('/api/openai/speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voiceName, ...(useBackup ? { useBackup: true } : {}) }),
+        signal: ctrl.signal,
+      });
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e?.name === 'AbortError' || e?.name === 'TimeoutError') {
+        throw { data: { errorType: 'timeout', error: 'آواز آنے میں بہت دیر لگ گئی۔ نیٹ چیک کر کے دوبارہ کوشش کریں۔' } };
+      }
+      throw e;
     }
-    throw e;
+    clearTimeout(timer);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw { data: errData };
+    }
+    return (await res.json()) as { audioBase64: string; mimeType: string };
+  };
+  try {
+    const audio = await attempt(false);
+    ttsAudioCache.set(cacheKey, audio);
+    return audio;
+  } catch (e: any) {
+    if (e?.data?.errorType !== 'quota') throw e;
+    const backupAudio = await attempt(true);
+    ttsAudioCache.set(cacheKey, backupAudio);
+    return backupAudio;
   }
-  clearTimeout(timer);
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw { data: errData };
-  }
-  const audio = await res.json() as { audioBase64: string; mimeType: string };
-  ttsAudioCache.set(cacheKey, audio);
-  return audio;
 }
 
 /**

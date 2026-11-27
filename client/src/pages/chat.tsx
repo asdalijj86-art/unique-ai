@@ -1918,6 +1918,17 @@ export default function ChatPage() {
     // Focus commands work from BOTH typed text and voice: name a thing
     // (نقشہ / WhatsApp / قرآن / ٹولز) and it alone fills the screen.
     if (!attachedImage && handleFocusCommand(text)) return;
+    // Study open runs BEFORE the website handler (2026-11-28 fix):
+    // «سٹڈی کھولو» was swallowed by the side-browser search because
+    // the browser check ran first. The browser handler itself also
+    // declines study orders now — this order is the belt to its
+    // braces. A study QUESTION is not intercepted here — it goes to
+    // the brain below, with the study directive + study context.
+    if (!attachedImage && isStudyOpenOrder(text)) {
+      setStudyOpen(true);
+      setDraft('');
+      return;
+    }
     // Website commands work from typed text too — not just voice.
     // (Voice paths already check this before calling sendMessage.)
     if (!fromVoice && !attachedImage && handleVoiceWebsiteCommand(text)) return;
@@ -1974,17 +1985,9 @@ export default function ChatPage() {
       setDraft('');
       return;
     }
-    // Study system (2026-11-28, user order): an explicit order to
-    // open study mode («سٹڈی کھولو») brings the Study Studio
-    // forward; «اسائنمنٹ بناؤ» / «سی وی بناؤ» opens Document Studio
-    // with the study context (class, subject, topic) carried over.
-    // A study QUESTION is not intercepted here — it goes to the
-    // brain below, with the study directive + study context.
-    if (!attachedImage && isStudyOpenOrder(text)) {
-      setStudyOpen(true);
-      setDraft('');
-      return;
-    }
+    // Study documents («اسائنمنٹ بناؤ» / «سی وی بناؤ») open Document
+    // Studio with the study context (class, subject, topic) carried
+    // over. The study OPEN order lives above the website handler.
     if (!attachedImage && isStudyDocumentOrder(text)) {
       const kind = studyDocumentKind(text) ?? 'assignment';
       const docTopic = extractDocumentTopic(text);
@@ -2595,10 +2598,28 @@ export default function ChatPage() {
     // popup blocker killed the tab and the raw percent-encoded URL
     // landed in the chat as the "reply" (user's laptop screenshot
     // 2026-10-21) — that whole failure mode is gone now, and with it
-    // the open_link fallback card. parseBrowserCommand reuses
-    // parseWebsiteCommand's site list, so names resolve exactly as
-    // before; an unrecognized name becomes a panel search instead of
-    // the old fall-through to the brain.
+    // LOCAL-FIRST (2026-11-28 deep-audit): a panel/scene open order
+    // is NEVER a browser command. This handler runs before the
+    // studio branches in sendMessage AND first in every voice path,
+    // so without this guard every opener with an unknown name +
+    // «کھولو» fell into the search fallback («سٹڈی کھولو» searched
+    // «سٹڈی», «لائبریری کھولو» searched «لائبریری», «نقشہ کھولو»
+    // searched «نقشہ» by voice). Decline here and the caller's own
+    // routing opens the real panel/scene instead. Focus scenes
+    // first — opening one IS the handling, exactly as sendMessage's
+    // focus branch does it, one call-site earlier.
+    if (handleFocusCommand(recognizedText)) return true;
+    if (
+      isStudyOpenOrder(recognizedText) ||
+      isStudyDocumentOrder(recognizedText) ||
+      isLibraryOrder(recognizedText) ||
+      isMediaStudioOrder(recognizedText) ||
+      isIslamicStudioOrder(recognizedText) ||
+      isGameStudioOrder(recognizedText) ||
+      isDocumentStudioOrder(recognizedText)
+    ) {
+      return false;
+    }
     const browser = parseBrowserCommand(recognizedText);
     if (!browser) return false;
     const command = parseWebsiteCommand(recognizedText);
@@ -5176,8 +5197,17 @@ export default function ChatPage() {
 
       {speechNotice && (
         <div dir="rtl" data-testid="banner-speech-notice" style={{
+          /* FLOATING (2026-11-28 fix): this notice used to sit in
+             flow above the grid, so every spoken line that needed
+             rebuilding — and every failed voice, which persists —
+             pushed the whole front down 68px (face 162→230) and left
+             it there. It now floats over the top and never moves
+             the layout; dismiss ✕ / retry still work. */
+          position: 'fixed', top: 8, left: '50%', transform: 'translateX(-50%)',
+          width: 'min(1100px, calc(100vw - 24px))', zIndex: 300, margin: 0,
+          boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-          margin: '8px 12px 0', padding: '10px 14px', borderRadius: 12,
+          padding: '10px 14px', borderRadius: 12,
           background: 'rgba(251,191,36,0.18)', border: '1px solid rgba(251,191,36,0.5)', color: '#fef3c7',
           fontSize: 13.5, lineHeight: 1.8,
         }}>

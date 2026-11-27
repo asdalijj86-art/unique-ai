@@ -103,9 +103,11 @@ function normalize(text: string): string {
     .trim();
 }
 
-/** Study-shaped text must never be stolen by the search patterns. */
+/** Study-shaped text must never be stolen by the search patterns.
+ *  (2026-11-28: سٹڈی/اسٹڈی were missing, so «سٹڈی کھولو» fell into
+ *  the side-browser search instead of Study Studio.) */
 const STUDY_GUARD =
-  /(کلاس|مضمون|سبق|باب|امتحان|اسائنمنٹ|سوال|پڑھائی|ہوم ورک|کتاب|class|subject|chapter|lesson|exam|assignment|homework|question|study|نصاب|syllabus)/;
+  /(کلاس|مضمون|سبق|باب|امتحان|اسائنمنٹ|سوال|پڑھائی|ہوم ورک|کتاب|class|subject|chapter|lesson|exam|assignment|homework|question|study|نصاب|syllabus|سٹڈی|اسٹڈی)/;
 
 /** «یوٹیوب پر X» / «youtube par X» — a site-qualified search that
  *  belongs to the brain's youtube_search, not to this panel.

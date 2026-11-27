@@ -1898,10 +1898,36 @@ app.post("/api/openai/speech", async (req, res) => {
     res.status(429).json({ error: "آج کی آواز کی حد ختم — کل دوبارہ کوشش کریں۔" });
     return;
   }
-  const apiKey = resolveGeminiKey(req);
+  let apiKey = resolveGeminiKey(req);
   if (!apiKey) {
     noKeyResponse(res);
     return;
+  }
+  // NIGHT BACKUP (2026-10-27 user-approved, restored 2026-11-28 in
+  // its secure form): when the client retries with useBackup, this
+  // attempt runs on the SERVER env key — owner-only, and only when
+  // it differs from the key already tried. A guest's backup retry
+  // is answered with the honest quota error WITHOUT calling Gemini,
+  // so the owner's key is never spent on anyone else. (The old
+  // client-side key rotation is gone: keys live here, not in the
+  // browser.)
+  if (req.body?.useBackup === true) {
+    const backupDenied = () => {
+      res.status(502).json({
+        error: "آواز تیار نہیں ہو سکی۔ براہِ کرم دوبارہ کوشش کریں۔",
+        errorType: "quota",
+      });
+    };
+    if (!req.user || req.user.role !== "owner") {
+      backupDenied();
+      return;
+    }
+    const envKey = (process.env.GEMINI_API_KEY || "").trim();
+    if (!envKey || envKey === apiKey) {
+      backupDenied();
+      return;
+    }
+    apiKey = envKey;
   }
 
   // Truncate the spoken text for speed: long replies take much longer to
@@ -1923,11 +1949,13 @@ app.post("/api/openai/speech", async (req, res) => {
       : ttsText;
 
   // Fail FAST and classify: every attempt goes through fetchWithTimeout
-  // (12s hard cap). HTTP error statuses are NEVER retried — a 429 (quota)
-  // or 400/401/403 (auth) answer will not change by asking again, and
-  // retrying only delays the client, which then rotates to the user's
-  // next key. Only a network/timeout failure earns ONE retry (2 attempts
-  // total). The classified errorType lets the client explain WHY in Urdu.
+  // (12s hard cap). HTTP error statuses are NEVER retried with the
+  // same key — a 429 (quota) or 400/401/403 (auth) answer will not
+  // change by asking again. The client's ONE quota retry carries
+  // useBackup and runs on the owner's env key instead (see above).
+  // Only a network/timeout failure earns ONE retry inside this
+  // attempt (2 attempts total). The classified errorType lets the
+  // client explain WHY in Urdu.
   let lastErrorType = "unknown";
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     let response;

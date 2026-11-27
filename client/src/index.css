@@ -256,9 +256,18 @@ body {
 
 /* ---- Awareness thought bubble (shows BEFORE the line is spoken) ---- */
 .uaware-bubble {
-  position: relative;
-  width: 100%; max-width: 440px;
-  margin-bottom: 10px;
+  /* TOAST (2026-11-28 fix): the bubble used to sit in flow at the top
+     of the front stage and push the face, the 'What do you remember?'
+     prompt and the digest below the fold whenever a proactive line
+     fired (drama-stop farewell, any post-message bubble). It now
+     floats bottom-right, over empty space, and NEVER shifts layout —
+     the face stays put while the bubble is visible. */
+  position: fixed;
+  right: 16px; bottom: 16px;
+  width: min(420px, calc(100vw - 32px)); max-width: 420px;
+  margin-bottom: 0;
+  z-index: 200;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   background: rgba(139, 92, 246, 0.14);
   border: 1px solid rgba(167, 139, 250, 0.45);
   border-radius: 16px;
@@ -1990,16 +1999,10 @@ body {
   50% { transform: rotate(2.5deg) translateY(-2px); }
 }
 
-/* ---- Thought bubble: attached to the orb with a tail pointing down ---- */
-.uaware-bubble { margin-bottom: 14px; }
-.uaware-bubble::after {
-  content: '';
-  position: absolute; left: 50%; bottom: -9px;
-  transform: translateX(-50%);
-  border-left: 9px solid transparent;
-  border-right: 9px solid transparent;
-  border-top: 10px solid rgba(167, 139, 250, 0.45);
-}
+/* ---- Thought bubble tail: REMOVED (2026-11-28 toast fix) — the
+   bubble no longer sits above the orb, so the down-pointing tail has
+   nothing to point at. Kept as a no-op so no other rule re-adds it. ---- */
+.uaware-bubble::after { display: none; }
 
 /* ---- Speech line attached under the face (tail points up to the orb) ---- */
 .uface-line {
@@ -2225,8 +2228,16 @@ body {
   width: 100%;
 }
 .ufront-face-core {
-  position: relative; flex: 1; min-width: 0;
+  position: relative; flex: 1; min-width: 406px;
   display: flex; align-items: stretch; gap: 8px;
+  /* NO-WRAP BUDGET (2026-11-28 fix): the core must never wrap the
+     face panel below the node lines while the speaking box is up.
+     Nodes 218 + gap 8 + panel min-width 180 = 406. At 1366 the row
+     is 583, so the speaking box gets 583 − 12 − 406 = 165 and the
+     face keeps its place (y 162, prompt + digest in view). Without
+     this floor the core shrank to 371, the panel wrapped under the
+     nodes, and the face fell to y 440–508 with prompt + digest
+     below the fold for the whole speech. */
 }
 .ufront-lines {
   position: absolute; inset: 0;
@@ -2396,14 +2407,17 @@ body {
 }
 
 /* Speaking line — the SMALL SIDE BOX beside the face panel.
-   It may shrink (never crush the face: the face keeps its width
-   and this box gives way first). */
+   FIXED 165px basis (2026-11-28 fix): the box gives way first so
+   the face never wraps — the core keeps its 406px no-wrap budget
+   (see .ufront-face-core) and this box shrinks toward 140px
+   instead. It never grows the row either: max-height 150px with
+   internal scroll, so the row stays 271px and the prompt + digest
+   never move while she speaks. */
 .ufront-face-row .uface-line {
-  width: 200px; max-width: 200px;
+  flex: 0 1 165px; min-width: 140px;
   margin: 0;
   max-height: 150px;
   overflow-y: auto;
-  flex-shrink: 1; min-width: 140px;
   text-align: right;
 }
 .ufront-face-row .uface-line::before {
@@ -3166,7 +3180,7 @@ body {
   .uchat-col { overflow: visible; order: 3; }
   .ufront-lines { display: none; }
   .ufront-face-row { flex-direction: column; }
-  .ufront-face-core { flex-direction: column; }
+  .ufront-face-core { flex-direction: column; min-width: 0; /* the 406px no-wrap floor is desktop-only */ }
   .unode-lines { flex: none; width: 100%; max-width: 440px; margin-inline-end: 0; }
   .ufront-nodes-col {
     flex-direction: row; flex-wrap: wrap; gap: 8px; justify-content: center;

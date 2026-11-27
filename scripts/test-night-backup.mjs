@@ -3,15 +3,17 @@
  * "rat wala backup banao", same voices).
  *
  * Proves, with stubbed network/device lists and NO real keys:
- *  1. Server-key fallback in lib/api.ts synthesizeMairaSpeech:
- *     - single user key quota -> exactly ONE env attempt (no userApiKey
- *       in its body) -> env success returns audio;
- *     - user key quota -> env quota -> throws quota after exactly
- *       2 calls (no infinite retry, no third call);
- *     - no user keys -> exactly ONE call (the env attempt itself,
- *       never duplicated);
- *     - two user keys quota -> env success on the 3rd call, after
- *       ALL user keys failed (never as the first attempt).
+ *  1. Server-key fallback in lib/api.ts synthesizeMairaSpeech
+ *     (secure form, 2026-11-28 — the backup lives on the SERVER,
+ *     the client never sees or sends a key):
+ *     - account key quota -> exactly ONE backup attempt
+ *       (useBackup: true, no key material in its body) -> backup
+ *       success returns audio;
+ *     - account key quota -> backup quota -> throws quota after
+ *       exactly 2 calls (no infinite retry, no third call);
+ *     - healthy account key -> exactly ONE call, never a backup;
+ *     - non-quota failure (no key) -> throws at once, exactly
+ *       1 call, never retried.
  *  2. Banner leg diagnostic in lib/voice-player.ts:
  *     - legDiagnosticText names Gemini quota, server Edge failure
  *       and no browser voice in plain words, with no secrets;
@@ -72,13 +74,12 @@ const okAudio = () => ({ ok: true, json: async () => ({ audioBase64: 'b64:env', 
 const errRes = (errorType) => ({ ok: false, json: async () => ({ errorType, error: 'stub' }) });
 
 // --- 1) Server-key fallback (real lib/api.ts) ---
-// NOTE (2026-10-27 cache fix): every case below uses a DISTINCT
-// text AND distinct fake key values. The audio cache is keyed by
-// exact text + voice (so reusing 'سلام' would return case 1a's
-// cached audio with zero fetches), and the dead-key tracker is a
-// session singleton (so reusing a key value would skip it for
-// ~10 min instead of exercising the fallback). Distinct values
-// keep each case an independent proof of the fallback logic.
+// NOTE (2026-10-27 cache fix, still true): every case below uses
+// a DISTINCT text. The audio cache is keyed by exact text + voice,
+// so reusing 'سلام' would return case 1a's cached audio with zero
+// fetches. Distinct texts keep each case an independent proof of
+// the fallback logic. (No key values exist any more — the 2026-11-25
+// security build deleted client-side keys; the backup is a flag.)
 console.log('\n── 1) Server-key fallback in synthesizeMairaSpeech ────────');
 {
   const apiBundle = bundle(
@@ -87,46 +88,40 @@ console.log('\n── 1) Server-key fallback in synthesizeMairaSpeech ───�
   );
   const { synthesizeMairaSpeech } = await import(pathToFileURL(apiBundle).href);
 
-  // 1a. Single user key quota -> env success, exactly 2 calls.
-  store.clear();
-  store.set('unique-ai-gemini-key', 'AIzaTESTKEY123456');
-  store.set('unique-ai-gemini-key-index', '0');
+  // 1a. Account key quota -> backup success, exactly 2 calls.
+  // No key material travels in either call — the backup is a flag.
   fetchCalls = []; fetchScript = [errRes('quota'), okAudio()];
   const r1 = await synthesizeMairaSpeech({ text: 'سلام', female: true });
-  check('single key quota -> env audio returned', r1.audioBase64, 'b64:env');
-  check('exactly 2 calls (user key, then env once)', fetchCalls.length, 2);
-  check('first call carried the user key', 'userApiKey' in fetchCalls[0], true);
-  check('env call carried NO userApiKey', 'userApiKey' in fetchCalls[1], false);
+  check('account key quota -> backup audio returned', r1.audioBase64, 'b64:env');
+  check('exactly 2 calls (account key, then backup once)', fetchCalls.length, 2);
+  check('second call is the backup attempt', fetchCalls[1].useBackup, true);
+  check('no key material in the first call', 'userApiKey' in fetchCalls[0], false);
+  check('no key material in the backup call', 'userApiKey' in fetchCalls[1], false);
 
-  // 1b. User key quota -> env quota -> throws quota, exactly 2 calls.
-  store.clear();
-  store.set('unique-ai-gemini-key', 'AIzaTESTKEY222222');
-  store.set('unique-ai-gemini-key-index', '0');
+  // 1b. Account key quota -> backup quota -> throws quota, exactly 2 calls.
   fetchCalls = []; fetchScript = [errRes('quota'), errRes('quota')];
   let thrown = null;
   try { await synthesizeMairaSpeech({ text: 'سلام دوبارہ', female: true }); }
   catch (e) { thrown = e; }
-  check('env quota -> throws quota', thrown?.data?.errorType, 'quota');
+  check('backup quota -> throws quota', thrown?.data?.errorType, 'quota');
   check('no infinite retry: exactly 2 calls', fetchCalls.length, 2);
 
-  // 1c. No user keys -> exactly ONE call (env itself, never duplicated).
-  store.clear();
+  // 1c. Healthy account key -> exactly ONE call, never a backup.
   fetchCalls = []; fetchScript = [okAudio()];
   const r3 = await synthesizeMairaSpeech({ text: 'سلام تیسرا', female: true });
-  check('no user keys -> audio returned', r3.audioBase64, 'b64:env');
-  check('no duplicate env attempt: exactly 1 call', fetchCalls.length, 1);
-  check('that call carried NO userApiKey', 'userApiKey' in fetchCalls[0], false);
+  check('healthy key -> audio returned', r3.audioBase64, 'b64:env');
+  check('healthy key: exactly 1 call', fetchCalls.length, 1);
+  check('that call is not a backup attempt', fetchCalls[0].useBackup, undefined);
+  check('that call carried NO key material', 'userApiKey' in fetchCalls[0], false);
 
-  // 1d. Two user keys quota -> env success on 3rd call, after ALL keys.
-  store.clear();
-  store.set('unique-ai-gemini-key', 'AIzaTESTKEY333333\nAIzaTESTKEY444444');
-  store.set('unique-ai-gemini-key-index', '0');
-  fetchCalls = []; fetchScript = [errRes('quota'), errRes('quota'), okAudio()];
-  const r4 = await synthesizeMairaSpeech({ text: 'سلام چوتھا', female: true });
-  check('two keys quota -> env audio returned', r4.audioBase64, 'b64:env');
-  check('env was 3rd call, after all user keys', fetchCalls.length, 3);
-  check('first two calls carried user keys', [!!fetchCalls[0].userApiKey, !!fetchCalls[1].userApiKey], [true, true]);
-  check('third call carried NO userApiKey', 'userApiKey' in fetchCalls[2], false);
+  // 1d. Quota is the ONLY retry: a non-quota failure (no key)
+  // throws at once and is never retried.
+  fetchCalls = []; fetchScript = [errRes('no_key')];
+  let thrown4 = null;
+  try { await synthesizeMairaSpeech({ text: 'سلام چوتھا', female: true }); }
+  catch (e) { thrown4 = e; }
+  check('no-key error throws at once', thrown4?.data?.errorType, 'no_key');
+  check('non-quota errors are never retried: exactly 1 call', fetchCalls.length, 1);
 }
 
 // --- 2) Banner leg diagnostic (real lib/voice-player.ts) ---

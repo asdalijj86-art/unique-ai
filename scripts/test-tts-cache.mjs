@@ -9,10 +9,14 @@
  *     audio with zero new fetches (Replay / "سنیں" is free);
  *  2. same text with a DIFFERENT voice does NOT return the cached
  *     audio (fail-closed on voice mismatch);
- *  3. a quota-dead key is skipped on the next call (no fetch for
- *     it), and the tracker re-probes it after its window expires
- *     (unit test with an injected clock);
- *  4. cache caps: entry cap and byte cap evict oldest first.
+ *  3. the dead-key tracker still skips + re-probes on its own
+ *     clock (pure unit pin — the live path no longer rotates keys;
+ *     the backup is server-side now, see 5);
+ *  4. cache caps: entry cap and byte cap evict oldest first;
+ *  5. quota on the first attempt retries ONCE with useBackup and
+ *     returns the backup audio — and NO key material ever travels
+ *     in a request body (2026-11-25 security build + 2026-11-28
+ *     secure backup).
  *
  * Run: node scripts/test-tts-cache.mjs   (from the repo root)
  */
@@ -92,11 +96,10 @@ console.log('\n── 3) Dead-key skip + timed re-probe (injected clock) ──�
 
 // ── Integration: real synthesizeMairaSpeech, stubbed fetch ─────────
 // Stub localStorage BEFORE dynamically importing the api bundle.
+// The client stores NO keys (2026-11-25 security build): the store
+// stub exists only because secureAppStorage reads the voice name
+// from it. No key is ever written here.
 const store = new Map();
-const KEY_ONE = 'AIzaTestKeyOne12345';
-const KEY_TWO = 'AIzaTestKeyTwo12345';
-store.set('unique-ai-gemini-key', `${KEY_ONE}\n${KEY_TWO}`);
-store.set('unique-ai-gemini-key-index', '0');
 globalThis.localStorage = {
   getItem: (k) => (store.has(k) ? store.get(k) : null),
   setItem: (k, v) => { store.set(k, String(v)); },
@@ -105,15 +108,19 @@ globalThis.localStorage = {
 
 let fetchCalls = 0;
 const fetchLog = [];
+let quotaUsed = false;
 globalThis.fetch = async (url, opts) => {
   fetchCalls++;
   const body = JSON.parse(opts?.body || '{}');
-  // NOTE: both stub keys share the "AIza" prefix, so log by identity,
-  // never by prefix — a prefix check cannot tell the keys apart.
-  fetchLog.push(!body.userApiKey ? 'key:none' : body.userApiKey === KEY_ONE ? 'key:ONE' : body.userApiKey === KEY_TWO ? 'key:TWO' : 'key:other');
+  // Log the SHAPE of each call: 'backup' when the client retries
+  // with useBackup, 'plain' for a normal first attempt, 'KEY-LEAK'
+  // if any key material ever travels in a body (must never happen).
+  fetchLog.push(body.userApiKey ? 'KEY-LEAK' : body.useBackup ? 'backup' : 'plain');
   if (url === '/api/openai/speech') {
-    // KEY_ONE is quota-dead; every other key succeeds.
-    if (body.userApiKey === KEY_ONE) {
+    // The account key is quota-dead exactly ONCE (the night case);
+    // every later attempt — including the backup retry — succeeds.
+    if (!quotaUsed) {
+      quotaUsed = true;
       return { ok: false, json: async () => ({ errorType: 'quota' }) };
     }
     return {
@@ -130,9 +137,11 @@ const { synthesizeMairaSpeech } = apiMod;
 console.log('\n── 4) Identical text+voice: second call is a cache hit ───────');
 {
   const before = fetchCalls;
+  const logBefore = fetchLog.length;
   const first = await synthesizeMairaSpeech({ text: 'hello world test', female: false });
   const afterFirst = fetchCalls;
-  check('first call fetches (dead key + live key)', afterFirst - before, 2);
+  check('first call fetches (quota + backup)', afterFirst - before, 2);
+  check('first attempt plain, retry is the backup', fetchLog.slice(logBefore), ['plain', 'backup']);
   check('first audio is Charon voice', first.audioBase64, 'b64:Charon:hello world test');
   const second = await synthesizeMairaSpeech({ text: 'hello world test', female: false });
   check('second call adds zero fetches', fetchCalls - afterFirst, 0);
@@ -147,13 +156,13 @@ console.log('\n── 5) Same text, different voice: NO cached audio ───�
   check('audio is Sulafat, not Charon', uniqa.audioBase64, 'b64:Sulafat:hello world test');
 }
 
-console.log('\n── 6) Dead key skipped on the next new-text call ─────────────');
+console.log('\n── 6) New text: one healthy call, no key material ────────────');
 {
   const before = fetchCalls;
   const logBefore = fetchLog.length;
   const next = await synthesizeMairaSpeech({ text: 'a brand new sentence', female: false });
-  check('new text fetches only the live key', fetchCalls - before, 1);
-  check('dead key never probed in this call', fetchLog.slice(logBefore).some((l) => l === 'key:ONE'), false);
+  check('new text fetches once', fetchCalls - before, 1);
+  check('healthy first attempt needs no backup flag', fetchLog.slice(logBefore), ['plain']);
   check('new audio synthesised', next.audioBase64, 'b64:Charon:a brand new sentence');
 }
 
