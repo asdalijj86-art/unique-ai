@@ -10,6 +10,44 @@
 //  headers, accents and borders.
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
+import { HUMAN_WRITING_RULE, STUDY_SUBJECTS, TEXT_SOURCE_NOTE, VIDEO_SOURCE_HONEST_NOTE } from '@/lib/study';
+
+/**
+ * HUMAN WRITING RULE (lib/study, user order 2026-11-28): every
+ * assignment/CV built here must read like a person wrote it — natural
+ * varied sentences, a personal voice, no robotic AI phrasing, no
+ * "In conclusion" / "It is important to note", no moreover /
+ * furthermore chains, no excessive em-dashes. The draft generator
+ * below follows it; the server prompt carries it too.
+ */
+export const DOCUMENT_WRITING_RULE = HUMAN_WRITING_RULE;
+
+/**
+ * Study prefill — passed by the Study Studio when it opens Document
+ * Studio from the study flow («اسائنمنٹ بناؤ» / «سی وی بناؤ»). All
+ * fields optional; without it the studio behaves exactly as before.
+ * The source is the assignment source AS GIVEN (video link or pasted
+ * text): pasted text is copied EXACTLY into the body, only the
+ * user's own name + ID are swapped in; a video link is shown with
+ * the honest note that watching it needs the live model + internet
+ * on the user's laptop — never a claim it was watched.
+ */
+export type DocumentStudioInitial = {
+  category?: 'cv' | 'assignment';
+  levelId?: string;
+  classNum?: number;
+  subjectId?: string;
+  topic?: string;
+  studentName?: string;
+  roll?: string;
+  source?: { kind: 'video' | 'text'; value: string };
+};
+
+function assignmentTemplateForLevel(levelId?: string): string {
+  if (levelId === 'inter') return 'asg-college';
+  if (levelId === 'college') return 'asg-university';
+  return 'asg-school';
+}
 
 export function isDocumentStudioOrder(text: string): boolean {
   // Mic transcription variants: Urdu «ڈاکومنٹ» can come out as
@@ -53,20 +91,39 @@ const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', bo
 type Chapter = { heading: string; text: string };
 type TableRow = { c1: string; c2: string };
 
-export default function DocumentStudio({ onClose }: { onClose: () => void }) {
-  const [category, setCategory] = useState<'cv' | 'assignment'>('cv');
-  const [templateId, setTemplateId] = useState('cv-doctor-blue');
+export default function DocumentStudio({ onClose, initial }: { onClose: () => void; initial?: DocumentStudioInitial }) {
+  const [category, setCategory] = useState<'cv' | 'assignment'>(initial?.category ?? 'cv');
+  const [templateId, setTemplateId] = useState(
+    initial?.category === 'assignment'
+      ? assignmentTemplateForLevel(initial?.levelId)
+      : initial?.levelId
+        ? 'cv-student'
+        : 'cv-doctor-blue',
+  );
   const tpl = TEMPLATES.find((t) => t.id === templateId) || TEMPLATES[0];
   const [primary, setPrimary] = useState(tpl.primary);
   const [font, setFont] = useState('system-ui, sans-serif');
   const [photo, setPhoto] = useState('');
-  const [cv, setCv] = useState({ name: '', title: '', email: '', phone: '', address: '', objective: '', education: '', experience: '', skills: '', languages: '', certifications: '', achievements: '', references: '' });
+  const [cv, setCv] = useState({ name: initial?.studentName ?? '', title: '', email: '', phone: '', address: '', objective: '', education: '', experience: '', skills: '', languages: '', certifications: '', achievements: '', references: '' });
   const [show, setShow] = useState<Record<string, boolean>>({ objective: true, education: true, experience: true, skills: true, languages: true, certifications: true, achievements: true, references: true });
-  const [asg, setAsg] = useState({ institution: '', student: '', roll: '', course: '', subject: '', teacher: '', date: '', title: '', references: '' });
-  const [chapters, setChapters] = useState<Chapter[]>([{ heading: 'Introduction', text: '' }, { heading: 'Main Body', text: '' }, { heading: 'Conclusion', text: '' }]);
+  const initialSubject = initial?.subjectId ? (STUDY_SUBJECTS.find((s) => s.id === initial.subjectId)?.urdu ?? '') : '';
+  const [asg, setAsg] = useState({ institution: '', student: initial?.studentName ?? '', roll: initial?.roll ?? '', course: '', subject: initialSubject, teacher: '', date: '', title: initial?.topic ?? '', references: '' });
+  const [chapters, setChapters] = useState<Chapter[]>(() =>
+    // Study source, pasted text: copied EXACTLY into the body — the
+    // standing video-to-document rule (swap ONLY name + ID, which the
+    // header fields above already carry). A video source leaves the
+    // chapters for the user/model; the honest note below says so.
+    initial?.source?.kind === 'text' && initial.source.value.trim()
+      ? [
+          { heading: 'Introduction', text: '' },
+          { heading: 'Main Body', text: initial.source.value },
+          { heading: 'Conclusion', text: '' },
+        ]
+      : [{ heading: 'Introduction', text: '' }, { heading: 'Main Body', text: '' }, { heading: 'Conclusion', text: '' }],
+  );
   const [tableRows, setTableRows] = useState<TableRow[]>([{ c1: '', c2: '' }]);
   const [asgImage, setAsgImage] = useState('');
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(initial?.topic ?? '');
   const [status, setStatus] = useState('');
 
   function pickTemplate(t: Template) { setTemplateId(t.id); setCategory(t.kind); setPrimary(t.primary); }
@@ -77,10 +134,15 @@ export default function DocumentStudio({ onClose }: { onClose: () => void }) {
   function draftFromTopic() {
     if (!topic.trim()) { setStatus('پہلے موضوع لکھیں۔'); return; }
     setAsg((a) => ({ ...a, title: a.title || topic }));
+    // HUMAN WRITING RULE (DOCUMENT_WRITING_RULE, lib/study): this
+    // draft reads like a student wrote it — natural varied sentences,
+    // a personal voice, short and long sentences mixed. No generic AI
+    // intros, no moreover/furthermore chains, no excessive em-dashes.
+    // A starting point the user edits in their own words.
     setChapters([
-      { heading: 'Introduction', text: `${topic} is an important topic. This assignment introduces its background, purpose and scope.` },
-      { heading: 'Main Discussion', text: `This chapter discusses ${topic} in detail — its key ideas, examples and analysis.` },
-      { heading: 'Conclusion', text: `In conclusion, ${topic} shows clear lessons and practical value. Further study can extend this work.` },
+      { heading: 'Introduction', text: `I chose ${topic} for this assignment because it is one of those topics that turns up everywhere, in class, in the news, and in daily life. This assignment looks at what ${topic} really means, why it matters, and what I learned from studying it.` },
+      { heading: 'Main Discussion', text: `The main idea is simple once you break it down. ${topic} has a few key parts, and each one connects to the next. I looked at examples from my own textbook and from everyday life, and the examples made the idea much clearer than the definition alone. Some points were easy to follow. Others took more time, and I had to read them twice before they made sense.` },
+      { heading: 'Conclusion', text: `What I took away from ${topic} is that it is not just a chapter in a book. It explains things I see around me, and it gives me a better way to think about them. I still have questions about some parts, and I want to keep reading about them.` },
     ]);
     setStatus('موضوع سے مسودہ بن گیا ہے — اب اسے اپنی مرضی سے ایڈٹ کریں۔');
   }
@@ -242,6 +304,12 @@ export default function DocumentStudio({ onClose }: { onClose: () => void }) {
             <input style={{ ...inputStyle, width: 'auto', flex: 1, marginBottom: 0 }} placeholder="Topic for draft, e.g. Photosynthesis" value={topic} onChange={(e) => setTopic(e.target.value)} />
             <button type="button" onClick={draftFromTopic} style={{ padding: '8px 16px', borderRadius: 999, background: '#15803d', color: '#fff' }}>Generate draft from topic</button>
           </div>
+          {initial?.source && (
+            <div style={{ background: '#f0fdf4', color: '#000', borderRadius: 12, padding: 12, marginBottom: 8 }} data-testid="document-source-note">
+              {initial.source.kind === 'video' ? VIDEO_SOURCE_HONEST_NOTE : TEXT_SOURCE_NOTE}
+              {initial.source.kind === 'video' ? ` لنک: ${initial.source.value}` : ' متن اوپر Main Body میں ویسا کا ویسا لکھ دیا گیا ہے۔'}
+            </div>
+          )}
         </div>
       )}
       <h4 style={{ color: '#000' }}>Live Preview — A4, white paper, black text</h4>

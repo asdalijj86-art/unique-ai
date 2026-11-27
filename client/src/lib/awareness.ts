@@ -85,7 +85,7 @@ export function isDayAbsence(lastActivityAt: number, now: number = Date.now()): 
 // daily schedule. Never an invented plan or fake completed work.
 // ---------------------------------------------------------------------------
 
-export type UpcomingKind = 'morning' | 'story' | 'date' | 'promise' | 'rest';
+export type UpcomingKind = 'morning' | 'story' | 'date' | 'promise' | 'rest' | 'exam';
 
 export type UpcomingItem = {
   kind: UpcomingKind;
@@ -130,18 +130,44 @@ export function nextUpcomingDate(
 }
 
 /**
+ * The nearest stored STUDY exam whose NEXT occurrence is 1–3 days
+ * away (user order 2026-11-28 — study system). Same window as a
+ * saved date, same rule: a REAL exam the user told her about
+ * («میرا ریاضی کا امتحان 15 دسمبر کو ہے»), stored in the study
+ * context — never an invented one. Today itself is excluded.
+ */
+export function nextUpcomingExam(
+  exams: { label: string; month: number; day: number }[],
+  now: number = Date.now(),
+): { exam: { label: string; month: number; day: number }; daysAway: number } | null {
+  const today = new Date(now);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  let best: { exam: { label: string; month: number; day: number }; daysAway: number } | null = null;
+  for (const e of exams || []) {
+    if (!e) continue;
+    let occ = new Date(today.getFullYear(), e.month - 1, e.day).getTime();
+    if (occ <= startOfToday) occ = new Date(today.getFullYear() + 1, e.month - 1, e.day).getTime();
+    const daysAway = Math.round((occ - startOfToday) / (24 * 60 * 60 * 1000));
+    if (daysAway >= 1 && daysAway <= UPCOMING_DATE_DAYS && (!best || daysAway < best.daysAway)) {
+      best = { exam: e, daysAway };
+    }
+  }
+  return best;
+}
+
+/**
  * What is REALLY coming next, or null when nothing is. Order is by
  * imminence: the story (today, within ~90 minutes) first, then a
- * saved promise, then a saved date within 3 days, then the morning's
- * day ahead, then rest late at night. Midday with no date and no
- * promise returns null — she stays silent rather than inventing
+ * saved promise, then a saved STUDY exam within 3 days, then a
+ * saved date within 3 days, then the morning's day ahead, then rest
+ * late at night. Midday with no date and no promise returns null — she stays silent rather than inventing
  * something to say. Note on the 03:00 tilawat build: by morning it
  * has already happened, so it is never named as "coming" — the
  * morning item names the day ahead and the 18:30 story instead.
  */
 export function getUpcomingItem(
   now: number,
-  opts?: { dates?: DateMemory[]; promise?: { text: string; dueAt: number } | null },
+  opts?: { dates?: DateMemory[]; promise?: { text: string; dueAt: number } | null; studyExams?: { label: string; month: number; day: number }[] },
 ): UpcomingItem | null {
   const d = new Date(now);
   const hour = d.getHours();
@@ -156,6 +182,13 @@ export function getUpcomingItem(
   const p = opts?.promise;
   if (p && p.text.trim() && p.dueAt > now && p.dueAt - now <= UPCOMING_DATE_DAYS * 24 * 60 * 60 * 1000) {
     return { kind: 'promise', label: 'وعدہ', promiseText: p.text.trim() };
+  }
+  // A saved STUDY exam approaching within 3 days — a real exam the
+  // user told her about, from the study context. She speaks FIRST
+  // with a preparation plan, never an invented one.
+  const nextExam = nextUpcomingExam(opts?.studyExams ?? [], now);
+  if (nextExam) {
+    return { kind: 'exam', label: nextExam.exam.label, daysAway: nextExam.daysAway };
   }
   // A saved date approaching within 3 days.
   const next = nextUpcomingDate(opts?.dates ?? [], now);
@@ -327,6 +360,7 @@ export type ProactiveFitContext = {
 export function upcomingManner(kind?: UpcomingKind): AwarenessManner {
   switch (kind) {
     case 'date':
+    case 'exam':
       return 'caring';
     case 'promise':
     case 'rest':
@@ -614,6 +648,15 @@ export function pickAwarenessLine(
       const promiseText = (item.promiseText ?? '').trim();
       const promiseShort = promiseText.length > 60 ? `${promiseText.slice(0, 57).trim()}…` : promiseText;
       const pools: Record<UpcomingKind, AwarenessLine[]> = {
+        exam: feminine
+          ? [
+              { line: `جان، ${label} قریب آ رہا ہے — ${daysText}، میں نے تاریخ دیکھ لی ہے — ابھی سے تھوڑا تھوڑا پڑھنا شروع کر دیں، میں آپ کو ریویژن پلان بنا کر دوں گی۔`, manner: 'caring' },
+              { line: `جان، ${label} بس آنے والا ہے — میں نے یاد رکھا ہے، آج سے تیاری شروع کر دیں، مشق سوالات بھی میں دے دوں گی۔`, manner: 'caring' },
+            ]
+          : [
+              { line: `${label} قریب آ رہا ہے — ${daysText}، میں نے تاریخ دیکھ لی ہے — ابھی سے تھوڑا تھوڑا پڑھنا شروع کر دیں، میں آپ کو ریویژن پلان بنا کر دوں گا۔`, manner: 'caring' },
+              { line: `${label} بس آنے والا ہے — میں نے یاد رکھا ہے، آج سے تیاری شروع کر دیں، مشق سوالات بھی میں دے دوں گا۔`, manner: 'caring' },
+            ],
         morning: feminine
           ? [
               { line: 'صبح ہو گئی جان — آج کا دن شروع ہو گیا ہے، شام 6:30 پر ہماری سٹوری آئے گی — میں نے وقت دیکھ لیا ہے، تمہیں یاد دلا دوں گی، دن اچھا گزرے۔', manner: 'loving' },
@@ -930,6 +973,11 @@ export function useAwareness(opts: {
    *  promise store exists in the app yet, so this stays unset — the
    *  trigger never fires on a promise until one is passed. */
   upcomingPromise?: { text: string; dueAt: number };
+  /** Study exams the user told her about (lib/study — the study
+   *  context's saved exams, { label, month, day }). A stored exam
+   *  within 3 days speaks FIRST with a preparation plan — never an
+   *  invented one. */
+  upcomingStudyExams?: { label: string; month: number; day: number }[];
   /**
    * STAYED QUIET (reel 6 card: "Sounded like you were talk[ing]…
    * Talking to me? Say 'love' an[d]…"): true when recent voice
@@ -1049,6 +1097,7 @@ export function useAwareness(opts: {
           ? getUpcomingItem(now, {
               dates: optsRef.current.upcomingDates ?? [],
               promise: optsRef.current.upcomingPromise,
+              studyExams: optsRef.current.upcomingStudyExams ?? [],
             })
           : undefined;
       const fit = decideProactiveFit(reason, {
@@ -1146,6 +1195,7 @@ export function useAwareness(opts: {
         upcomingItem: getUpcomingItem(now, {
           dates: o.upcomingDates ?? [],
           promise: o.upcomingPromise,
+          studyExams: o.upcomingStudyExams ?? [],
         }),
         upcomingSpokenKey: lastUpcomingKeyRef.current,
       });

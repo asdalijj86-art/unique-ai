@@ -160,6 +160,25 @@ import WhatsAppSender from '@/components/WhatsAppSender';
 import QuranReader from '@/components/QuranReader';
 // Phase 1 (2026-11-22): the new main screen — panels around the
 // living face, and Awareness (speaks first, thought bubble first).
+// Study system (2026-11-28, user order): study mode / Study Studio,
+// complete answers, no-lie rule, exam prep, upcoming exams, and
+// assignment/CV creation inside the study flow via Document Studio.
+import StudyStudio from '@/components/StudyStudio';
+import type { DocumentStudioInitial } from '@/components/DocumentStudio';
+import {
+  buildStudyContextBlock,
+  detectStudyClass,
+  detectStudySubject,
+  extractDocumentTopic,
+  extractExamDate,
+  isStudyDocumentOrder,
+  isStudyMessage,
+  isStudyOpenOrder,
+  loadStudyContext,
+  saveStudyContext,
+  studyDocumentKind,
+  type StudyContext,
+} from '@/lib/study';
 import { readAwarenessEnabled, saveAwarenessEnabled, useAwareness, isDayAbsence } from '@/lib/awareness';
 // Own decision (2026-11-27): client-side re-check of the finished
 // reply — the server gate is primary; this backstop only fires if a
@@ -485,6 +504,26 @@ export default function ChatPage() {
   const [mediaStudioOpen, setMediaStudioOpen] = useState(false);
   const [islamicStudioOpen, setIslamicStudioOpen] = useState(false);
   const [gameStudioOpen, setGameStudioOpen] = useState(false);
+  // Study system (2026-11-28, user order): Study Studio open state,
+  // the picked class/subject + saved exams (persisted per-device),
+  // and the Document Studio prefill a study document order carries.
+  const [studyOpen, setStudyOpen] = useState(false);
+  const [studyContext, setStudyContext] = useState<StudyContext>(() => loadStudyContext(secureAppStorage));
+  const [documentInitial, setDocumentInitial] = useState<DocumentStudioInitial | null>(null);
+
+  function updateStudyContext(next: StudyContext) {
+    setStudyContext(next);
+    saveStudyContext(secureAppStorage, next);
+  }
+
+  /** Study flow → Document Studio, with class/subject/topic/source
+   *  carried over (the document engine is reused, never duplicated). */
+  function openDocumentFromStudy(initial: DocumentStudioInitial) {
+    setStudyOpen(false);
+    setDocumentInitial(initial);
+    setDocumentStudioOpen(true);
+    logActivity(`${initial.category === 'cv' ? 'سی وی' : 'اسائنمنٹ'} کھلی (سٹڈی)`);
+  }
 
   // Phase 1 (2026-11-22): the new main screen — four panels around
   // the living face, and Awareness (speaks first). On phones the
@@ -971,10 +1010,13 @@ export default function ChatPage() {
     dateAcknowledged,
     promiseDue,
     upcomingDates,
+    // Study system (2026-11-28): a REAL saved exam within 3 days
+    // speaks FIRST with a preparation plan — never an invented one.
+    upcomingStudyExams: studyContext.exams,
     paused:
       aiTerminated ||
       busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
-      libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
+      libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen || studyOpen ||
       focusView !== null || agentTeamSceneOpen || pairingOpen,
     onTrigger: () => {
       // Her own initiative: Awareness fired, so she looks first.
@@ -1040,7 +1082,7 @@ export default function ChatPage() {
       const busyNow =
         aiTerminated ||
         busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
-        libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen ||
+        libraryOpen || documentStudioOpen || mediaStudioOpen || islamicStudioOpen || gameStudioOpen || studyOpen ||
         focusView !== null || agentTeamSceneOpen || pairingOpen;
       if (busyNow) return;
       if (obs.trigger === 'drift' && lastDriftRef.current) {
@@ -1898,22 +1940,51 @@ export default function ChatPage() {
     // Library (NEW, 2026-10-31): PCTB free library + Book Mind.
     if (!attachedImage && isLibraryOrder(text)) {
       setLibraryOpen(true);
+      setDraft('');
       return;
     }
     if (!attachedImage && isMediaStudioOrder(text)) {
       setMediaStudioOpen(true);
+      setDraft('');
       return;
     }
     if (!attachedImage && isIslamicStudioOrder(text)) {
       setIslamicStudioOpen(true);
+      setDraft('');
       return;
     }
     if (!attachedImage && isGameStudioOrder(text)) {
       setGameStudioOpen(true);
+      setDraft('');
       return;
     }
     if (!attachedImage && isDocumentStudioOrder(text)) {
       setDocumentStudioOpen(true);
+      setDraft('');
+      return;
+    }
+    // Study system (2026-11-28, user order): an explicit order to
+    // open study mode («سٹڈی کھولو») brings the Study Studio
+    // forward; «اسائنمنٹ بناؤ» / «سی وی بناؤ» opens Document Studio
+    // with the study context (class, subject, topic) carried over.
+    // A study QUESTION is not intercepted here — it goes to the
+    // brain below, with the study directive + study context.
+    if (!attachedImage && isStudyOpenOrder(text)) {
+      setStudyOpen(true);
+      setDraft('');
+      return;
+    }
+    if (!attachedImage && isStudyDocumentOrder(text)) {
+      const kind = studyDocumentKind(text) ?? 'assignment';
+      const docTopic = extractDocumentTopic(text);
+      openDocumentFromStudy({
+        category: kind,
+        levelId: studyContext.levelId,
+        classNum: studyContext.classNum,
+        subjectId: studyContext.subjectId,
+        topic: docTopic || undefined,
+      });
+      setDraft('');
       return;
     }
     // Dismissal (Stonic study 2026-11-26, tile 419K): if he calls her
@@ -1950,6 +2021,28 @@ export default function ChatPage() {
         setDateAcknowledged(true);
       }
     } catch { /* storage unavailable — the reply matters, not the date */ }
+    // Study system (2026-11-28): a class/subject named in a study
+    // message and a REAL exam date told («میرا ریاضی کا امتحان 15
+    // دسمبر کو ہے») are remembered silently, like learnings. The
+    // exam feeds the `upcoming` trigger, so she speaks first with a
+    // preparation plan. Gated on isStudyMessage so an ordinary
+    // message («آج کی تاریخ کیا ہے؟») never pollutes study context.
+    try {
+      if (isStudyMessage(text)) {
+        const cls = detectStudyClass(text);
+        const subj = detectStudySubject(text);
+        const exam = extractExamDate(text);
+        if (cls || subj || exam) {
+          const next: StudyContext = { ...studyContext, exams: [...studyContext.exams] };
+          if (cls) { next.levelId = cls.levelId; next.classNum = cls.classNum; }
+          if (subj) next.subjectId = subj;
+          if (exam && !next.exams.some((e) => e.label === exam.label && e.month === exam.month && e.day === exam.day)) {
+            next.exams = [...next.exams, exam];
+          }
+          updateStudyContext(next);
+        }
+      }
+    } catch { /* storage unavailable — the reply matters, not the context */ }
     // Last-activity stamp for the day-absence trigger.
     try { localStorage.setItem('unique-ai-last-activity', new Date().toISOString()); } catch { /* ignore */ }
     // Learning memory (Round 5): every message that reaches the brain
@@ -2076,6 +2169,12 @@ export default function ChatPage() {
           // any member asked about their work can answer in full
           // spoken detail from facts, never invention or refusal.
           team: buildTeamBlock(boardEntries, agentTeam, buildLive, customSkills.length ? formatCustomSkills(customSkills) : undefined),
+          // Study system (2026-11-28): the picked class/subject +
+          // saved exams ride along (read fresh from storage, so a
+          // class/subject/exam named in THIS message is included) so
+          // study answers are level-matched and exam prep speaks
+          // about real dates only.
+          study: buildStudyContextBlock(loadStudyContext(secureAppStorage)) || undefined,
           onDelta: (delta: string) => {
             // Append streamed text to the placeholder message in real time
             updateConversation(id, (item) => ({
@@ -5671,7 +5770,20 @@ export default function ChatPage() {
         <Library onClose={() => setLibraryOpen(false)} />
       )}
       {documentStudioOpen && (
-        <DocumentStudio onClose={() => setDocumentStudioOpen(false)} />
+        <DocumentStudio initial={documentInitial ?? undefined} onClose={() => { setDocumentStudioOpen(false); setDocumentInitial(null); }} />
+      )}
+      {/* STUDY SYSTEM (2026-11-28, user order): the Study Studio comes
+          forward when named — class + subject pickers, exam prep,
+          upcoming exams, assignment/CV via Document Studio, and a
+          video-link / pasted-text source for assignments. */}
+      {studyOpen && (
+        <StudyStudio
+          context={studyContext}
+          onContextChange={updateStudyContext}
+          onAsk={(t) => { setStudyOpen(false); void sendMessage(t); }}
+          onOpenDocument={openDocumentFromStudy}
+          onClose={() => setStudyOpen(false)}
+        />
       )}
       {mediaStudioOpen && (
         <MediaStudio onClose={() => setMediaStudioOpen(false)} />
