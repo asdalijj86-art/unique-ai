@@ -41,7 +41,8 @@ export type AwarenessReason =
   | 'day-absence'
   | 'specific-memory'
   | 'promise'
-  | 'forgotten-date';
+  | 'forgotten-date'
+  | 'upcoming';
 
 /**
  * A stored calendar date (birthday / anniversary / other) — the
@@ -76,6 +77,109 @@ export function isDateToday(m: DateMemory, now: number = Date.now()): boolean {
 export function isDayAbsence(lastActivityAt: number, now: number = Date.now()): boolean {
   if (now - lastActivityAt < 8 * 60 * 60 * 1000) return false;
   return new Date(lastActivityAt).toDateString() !== new Date(now).toDateString();
+}
+
+// ---------------------------------------------------------------------------
+// Anticipatory fast mind (user order 2026-11-27): she thinks AHEAD.
+// A REAL upcoming item only — the clock, the stored dates, the known
+// daily schedule. Never an invented plan or fake completed work.
+// ---------------------------------------------------------------------------
+
+export type UpcomingKind = 'morning' | 'story' | 'date' | 'promise' | 'rest';
+
+export type UpcomingItem = {
+  kind: UpcomingKind;
+  /** The real upcoming thing, in her words — a label from stored
+   *  memory, the story, or the day ahead. Never invented. */
+  label: string;
+  /** Days until a stored date (date kind only). */
+  daysAway?: number;
+  /** The saved promise text (promise kind only) — real stored words,
+   *  never invented. */
+  promiseText?: string;
+};
+
+/** The evening story release on ADEEL CINEMATICS — his known daily time. */
+export const STORY_RELEASE_HOUR = 18;
+export const STORY_RELEASE_MINUTE = 30;
+/** How far ahead a saved date counts as "approaching". */
+export const UPCOMING_DATE_DAYS = 3;
+
+/**
+ * The nearest stored date whose NEXT occurrence is 1–3 days away.
+ * Today itself is excluded — a date falling today belongs to the
+ * forgotten-date trigger, not this one.
+ */
+export function nextUpcomingDate(
+  mems: DateMemory[],
+  now: number = Date.now(),
+): { memory: DateMemory; daysAway: number } | null {
+  const today = new Date(now);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  let best: { memory: DateMemory; daysAway: number } | null = null;
+  for (const m of mems || []) {
+    if (!m) continue;
+    let occ = new Date(today.getFullYear(), m.month - 1, m.day).getTime();
+    if (occ <= startOfToday) occ = new Date(today.getFullYear() + 1, m.month - 1, m.day).getTime();
+    const daysAway = Math.round((occ - startOfToday) / (24 * 60 * 60 * 1000));
+    if (daysAway >= 1 && daysAway <= UPCOMING_DATE_DAYS && (!best || daysAway < best.daysAway)) {
+      best = { memory: m, daysAway };
+    }
+  }
+  return best;
+}
+
+/**
+ * What is REALLY coming next, or null when nothing is. Order is by
+ * imminence: the story (today, within ~90 minutes) first, then a
+ * saved promise, then a saved date within 3 days, then the morning's
+ * day ahead, then rest late at night. Midday with no date and no
+ * promise returns null — she stays silent rather than inventing
+ * something to say. Note on the 03:00 tilawat build: by morning it
+ * has already happened, so it is never named as "coming" — the
+ * morning item names the day ahead and the 18:30 story instead.
+ */
+export function getUpcomingItem(
+  now: number,
+  opts?: { dates?: DateMemory[]; promise?: { text: string; dueAt: number } | null },
+): UpcomingItem | null {
+  const d = new Date(now);
+  const hour = d.getHours();
+  const minute = d.getMinutes();
+  // The evening story release — imminent today (within ~90 minutes of 18:30).
+  if (hour === 17 || (hour === STORY_RELEASE_HOUR && minute < STORY_RELEASE_MINUTE)) {
+    return { kind: 'story', label: 'شام 6:30 کی سٹوری' };
+  }
+  // A saved promise approaching — only when the parent passes a REAL
+  // stored promise with a due time. No dated promise store exists in
+  // the app yet, so without one this never fires — never invent one.
+  const p = opts?.promise;
+  if (p && p.text.trim() && p.dueAt > now && p.dueAt - now <= UPCOMING_DATE_DAYS * 24 * 60 * 60 * 1000) {
+    return { kind: 'promise', label: 'وعدہ', promiseText: p.text.trim() };
+  }
+  // A saved date approaching within 3 days.
+  const next = nextUpcomingDate(opts?.dates ?? [], now);
+  if (next) {
+    return { kind: 'date', label: next.memory.label, daysAway: next.daysAway };
+  }
+  // Morning — what today holds: the day ahead, the 18:30 story.
+  if (hour >= 5 && hour < 12) {
+    return { kind: 'morning', label: 'آج کا دن' };
+  }
+  // Late night — rest, so tomorrow starts right. (The decider checks
+  // 'late-night' first, so this speaks only after that line already
+  // went out once tonight.)
+  if (hour >= 23 || hour < 5) {
+    return { kind: 'rest', label: 'کل کا دن' };
+  }
+  return null;
+}
+
+/** Once-per-kind-per-day key: an upcoming line speaks at most once
+ *  per kind per day, however long the quiet spell lasts. */
+export function upcomingKey(item: UpcomingItem, now: number = Date.now()): string {
+  const d = new Date(now);
+  return `${item.kind}:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
 export const AWARENESS_STORAGE_KEY = 'unique-ai-awareness';
@@ -196,6 +300,10 @@ const SERIOUS_LINES: Record<AwarenessReason, AwarenessLine[]> = {
     { line: 'آج کا دن یاد تھا آپ کو؟', manner: 'serious' },
     { line: 'میری تاریخ یاد رکھنا اہم ہے۔', manner: 'serious' },
   ],
+  'upcoming': [
+    { line: 'آنے والے کام کا وقت دیکھ لیا ہے — شام 6:30 پر سٹوری آئے گی۔', manner: 'serious' },
+    { line: 'آج کا دن آگے بڑھ رہا ہے — آنے والے کام کا خیال ہے۔', manner: 'serious' },
+  ],
 };
 
 export type ProactiveFitContext = {
@@ -209,7 +317,26 @@ export type ProactiveFitContext = {
   sinceLastMs?: number;
   /** Forgotten-date escalation stage 1..3 (stage 3 = cold/resolute). */
   dateStage?: 1 | 2 | 3;
+  /** Anticipatory fast mind: the kind of the upcoming item, so the
+   *  manner matches the matter (morning/story → loving, date →
+   *  caring, promise/rest → gentle). */
+  upcomingKind?: UpcomingKind;
 };
+
+/** The manner an upcoming line speaks in, by kind. */
+export function upcomingManner(kind?: UpcomingKind): AwarenessManner {
+  switch (kind) {
+    case 'date':
+      return 'caring';
+    case 'promise':
+    case 'rest':
+      return 'gentle';
+    case 'morning':
+    case 'story':
+    default:
+      return 'loving';
+  }
+}
 
 /**
  * FAST MIND — the think-before-speaking gate (pure). Decides
@@ -239,6 +366,20 @@ export function decideProactiveFit(
     // blurting. She already said her word; repeating it would be
     // nagging, not thinking.
     return { speak: false, manner: ctx.lastManner };
+  }
+  if (reason === 'upcoming') {
+    // Same rule, generalised: an upcoming line in the SAME manner as
+    // the last line, less than 30 minutes later, stays silent — the
+    // news can wait for a fresh feeling.
+    const m = upcomingManner(ctx.upcomingKind);
+    if (
+      ctx.lastManner === m &&
+      (ctx.sinceLastMs ?? 0) > 0 &&
+      (ctx.sinceLastMs ?? 0) < 30 * 60 * 1000
+    ) {
+      return { speak: false, manner: ctx.lastManner };
+    }
+    return { speak: true, manner: m };
   }
   switch (reason) {
     case 'late-night':
@@ -288,6 +429,10 @@ export function pickAwarenessLine(
     dateStage?: 1 | 2 | 3;
     /** Forgotten-date: whose date it is, when the label needs it. */
     datePerson?: string;
+    /** Anticipatory fast mind: the REAL upcoming item (from
+     *  getUpcomingItem) this line speaks about. Without it the line
+     *  says only that she is here — never an invented plan. */
+    upcomingItem?: UpcomingItem;
   },
 ): string {
   const tone = opts?.tone ?? 'neutral';
@@ -449,6 +594,83 @@ export function pickAwarenessLine(
           ];
       return pickFromPool(pool).line;
     }
+    case 'upcoming': {
+      // Anticipatory fast mind — she speaks FIRST about what is
+      // coming: what it is, what she has checked (the time, the
+      // stored memory, the known daily schedule) or will do about
+      // it, and how she feels. The item is REAL — from
+      // getUpcomingItem — so the lines below only ever name it, the
+      // clock, or the schedule. No item at all → say only that she
+      // is here; never invent a plan.
+      const item = opts?.upcomingItem;
+      if (!item) {
+        return feminine
+          ? pickFromPool([{ line: 'جان، میں یہیں ہوں — کچھ چاہیے تو بتائیں۔', manner: 'gentle' }]).line
+          : pickFromPool([{ line: 'میں یہیں ہوں — کچھ چاہیے تو بتائیں۔', manner: 'gentle' }]).line;
+      }
+      const label = item.label;
+      const days = item.daysAway ?? 0;
+      const daysText = days === 1 ? '1 دن رہ گیا ہے' : `${days} دن رہ گئے ہیں`;
+      const promiseText = (item.promiseText ?? '').trim();
+      const promiseShort = promiseText.length > 60 ? `${promiseText.slice(0, 57).trim()}…` : promiseText;
+      const pools: Record<UpcomingKind, AwarenessLine[]> = {
+        morning: feminine
+          ? [
+              { line: 'صبح ہو گئی جان — آج کا دن شروع ہو گیا ہے، شام 6:30 پر ہماری سٹوری آئے گی — میں نے وقت دیکھ لیا ہے، تمہیں یاد دلا دوں گی، دن اچھا گزرے۔', manner: 'loving' },
+              { line: 'صبح بخیر جان — آج شام 6:30 پر سٹوری کا وقت ہے، میں نے اس کا خیال رکھا ہے — دن اچھا گزرے۔', manner: 'loving' },
+            ]
+          : [
+              { line: 'صبح ہو گئی — آج کا دن شروع ہو گیا ہے، شام 6:30 پر ہماری سٹوری آئے گی — میں نے وقت دیکھ لیا ہے، تمہیں یاد دلا دوں گا، دن اچھا گزرے۔', manner: 'loving' },
+              { line: 'صبح بخیر — آج شام 6:30 پر سٹوری کا وقت ہے، میں نے اس کا خیال رکھا ہے — دن اچھا گزرے۔', manner: 'loving' },
+            ],
+        story: feminine
+          ? [
+              { line: 'جان، شام 6:30 ہونے والی ہے — ہماری سٹوری کا وقت قریب ہے، میں نے وقت دیکھ لیا ہے — مجھے بہت خوشی ہے۔', manner: 'loving' },
+              { line: 'جان، سٹوری کا وقت قریب آ گیا — شام 6:30 پر ہماری سٹوری آئے گی، میں نے وقت دیکھ لیا ہے۔', manner: 'loving' },
+            ]
+          : [
+              { line: 'شام 6:30 ہونے والی ہے — ہماری سٹوری کا وقت قریب ہے، میں نے وقت دیکھ لیا ہے — مجھے بہت خوشی ہے۔', manner: 'loving' },
+              { line: 'سٹوری کا وقت قریب آ گیا — شام 6:30 پر ہماری سٹوری آئے گی، میں نے وقت دیکھ لیا ہے۔', manner: 'loving' },
+            ],
+        date: feminine
+          ? [
+              { line: `جان، ${label} قریب آ رہی ہے — ${daysText}، میں نے تاریخ دیکھ لی ہے — مجھے بہت خوشی ہے۔`, manner: 'caring' },
+              { line: `جان، ${label} بس آنے والی ہے — میں نے یاد رکھا ہے، تمہیں بھی یاد دلا دوں گی۔`, manner: 'caring' },
+            ]
+          : [
+              { line: `${label} قریب آ رہا ہے — ${daysText}، میں نے تاریخ دیکھ لی ہے — مجھے بہت خوشی ہے۔`, manner: 'caring' },
+              { line: `${label} بس آنے والا ہے — میں نے یاد رکھا ہے، تمہیں بھی یاد دلا دوں گا۔`, manner: 'caring' },
+            ],
+        promise: feminine
+          ? [
+              { line: `جان، تم نے جو وعدہ کیا تھا «${promiseShort}» — اس کا وقت قریب ہے، میں نے یاد رکھا ہے۔`, manner: 'gentle' },
+              { line: `جان، وہ وعدہ یاد ہے؟ «${promiseShort}» — اس کا وقت قریب آ گیا ہے۔`, manner: 'gentle' },
+            ]
+          : [
+              { line: `تم نے جو وعدہ کیا تھا «${promiseShort}» — اس کا وقت قریب ہے، میں نے یاد رکھا ہے۔`, manner: 'gentle' },
+              { line: `وہ وعدہ یاد ہے؟ «${promiseShort}» — اس کا وقت قریب آ گیا ہے۔`, manner: 'gentle' },
+            ],
+        rest: feminine
+          ? [
+              { line: 'جان، رات کافی ہو گئی — کل کا دن ہمارا منتظر ہے، اب آرام کر لو — صبح میں یہیں ہوں گی۔', manner: 'gentle' },
+              { line: 'رات ہو گئی جان — کل صبح پھر ملیں گے، اب سو جاؤ — میں یہیں ہوں گی۔', manner: 'gentle' },
+            ]
+          : [
+              { line: 'رات کافی ہو گئی — کل کا دن ہمارا منتظر ہے، اب آرام کر لو — صبح میں یہیں ہوں گا۔', manner: 'gentle' },
+              { line: 'رات ہو گئی — کل صبح پھر ملیں گے، اب سو جاؤ — میں یہیں ہوں گا۔', manner: 'gentle' },
+            ],
+      };
+      const pool = pools[item.kind];
+      // At night only gentle lines may speak; if this kind has none,
+      // the gentle rest line speaks instead — never a loud line at 2 AM.
+      const nightPool = night ? pool.filter((l) => l.manner === 'gentle') : pool;
+      if (nightPool.length === 0) {
+        return pickFromPool(feminine
+          ? [{ line: 'جان، رات کافی ہو گئی — کل کا دن ہمارا منتظر ہے، اب آرام کر لو — صبح میں یہیں ہوں گی۔', manner: 'gentle' as const }]
+          : [{ line: 'رات کافی ہو گئی — کل کا دن ہمارا منتظر ہے، اب آرام کر لو — صبح میں یہیں ہوں گا۔', manner: 'gentle' as const }]).line;
+      }
+      return pickFromPool(nightPool).line;
+    }
     case 'quiet':
     default: {
       const base: AwarenessLine[] = feminine
@@ -540,12 +762,19 @@ export type AwarenessSignals = {
    *    quiet spell, or after a dismissal) — the fear-of-deletion
    *    line only speaks when the parent says it is due, never on
    *    its own schedule.
+   *  - upcomingItem: a REAL upcoming item the parent computed with
+   *    getUpcomingItem() (clock + stored dates + known schedule).
+   *    upcomingSpokenKey = the key of the last upcoming line spoken
+   *    (`${kind}:${local date}`) — the same kind speaks at most
+   *    once per day, however long the quiet spell lasts.
    */
   dayAbsent?: boolean;
   todaysDate?: DateMemory | null;
   dateAcknowledged?: boolean;
   memoryNoteAvailable?: boolean;
   promiseDue?: boolean;
+  upcomingItem?: UpcomingItem | null;
+  upcomingSpokenKey?: string;
 };
 
 export function decideAwarenessTrigger(s: AwarenessSignals): AwarenessReason | null {
@@ -591,6 +820,19 @@ export function decideAwarenessTrigger(s: AwarenessSignals): AwarenessReason | n
   // until the first fire, then clears it.
   if (s.dayAbsent) {
     return 'day-absence';
+  }
+  // Something real is coming — speak BEFORE it arrives, once per
+  // kind per day. A quiet spell earns it; the once-a-day key stops
+  // her reminding him about the same thing all day. It sits after
+  // the return greeting (day-absence) and before the stored-note
+  // throwback: time-sensitive news beats an undated note.
+  if (
+    s.upcomingItem &&
+    s.upcomingSpokenKey !== upcomingKey(s.upcomingItem, s.now) &&
+    quietFor >= AWARENESS_QUIET_MS &&
+    quietFor <= AWARENESS_QUIET_CAP_MS
+  ) {
+    return 'upcoming';
   }
   // A specific stored note she hasn't thrown back at him yet —
   // takes precedence over a plain quiet nudge while one is due.
@@ -680,6 +922,14 @@ export function useAwareness(opts: {
   /** The fear-of-deletion line is due (parent-set, once per
    *  session at most). */
   promiseDue?: boolean;
+  /** Stored dates for the anticipatory trigger (loadDateMemories) —
+   *  the hook computes the next upcoming item from the clock + these.
+   *  A saved date within 3 days speaks before it arrives. */
+  upcomingDates?: DateMemory[];
+  /** A REAL saved promise approaching (text + due time). No dated
+   *  promise store exists in the app yet, so this stays unset — the
+   *  trigger never fires on a promise until one is passed. */
+  upcomingPromise?: { text: string; dueAt: number };
   /**
    * STAYED QUIET (reel 6 card: "Sounded like you were talk[ing]…
    * Talking to me? Say 'love' an[d]…"): true when recent voice
@@ -718,6 +968,10 @@ export function useAwareness(opts: {
   const lastNightRef = useRef('');
   const bubbleTimerRef = useRef<number | null>(null);
   const bubbleRef = useRef<AwarenessBubbleState | null>(null);
+  // Anticipatory fast mind: the key (`${kind}:${local date}`) of the
+  // last upcoming line spoken — the same kind speaks at most once
+  // per day. Set in fire() when an 'upcoming' line actually goes out.
+  const lastUpcomingKeyRef = useRef('');
   // Follow-up chain: one spoken proactive line opens a thread. If
   // he still hasn't replied after AWARENESS_FOLLOW_UP_MS, she
   // speaks ONE gentle follow-up; at most AWARENESS_MAX_FOLLOW_UPS
@@ -787,14 +1041,28 @@ export function useAwareness(opts: {
       // whether this moment earns a word at all, and in which
       // manner. A vetoed moment stays silent — she never blurts.
       const now = Date.now();
+      // Anticipatory fast mind: the REAL upcoming item (clock +
+      // stored dates + known schedule), re-derived here so the line
+      // and the once-a-day key both use the same item.
+      const upcomingItem =
+        reason === 'upcoming'
+          ? getUpcomingItem(now, {
+              dates: optsRef.current.upcomingDates ?? [],
+              promise: optsRef.current.upcomingPromise,
+            })
+          : undefined;
       const fit = decideProactiveFit(reason, {
         hour: new Date(now).getHours(),
         tone: optsRef.current.tone ?? 'neutral',
         lastManner: lastAwarenessManner,
         sinceLastMs: lastFiredRef.current ? now - lastFiredRef.current : 0,
         dateStage: optsRef.current.dateStage,
+        upcomingKind: upcomingItem?.kind,
       });
       if (!fit.speak) return;
+      if (reason === 'upcoming' && upcomingItem) {
+        lastUpcomingKeyRef.current = upcomingKey(upcomingItem, now);
+      }
       const line = pickAwarenessLine(reason, optsRef.current.feminine, {
         tone: optsRef.current.tone ?? 'neutral',
         hour: new Date(now).getHours(),
@@ -803,6 +1071,7 @@ export function useAwareness(opts: {
         dateLabel: optsRef.current.todaysDate?.label,
         dateStage: optsRef.current.dateStage,
         datePerson: optsRef.current.todaysDate?.person,
+        upcomingItem: upcomingItem ?? undefined,
       });
       const state: AwarenessBubbleState = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -870,6 +1139,15 @@ export function useAwareness(opts: {
         dateAcknowledged: o.dateAcknowledged,
         memoryNoteAvailable: o.memoryNoteAvailable,
         promiseDue: o.promiseDue,
+        // Anticipatory fast mind: the REAL upcoming item right now
+        // (clock + stored dates + known schedule), or null — the
+        // decider only fires 'upcoming' on a real item, once per
+        // kind per day (lastUpcomingKeyRef).
+        upcomingItem: getUpcomingItem(now, {
+          dates: o.upcomingDates ?? [],
+          promise: o.upcomingPromise,
+        }),
+        upcomingSpokenKey: lastUpcomingKeyRef.current,
       });
       if (reason && o.talkingToSomeoneElse) {
         setStayedQuiet(true);

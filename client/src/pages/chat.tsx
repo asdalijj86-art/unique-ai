@@ -161,6 +161,10 @@ import QuranReader from '@/components/QuranReader';
 // Phase 1 (2026-11-22): the new main screen — panels around the
 // living face, and Awareness (speaks first, thought bubble first).
 import { readAwarenessEnabled, saveAwarenessEnabled, useAwareness, isDayAbsence } from '@/lib/awareness';
+// Own decision (2026-11-27): client-side re-check of the finished
+// reply — the server gate is primary; this backstop only fires if a
+// neutral answer to a decision-seeking message somehow got through.
+import { isDecisionSeeking, hasRecommendation, decisionFallbackLine } from '@/lib/decision';
 import {
   readCameraPermission,
   saveCameraPermission,
@@ -520,6 +524,14 @@ export default function ChatPage() {
     } catch { return false; }
   });
   const [promiseDue, setPromiseDue] = useState(false);
+  // Anticipatory fast mind (2026-11-27): the stored dates the hook
+  // reads for the `upcoming` trigger — refreshed whenever a date is
+  // saved below, so a date told to her today can speak before it
+  // arrives. (No dated promise store exists yet, so no
+  // upcomingPromise is passed — see lib/awareness.)
+  const [upcomingDates, setUpcomingDates] = useState<DateMemory[]>(() => {
+    try { return loadDateMemories(); } catch { return []; }
+  });
   const [memoryNote, setMemoryNote] = useState<string | null>(() => {
     try {
       const cands = [
@@ -958,6 +970,7 @@ export default function ChatPage() {
     dateStage,
     dateAcknowledged,
     promiseDue,
+    upcomingDates,
     paused:
       aiTerminated ||
       busy || isSpeaking || isPreparingVoice || recording || draft.trim().length > 0 ||
@@ -1927,6 +1940,9 @@ export default function ChatPage() {
           saveDateMemories([dm, ...existing]);
           logActivity(`تاریخ یاد رکھی: ${dm.label}`);
         }
+        // Anticipatory fast mind: the fresh list feeds the `upcoming`
+        // trigger, so a date told today can speak before it arrives.
+        setUpcomingDates(loadDateMemories());
         const today = getTodaysDates([dm]);
         if (today.length > 0) setTodaysDate(today[0]);
       }
@@ -2104,6 +2120,18 @@ export default function ChatPage() {
           },
         },
       });
+      // Own-decision backstop (2026-11-27): the server already appends
+      // a fallback line when the model answers neutrally; re-check the
+      // finished reply here so a neutral answer can never reach the
+      // screen (or the voice) even if the server path was bypassed.
+      // Factual replies never match the detector, so they pass
+      // through untouched.
+      if (result.text && isDecisionSeeking(text) && !hasRecommendation(result.text)) {
+        result = {
+          ...result,
+          text: `${result.text}\n${decisionFallbackLine(text, result.text, { feminine: sendFemale, hour: new Date().getHours() })}`,
+        };
+      }
       // Replace placeholder content with final text (ensures exact match)
       updateConversation(id, (item) => ({
         ...item,

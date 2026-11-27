@@ -18,6 +18,20 @@
  *     silent; long-work by day → caring. Serious lines carry no
  *     pet names; the memory-grounded quiet line appears only when
  *     the learning brain really holds something.
+ *  6. Her own decision (2026-11-27, lib/decision + server/decision.js
+ *     mirror): decision-seeking inputs in Urdu / Roman Urdu / English
+ *     → detected; factual inputs (weather, maths, date, prayer time,
+ *     "what is this") → untouched; neutral replies carry no
+ *     recommendation; the fallback line decides («تم یہ کرو») with
+ *     feeling, from the turn's own words only. The server mirror must
+ *     agree with the client on the whole corpus.
+ *  7. Anticipatory fast mind (2026-11-27, `upcoming` reason in
+ *     lib/awareness): the trigger fires only with a real upcoming
+ *     item (morning, pre-18:30 story, approaching saved date, late
+ *     rest) and returns null / falls through with none; once per kind
+ *     per day; the fit gate (manner by kind, night gentle-only,
+ *     same-feeling 30-min veto) and the line pools name only the real
+ *     item.
  *
  * Run: node scripts/test-alarm-fastmind.mjs   (from the repo root)
  */
@@ -33,7 +47,8 @@ const entry = join(outDir, 'entry.ts');
 writeFileSync(entry, [
   `export * from ${JSON.stringify(join(repoRoot, 'client/src/lib/alarm.ts'))};`,
   `export * from ${JSON.stringify(join(repoRoot, 'client/src/lib/awareness.ts'))};`,
-  `export { FAST_MIND_GUIDANCE } from ${JSON.stringify(join(repoRoot, 'client/src/lib/persona.ts'))};`,
+  `export * from ${JSON.stringify(join(repoRoot, 'client/src/lib/decision.ts'))};`,
+  `export { FAST_MIND_GUIDANCE, OWN_DECISION_GUIDANCE, ANTICIPATORY_MIND_GUIDANCE } from ${JSON.stringify(join(repoRoot, 'client/src/lib/persona.ts'))};`,
 ].join('\n'));
 const bundled = join(outDir, 'alarm-libs.mjs');
 execSync(
@@ -41,6 +56,9 @@ execSync(
   { stdio: 'pipe' },
 );
 const L = await import(pathToFileURL(bundled).href);
+// Server mirror of the decision detector (plain Node ESM) — it must
+// agree with the client lib on the whole corpus (section 6).
+const S = await import(pathToFileURL(join(repoRoot, 'server/decision.js')).href);
 
 let passed = 0;
 let failed = 0;
@@ -165,5 +183,216 @@ check('late-night → gentle', L.decideProactiveFit('late-night', { hour: 23, to
   checkTrue('memory-grounded line NEVER appears without memory', !seenWithout);
 }
 
-console.log(`\n${failed === 0 ? `ALL ${passed} ALARM + FAST-MIND CHECKS PASS` : `${failed} FAILED / ${passed} passed`}`);
+console.log('\n── 6) Her own decision ──────────────────────────────');
+const DECISION_CORPUS = [
+  'مجھے نیا فون لینا چاہیے یا نہیں؟',
+  'آج شام باہر جاؤں یا گھر رہوں؟',
+  'کیا کروں؟',
+  'کون سا بہتر ہے — چائے یا کافی؟',
+  'کیسا رہے گا اگر میں کل چھٹی لے لوں؟',
+  'تمہاری رائے کیا ہے؟',
+  'مشورہ دو',
+  'فیصلہ نہیں ہو رہا',
+  'kya karoon?',
+  'should I take a day off tomorrow?',
+  'which is better, tea or coffee?',
+  'kaisa rahega?',
+  'what should I do?',
+  'do you think I should go?',
+];
+for (const s of DECISION_CORPUS) {
+  check(`decision-seeking: «${s.slice(0, 34)}»`, L.isDecisionSeeking(s), true);
+}
+const FACTUAL_CORPUS = [
+  'کراچی میں موسم کیسا ہے؟',
+  'کل موسم کیسا رہے گا؟',
+  '2+2 کتنا ہے؟',
+  '100 روپے کا 10 فیصد کتنا ہے؟',
+  'آج تاریخ کیا ہے؟',
+  'نماز کا وقت کیا ہے؟',
+  'یہ کیا ہے؟',
+  'what is the capital of France?',
+  'مجھے سمجھ نہیں آ رہا یہ کیسے کام کرتا ہے',
+  'السلام علیکم، کیا حال ہے؟',
+];
+for (const s of FACTUAL_CORPUS) {
+  check(`factual (untouched): «${s.slice(0, 34)}»`, L.isDecisionSeeking(s), false);
+}
+checkTrue('neutral both-sides reply has NO recommendation',
+  !L.hasRecommendation('دونوں راستے اچھے ہیں — باہر جانا بھی ٹھیک ہے اور گھر رہنا بھی۔'));
+checkTrue('«تم یہ کرو» reply HAS a recommendation',
+  L.hasRecommendation('میری رائے یہ ہے جان — تم یہ کرو: گھر رہنا۔'));
+{
+  const fb = L.decisionFallbackLine('آج شام باہر جاؤں یا گھر رہوں؟', 'دونوں ٹھیک ہیں۔', { feminine: true, hour: 15 });
+  checkTrue('fallback (options) decides + feels + names first option as infinitive',
+    fb.includes('تم یہ کرو') && L.hasFeeling(fb) && fb.includes('باہر جانا'), fb);
+}
+{
+  const fb = L.decisionFallbackLine('آج شام باہر جاؤں یا گھر رہوں؟', 'دونوں ٹھیک ہیں۔', { feminine: false, hour: 15 });
+  // The pet name «جان» as its own word — «جانا» (the infinitive) is
+  // not the pet name, so a bare substring check would lie here.
+  checkTrue('fallback (masculine) has no pet name «جان»', !/جان(?=[،۔—\s]|$)/.test(fb) && fb.includes('تم یہ کرو'), fb);
+}
+{
+  const fb = L.decisionFallbackLine('کیا کروں؟', 'سوچ کر فیصلہ کریں۔', { feminine: true, hour: 15 });
+  checkTrue('fallback (no options) still decides + feels', fb.includes('تم یہ کرو') && L.hasFeeling(fb), fb);
+}
+{
+  const fb = L.decisionFallbackLine('کیا کروں؟', 'سوچ کر فیصلہ کریں۔', { feminine: true, hour: 23 });
+  checkTrue('fallback at 23:00 decides rest', fb.includes('آرام'), fb);
+}
+{
+  const fb = L.decisionFallbackLine('تھک گیا ہوں، باہر جاؤں یا گھر رہوں؟', 'دونوں ٹھیک ہیں۔', { feminine: true, hour: 15 });
+  checkTrue('fallback when tired picks the restful option', fb.includes('گھر رہنا'), fb);
+}
+{
+  // Mirror agreement: the server detector must give the SAME verdict
+  // as the client on every string in both corpora.
+  let agree = true;
+  let bad = '';
+  for (const s of [...DECISION_CORPUS, ...FACTUAL_CORPUS]) {
+    if (L.isDecisionSeeking(s) !== S.isDecisionSeeking(s)) { agree = false; bad = s; break; }
+    if (L.hasRecommendation(s) !== S.hasRecommendation(s)) { agree = false; bad = `hasRecommendation: ${s}`; break; }
+  }
+  checkTrue('server mirror agrees with client detector on the whole corpus', agree, bad);
+  const fbCases = [
+    ['آج شام باہر جاؤں یا گھر رہوں؟', 'دونوں ٹھیک ہیں۔', { feminine: true, hour: 15 }],
+    ['کیا کروں؟', 'سوچ کر فیصلہ کریں۔', { feminine: true, hour: 23 }],
+    ['should I go out or stay home?', 'both are fine.', { feminine: false, hour: 15 }],
+    ['تھک گیا ہوں، باہر جاؤں یا گھر رہوں؟', 'دونوں ٹھیک ہیں۔', { feminine: true, hour: 15 }],
+  ];
+  let fbAgree = true;
+  let fbBad = '';
+  for (const [u, r, o] of fbCases) {
+    if (L.decisionFallbackLine(u, r, o) !== S.decisionFallbackLine(u, r, o)) { fbAgree = false; fbBad = String(u); break; }
+  }
+  checkTrue('server mirror fallback lines match the client exactly', fbAgree, fbBad);
+}
+checkTrue('OWN_DECISION_GUIDANCE exists: own decision + never neutral',
+  typeof L.OWN_DECISION_GUIDANCE === 'string'
+  && /own clear decision/i.test(L.OWN_DECISION_GUIDANCE)
+  && /never stays neutral/i.test(L.OWN_DECISION_GUIDANCE)
+  && L.OWN_DECISION_GUIDANCE.includes('تم یہ کرو'),
+  String(L.OWN_DECISION_GUIDANCE));
+checkTrue('ANTICIPATORY_MIND_GUIDANCE exists: thinks ahead + 18:30 + no-lie',
+  typeof L.ANTICIPATORY_MIND_GUIDANCE === 'string'
+  && /thinks AHEAD/i.test(L.ANTICIPATORY_MIND_GUIDANCE)
+  && L.ANTICIPATORY_MIND_GUIDANCE.includes('18:30')
+  && /only ever claims preparation she really did/i.test(L.ANTICIPATORY_MIND_GUIDANCE),
+  String(L.ANTICIPATORY_MIND_GUIDANCE));
+{
+  const { readFileSync } = await import('node:fs');
+  const serverSrc = readFileSync(join(repoRoot, 'server/index.js'), 'utf8');
+  checkTrue('server prompt: HER OWN DECISION addition present',
+    serverSrc.includes('HER OWN DECISION (ADD-ONLY 2026-11-27'));
+  checkTrue('server prompt: ANTICIPATORY FAST MIND addition present',
+    serverSrc.includes('ANTICIPATORY FAST MIND (ADD-ONLY 2026-11-27'));
+  checkTrue('server prompt: new entries appended AFTER CROSS-CHARACTER FEELING (ADD-ONLY)',
+    serverSrc.indexOf('HER OWN DECISION') > serverSrc.indexOf('CROSS-CHARACTER FEELING')
+    && serverSrc.indexOf('ANTICIPATORY FAST MIND') > serverSrc.indexOf('HER OWN DECISION'));
+  checkTrue('server: per-turn decision directive wired',
+    serverSrc.includes('decisionDirective') && serverSrc.includes('DECISION — THIS message asks for advice'));
+  checkTrue('server: decision fallback wired (both reply paths)',
+    (serverSrc.match(/decisionFallbackLine/g) || []).length >= 3);
+  checkTrue('server: factual early returns untouched (weather/calc still bypass chat)',
+    serverSrc.includes('if (intent === "weather"') && serverSrc.includes('if (intent === "calculator"'));
+}
+
+console.log('\n── 7) Anticipatory fast mind (`upcoming`) ────────────');
+{
+  const bday = [{ id: 'b1', label: 'میری سالگرہ', month: 11, day: 30, kind: 'birthday' }];
+  check('morning 08:00, date in 3 days → date kind (date beats morning)',
+    L.getUpcomingItem(at(2026, 10, 27, 8), { dates: bday })?.kind, 'date');
+  check('17:30, date in 3 days → story kind (imminent today wins)',
+    L.getUpcomingItem(at(2026, 10, 27, 17, 30), { dates: bday })?.kind, 'story');
+  check('14:00, no dates → null (stays silent midday)',
+    L.getUpcomingItem(at(2026, 10, 27, 14), { dates: [] }), null);
+  check('08:00, no dates → morning',
+    L.getUpcomingItem(at(2026, 10, 27, 8), { dates: [] })?.kind, 'morning');
+  check('02:00, no dates → rest',
+    L.getUpcomingItem(at(2026, 10, 27, 2), { dates: [] })?.kind, 'rest');
+  check('date 5 days away at 08:00 → morning (too far to count)',
+    L.getUpcomingItem(at(2026, 10, 27, 8), { dates: [{ id: 'b2', label: 'میری سالگرہ', month: 12, day: 2, kind: 'birthday' }] })?.kind, 'morning');
+  check('date TODAY at 08:00 → morning (today belongs to forgotten-date)',
+    L.getUpcomingItem(at(2026, 10, 27, 8), { dates: [{ id: 'b3', label: 'میری سالگرہ', month: 11, day: 27, kind: 'birthday' }] })?.kind, 'morning');
+  check('nextUpcomingDate: tomorrow is 1 day away',
+    L.nextUpcomingDate(bday, at(2026, 10, 29, 10))?.daysAway, 1);
+  check('upcomingKey is once-per-kind-per-day',
+    L.upcomingKey({ kind: 'morning', label: 'آج کا دن' }, at(2026, 10, 27, 8)), 'morning:2026-11-27');
+}
+{
+  const base = {
+    now: at(2026, 10, 27, 10),
+    lastActivityAt: at(2026, 10, 27, 9, 50),
+    sessionStartedAt: at(2026, 10, 27, 9, 0),
+    sessionMessages: 1,
+    lastFiredAt: 0,
+    lastNightFired: '',
+    hour: 10,
+  };
+  check('morning quiet 10 min + real upcoming item → upcoming',
+    L.decideAwarenessTrigger({ ...base, upcomingItem: { kind: 'morning', label: 'آج کا دن' }, upcomingSpokenKey: '' }), 'upcoming');
+  check('same kind already spoken today → NOT upcoming (falls to quiet)',
+    L.decideAwarenessTrigger({ ...base, upcomingItem: { kind: 'morning', label: 'آج کا دن' }, upcomingSpokenKey: 'morning:2026-11-27' }), 'quiet');
+  check('no upcoming item → NOT upcoming (plain quiet)',
+    L.decideAwarenessTrigger({ ...base }), 'quiet');
+  check('night 02:00 after late-night already fired → upcoming rest',
+    L.decideAwarenessTrigger({
+      now: at(2026, 10, 27, 2),
+      lastActivityAt: at(2026, 10, 27, 1, 50),
+      sessionStartedAt: at(2026, 10, 26, 23, 0),
+      sessionMessages: 1,
+      lastFiredAt: at(2026, 10, 27, 1, 0),
+      lastNightFired: new Date(at(2026, 10, 27, 2)).toDateString(),
+      hour: 2,
+      upcomingItem: { kind: 'rest', label: 'کل کا دن' },
+      upcomingSpokenKey: '',
+    }), 'upcoming');
+}
+{
+  const line = L.pickAwarenessLine('upcoming', true, { hour: 9, upcomingItem: { kind: 'morning', label: 'آج کا دن' } });
+  checkTrue('morning upcoming line names the 6:30 story', line.includes('6:30') && line.includes('سٹوری'), line);
+}
+{
+  const line = L.pickAwarenessLine('upcoming', true, { hour: 17, upcomingItem: { kind: 'story', label: 'شام 6:30 کی سٹوری' } });
+  checkTrue('story upcoming line names 6:30', line.includes('6:30'), line);
+}
+{
+  // The date pool has two lines (one names the days away) — sample it
+  // the way the memory-line test does: every draw must name the real
+  // label, and some draw must name the days.
+  let sawDays = false;
+  let allLabeled = true;
+  for (let i = 0; i < 40; i++) {
+    const line = L.pickAwarenessLine('upcoming', true, { hour: 10, upcomingItem: { kind: 'date', label: 'میری سالگرہ', daysAway: 2 } });
+    if (!line.includes('میری سالگرہ')) allLabeled = false;
+    if (line.includes('2 دن')) sawDays = true;
+  }
+  checkTrue('date upcoming lines always name the real label', allLabeled);
+  checkTrue('date upcoming pool names the days away', sawDays);
+}
+{
+  const line = L.pickAwarenessLine('upcoming', true, { hour: 2, upcomingItem: { kind: 'rest', label: 'کل کا دن' } });
+  checkTrue('rest upcoming line is about tomorrow/rest', line.includes('کل') || line.includes('آرام'), line);
+}
+{
+  const line = L.pickAwarenessLine('upcoming', false, { hour: 9, upcomingItem: { kind: 'morning', label: 'آج کا دن' } });
+  checkTrue('masculine upcoming line has no «جان»', !line.includes('جان'), line);
+}
+{
+  const line = L.pickAwarenessLine('upcoming', true, { tone: 'serious', upcomingItem: { kind: 'morning', label: 'آج کا دن' } });
+  checkTrue('serious-tone upcoming line has no pet name', !line.includes('جان'), line);
+}
+{
+  const line = L.pickAwarenessLine('upcoming', true, { hour: 14 });
+  checkTrue('upcoming with NO real item claims nothing (presence only)',
+    !line.includes('6:30') && !line.includes('سٹوری') && !line.includes('سالگرہ'), line);
+}
+check('upcoming morning by day → loving', L.decideProactiveFit('upcoming', { hour: 9, tone: 'neutral', lastManner: '', sinceLastMs: 0, upcomingKind: 'morning' }), { speak: true, manner: 'loving' });
+check('upcoming date by day → caring', L.decideProactiveFit('upcoming', { hour: 10, tone: 'neutral', lastManner: '', sinceLastMs: 0, upcomingKind: 'date' }), { speak: true, manner: 'caring' });
+check('upcoming at night → gentle', L.decideProactiveFit('upcoming', { hour: 2, tone: 'neutral', lastManner: '', sinceLastMs: 0, upcomingKind: 'rest' }), { speak: true, manner: 'gentle' });
+check('upcoming + same loving manner 10 min later → STAY SILENT', L.decideProactiveFit('upcoming', { hour: 9, tone: 'neutral', lastManner: 'loving', sinceLastMs: 10 * 60_000, upcomingKind: 'morning' }), { speak: false, manner: 'loving' });
+check('upcoming + same manner 40 min later → speak', L.decideProactiveFit('upcoming', { hour: 9, tone: 'neutral', lastManner: 'loving', sinceLastMs: 40 * 60_000, upcomingKind: 'morning' }), { speak: true, manner: 'loving' });
+
+console.log(`\n${failed === 0 ? `ALL ${passed} CHECKS PASS (ALARM + FAST-MIND + DECISION + UPCOMING)` : `${failed} FAILED / ${passed} passed`}`);
 process.exit(failed === 0 ? 0 : 1);
