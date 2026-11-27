@@ -137,6 +137,30 @@ export async function changePassword(currentPassword: string, newPassword: strin
   await authJson("/api/auth/password", { currentPassword, newPassword });
 }
 
+/**
+ * Forgot password (locked-out user, no session).
+ * Step 1 — check: always { ok: true } from the server (it never
+ * reveals whether the name exists); the reset step validates it.
+ * Step 2 — reset: requires the explicit confirmation flag, a new
+ * password (>= 8), and returns a FRESH session under the new
+ * password + a fresh vault salt. The OLD vault salt is preserved on
+ * the server (user.vaultArchives) and the caller MUST archive the
+ * old local vault blobs (archiveOldVault) before using the session —
+ * the old encrypted memory is NEVER deleted, it just stays locked
+ * without the old password.
+ */
+export async function forgotPassword(name: string): Promise<{ ok: boolean }> {
+  return authJson("/api/auth/forgot-password", { name });
+}
+
+export async function resetPassword(name: string, newPassword: string): Promise<{ user: AuthUser; vaultSalt: string }> {
+  const data = await authJson("/api/auth/reset-password", {
+    name, newPassword, confirmed: true, deviceId: getDeviceId(), deviceName: getDeviceName(),
+  });
+  saveSession(data.token, data.user, data.vaultSalt);
+  return { user: data.user, vaultSalt: data.vaultSalt };
+}
+
 export async function saveOwnKey(key: string): Promise<{ hasKey: boolean; keyLast4: string }> {
   const data = await authJson("/api/auth/key", { key });
   const user = getAuthUser();

@@ -734,6 +734,93 @@ authRouter.post("/password", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Forgot password (unauthenticated reset for a locked-out user) -------
+// HONESTY RULE: the password IS the memory-encryption key (AES-GCM,
+// password-derived). Resetting it can NEVER unlock the old encrypted
+// memory — the UI must say this plainly BEFORE the reset. The reset
+// therefore:
+//   1. keeps the old vault salt in user.vaultArchives (never deleted),
+//      so the archived vault can be opened again if the old password
+//      is ever remembered;
+//   2. invalidates EVERY session of the account;
+//   3. issues a fresh session under the new password + a fresh salt;
+//   4. logs a HIGH severity event (owner alerts panel).
+// The client archives the old vault blobs in localStorage before the
+// new session is used. Rate discipline mirrors login: 5 failures in
+// 10 minutes per name+IP lock the name for 10 minutes, and failures
+// never reveal whether the name exists (same generic error as login).
+
+authRouter.post("/forgot-password", (req, res) => {
+  const { name } = req.body ?? {};
+  const ip = clientIp(req);
+  if (isLoginLocked(name, ip)) {
+    res.status(429).json({ error: "بہت کوششیں ہو گئیں — تھوڑی دیر بعد کوشش کریں۔" });
+    return;
+  }
+  // Deliberately always ok: the answer never reveals whether the
+  // account exists. The reset step validates the name.
+  res.json({ ok: true });
+});
+
+authRouter.post("/reset-password", (req, res) => {
+  const { name, newPassword, confirmed, deviceId, deviceName } = req.body ?? {};
+  const ip = clientIp(req);
+  if (isLoginLocked(name, ip)) {
+    res.status(429).json({ error: "بہت کوششیں ہو گئیں — تھوڑی دیر بعد کوشش کریں۔" });
+    return;
+  }
+  if (confirmed !== true) {
+    res.status(400).json({ error: "پہلے انتباہ پڑھ کر تصدیق کریں۔" });
+    return;
+  }
+  if (!validPassword(newPassword)) {
+    recordFailedLogin(name, ip);
+    res.status(400).json({ error: "نیا پاسورڈ کم از کم 8 حرف کا ہو۔" });
+    return;
+  }
+  const user = getUserByName(name);
+  if (!user || !user.enabled) {
+    recordFailedLogin(name, ip);
+    securityEvent("auth.login_fail", {
+      severity: "medium",
+      accountName: String(name || ""),
+      ip,
+      detail: "غلط نام سے پاسورڈ ری سیٹ کی کوشش",
+      blocked: "ری سیٹ نہیں ہوا",
+    });
+    res.status(401).json({ error: GENERIC_LOGIN_ERROR });
+    return;
+  }
+  // Preserve the old vault salt: the old encrypted vault stays
+  // openable if the old password is ever remembered. NEVER delete.
+  const oldSalt = user.vaultSalt;
+  const archives = Array.isArray(user.vaultArchives) ? user.vaultArchives : [];
+  archives.push({ salt: oldSalt, at: new Date().toISOString(), reason: "forgot-password" });
+  user.vaultArchives = archives;
+  user.vaultSalt = newVaultSalt();
+  user.passwordHash = hashPassword(newPassword);
+  // The resetting device becomes the only known device; every other
+  // session + device trust is dropped.
+  const devId = String(deviceId || "").slice(0, 64);
+  user.devices = devId
+    ? [{ id: devId, name: String(deviceName || "").slice(0, 40), firstSeen: new Date().toISOString(), lastSeen: new Date().toISOString() }]
+    : [];
+  user.lastLoginAt = new Date().toISOString();
+  invalidateUserSessions(user.id);
+  saveUsers();
+  const token = createSession(user, devId, deviceName);
+  securityEvent("auth.password_reset_forgot", {
+    severity: "high",
+    accountId: user.id,
+    accountName: user.name,
+    deviceId: devId || null,
+    ip,
+    detail: "پاس ورڈ بھول جانے پر ری سیٹ — پرانی خفیہ میموری نئے پاسورڈ سے نہیں کھلے گی، پرانا ڈیٹا محفوظ ہے",
+    blocked: "اس اکاؤنٹ کے سارے پرانے سیشن ختم کر دیے گئے",
+  });
+  res.json({ token, user: publicUser(user), vaultSalt: user.vaultSalt, archived: true });
+});
+
 // --- Own Gemini key (encrypted at rest, masked on read) -------------------
 
 async function validateGeminiKey(key) {

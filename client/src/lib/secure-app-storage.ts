@@ -208,6 +208,60 @@ export async function rekeyVault(oldPassword: string, newPassword: string): Prom
 }
 
 // ---------------------------------------------------------------------------
+// Forgot-password archive — called by the login screen AFTER a
+// successful server reset, BEFORE the fresh session is used.
+// The old password is the only key to the old encrypted vault, so the
+// old blobs are RENAMED (timestamped), never deleted: the old vault
+// salt is kept in the archive record, so if the old password is ever
+// remembered the archived vault can be opened again. The live vault
+// keys + this account's namespaced keys are moved out of the way, so
+// the new session starts with a genuinely fresh, empty memory.
+// BARE_KEEP keys (alarms, date memories, device id, salt, flags) are
+// NOT secrets and NOT per-account memory — they stay exactly as-is.
+// ---------------------------------------------------------------------------
+
+export type VaultArchiveRecord = {
+  at: string;
+  salt: string | null;
+  vaultKeys: string[];
+  acctKeys: string[];
+};
+
+export function archiveOldVault(accountId: string, oldSalt: string | null): VaultArchiveRecord | null {
+  let keys: string[] = [];
+  try { keys = Object.keys(localStorage); } catch { return null; }
+  const ts = Date.now();
+  const vaultPrefix = `${VAULT_PREFIX}${accountId}-`;
+  const acctPrefix = `${ACCT_PREFIX}${accountId}-`;
+  const record: VaultArchiveRecord = {
+    at: new Date(ts).toISOString(),
+    salt: oldSalt,
+    vaultKeys: [],
+    acctKeys: [],
+  };
+  for (const key of keys) {
+    if (key.includes("-archived-")) continue; // already archived — never touch twice
+    let target: string | null = null;
+    let list: string[] | null = null;
+    if (key.startsWith(vaultPrefix)) { target = `${key}-archived-${ts}`; list = record.vaultKeys; }
+    else if (key.startsWith(acctPrefix)) { target = `${key}-archived-${ts}`; list = record.acctKeys; }
+    if (!target || !list) continue;
+    try {
+      const value = localStorage.getItem(key);
+      if (value === null) continue;
+      localStorage.setItem(target, value);
+      localStorage.removeItem(key);
+      list.push(target);
+    } catch { /* keep the live copy — retry is safe, nothing is lost */ }
+  }
+  if (record.vaultKeys.length === 0 && record.acctKeys.length === 0 && !oldSalt) return null;
+  try {
+    localStorage.setItem(`unique-ai-vault-archive-${accountId}-${ts}`, JSON.stringify(record));
+  } catch { /* record lost, but the renamed blobs themselves survive */ }
+  return record;
+}
+
+// ---------------------------------------------------------------------------
 // Migration — owner only, once, on first login after the upgrade.
 // ---------------------------------------------------------------------------
 
