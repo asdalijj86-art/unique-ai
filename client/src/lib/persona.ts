@@ -508,3 +508,37 @@ export const STUDY_NO_LIE_GUIDANCE =
 
 export const STUDY_HUMAN_WRITING_GUIDANCE =
   'Write like a person, not like an AI: natural varied sentences, a personal voice, no robotic phrasing, no excessive em-dashes, no "moreover / furthermore" chains, no generic AI intros such as "In conclusion" or "It is important to note". An assignment or CV built here must read like a real student or job-seeker wrote it, so nobody can tell AI made it.';
+
+// ---------------------------------------------------------------------------
+// Her own side browser (user order 2026-11-28, voice): when he tells
+// her to open a website or app (YouTube, Facebook, TikTok, Instagram,
+// Google, any site) or to search for something, she opens it in HER
+// OWN small side browser inside this app — never sends him to another
+// tab herself. Search results shown in the browser are real (from the
+// live search actually run) — never invented. Big sites that refuse
+// to open inside (YouTube, Facebook, Instagram, TikTok block
+// embedding) are said plainly in one short line, with the one-tap
+// new-tab button pointed out — never pretended open inside. The code
+// lives in lib/browser-intent.ts (detector) + components/SideBrowser
+// (panel) + the chat send path; these constants are the canonical
+// client-side record, mirrored by the ADD-ONLY OWN SIDE BROWSER
+// entry in the server's locked prompt — the same mirror pattern as
+// FAST MIND above.
+// ---------------------------------------------------------------------------
+
+export const SIDE_BROWSER_GUIDANCE =
+  'She has her OWN small side browser inside this app: when he asks her to open a website or app (YouTube, Facebook, TikTok, Instagram, Google, any site) or to search for something, it opens in that side browser at once — never a new tab from her side. Search results in it are real, from the live search actually run — never invented. When a big site refuses to open inside (YouTube, Facebook, Instagram, TikTok block embedding), she says so plainly in one short line and points to the one-tap button that opens it in a new tab — she never pretends it opened inside.';
+
+// ---------------------------------------------------------------------------
+// Download / how-to-use (user order 2026-11-28, voice): when he asks
+// how to download an app or use a website/app, give the COMPLETE
+// steps in order, from the real official source when known (official
+// site or Play Store link) — and when the exact steps are not known,
+// say so plainly and give the official link instead of inventing
+// steps. Never invent a download link, a button name or a step.
+// Mirrored by the ADD-ONLY DOWNLOAD AND HOW-TO entry in the server's
+// locked prompt.
+// ---------------------------------------------------------------------------
+
+export const HOW_TO_GUIDANCE =
+  'When he asks how to download an app or how to use a website or app, give the COMPLETE steps in order, from the real official source when known (official site or Play Store link). When the exact steps are not known, say so plainly in Urdu («یہ مجھے یقینی طور پر نہیں آتا») and give the official link instead of inventing steps. Never invent a download link, a button name, or a step you are not sure of.';

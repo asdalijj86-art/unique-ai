@@ -115,6 +115,8 @@ import CallIntoUnique, { type CallLinkState } from '@/components/CallIntoUnique'
 import { queryAllPermissions, requestAllPermissions } from '@/lib/permissions';
 import { registerAudioStop, stopOtherAudio } from '@/lib/audio-bus';
 import { parseWebsiteCommand } from '@/lib/voice-commands';
+import { parseBrowserCommand, type BrowserRequest } from '@/lib/browser-intent';
+import { SideBrowser } from '@/components/SideBrowser';
 import { useGestures } from '@/hooks/useGestures';
 import { GESTURE_LABELS, type GestureName } from '@/lib/gestures';
 import AppBuilder from '@/components/AppBuilder';
@@ -605,6 +607,15 @@ export default function ChatPage() {
   /** A Library drawing opened from the strip — the hub shows it until cleared. */
   const [hubFocus, setHubFocus] = useState<{ text: string; at: number } | null>(null);
   const [workView, setWorkView] = useState<AgentWorkSubject | null>(null);
+  // Uniqa's own side browser (2026-11-28, user order): a small
+  // browser docked to the side of the front. `signal` re-opens it
+  // on every new command, even while it is already open.
+  const sideBrowserSignalRef = useRef(0);
+  const [sideBrowser, setSideBrowser] = useState<{ request: BrowserRequest; signal: number } | null>(null);
+  function openSideBrowser(request: BrowserRequest) {
+    sideBrowserSignalRef.current += 1;
+    setSideBrowser({ request, signal: sideBrowserSignalRef.current });
+  }
   const [skillsDialogOpen, setSkillsDialogOpen] = useState(false);
   const [customSkills, setCustomSkills] = useState<CustomSkill[]>(() => {
     try { return loadCustomSkills(secureAppStorage); } catch { return []; }
@@ -2577,20 +2588,23 @@ export default function ChatPage() {
   }
 
   function handleVoiceWebsiteCommand(recognizedText: string): boolean {
+    // Uniqa's OWN side browser (2026-11-28, user order): a site or
+    // search command opens the small browser docked to the side of
+    // the front — never a new tab. The old path built a URL and tried
+    // window.open; voice commands carry no user activation, so the
+    // popup blocker killed the tab and the raw percent-encoded URL
+    // landed in the chat as the "reply" (user's laptop screenshot
+    // 2026-10-21) — that whole failure mode is gone now, and with it
+    // the open_link fallback card. parseBrowserCommand reuses
+    // parseWebsiteCommand's site list, so names resolve exactly as
+    // before; an unrecognized name becomes a panel search instead of
+    // the old fall-through to the brain.
+    const browser = parseBrowserCommand(recognizedText);
+    if (!browser) return false;
     const command = parseWebsiteCommand(recognizedText);
-    if (!command) return false;
-    // An UNRECOGNIZED name is not a website to open — it is a search
-    // request. The old path built a google.com/search URL and tried to
-    // window.open it; the popup blocker killed the tab and the raw
-    // percent-encoded URL landed in the chat as the "reply" (user's
-    // laptop screenshot 2026-10-21). Let it fall through to the normal
-    // chat pipeline instead: the brain answers in chat and its results
-    // render as in-app cards (search_results / youtube_results, or a
-    // tappable open_link card) — never a raw URL in the message text.
-    if (command.isSearchFallback) return false;
 
     let confirmation: string;
-    if (command.prefillText) {
+    if (command?.prefillText) {
       // Check if the URL has the text pre-filled (wa.me, youtube search, etc.)
       const urlHasPrefill = command.url.includes(encodeURIComponent(command.prefillText).slice(0, 20))
         || command.url.includes('text=') || command.url.includes('search_query=') || command.url.includes('?q=');
@@ -2605,31 +2619,15 @@ export default function ChatPage() {
           confirmation = `جی، ${command.displayName} کھول رہا ہوں — ٹیکسٹ یہ ہے: ${command.prefillText}`;
         }
       }
+    } else if (browser.searchQuery) {
+      confirmation = `جی، ${browser.displayName} تلاش کر رہا ہوں۔`;
     } else {
-      // (Search fallbacks returned earlier — this is always a known site.)
-      confirmation = `جی، ${command.displayName} کھول رہا ہوں۔`;
+      confirmation = `جی، ${browser.displayName} کھول رہا ہوں۔`;
     }
 
-    let opened = false;
-    try {
-      opened = window.open(command.url, '_blank', 'noopener,noreferrer') !== null;
-    } catch {
-      opened = false;
-    }
-    if (!opened) {
-      // Voice commands carry no user activation, so the popup blocker
-      // usually stops this open. The old reply pasted the raw URL into
-      // the chat ("یہ لنک خود کھول لیں: https://…%D8%A7…") — exactly
-      // what the user complained about. Now: a clean spoken/chat
-      // message (NO raw URL) plus a tappable in-app card; the tap is a
-      // real user gesture, so the site opens from it every time.
-      setToolAction({ type: 'open_link', url: command.url, displayName: command.displayName });
-    }
-    const assistantText = opened
-      ? confirmation
-      : `${confirmation} — نیا ٹیب خود نہ کھل سکا، نیچے «${command.displayName} کھولیں» کے بٹن سے کھول لیں۔`;
-    appendWebsiteCommandExchange(recognizedText, assistantText);
-    playAssistantMessage(assistantText);
+    openSideBrowser(browser);
+    appendWebsiteCommandExchange(recognizedText, confirmation);
+    playAssistantMessage(confirmation);
     return true;
   }
 
@@ -5278,6 +5276,7 @@ export default function ChatPage() {
               logActivity('یونیکا جاگ گئی (START AI)');
             }}
             onAskMemory={() => { void sendMessage('تمہیں کیا یاد ہے؟ اپنی یادیں بتاؤ۔'); }}
+            onOpenBrowser={() => openSideBrowser({ url: '', displayName: 'براؤزر' })}
             // STAYED QUIET (Stonic study 2026-11-26, reel 6 card):
             // the hook reports when she deliberately stayed quiet.
             stayedQuiet={awareness.stayedQuiet}
@@ -5690,6 +5689,17 @@ export default function ChatPage() {
       {/* An agent's own live work view. */}
       {workView && (
         <AgentWorkView subject={workView} boardEntries={boardEntries} onClose={() => setWorkView(null)} />
+      )}
+
+      {/* Uniqa's own side browser (2026-11-28): a small browser
+          docked to the side of the front — never covers the face or
+          the chat, and closes with one tap. */}
+      {sideBrowser && (
+        <SideBrowser
+          request={sideBrowser.request}
+          signal={sideBrowser.signal}
+          onClose={() => setSideBrowser(null)}
+        />
       )}
 
       {/* ======= FOCUS VIEW: one thing at a time fills the whole screen ======= */}

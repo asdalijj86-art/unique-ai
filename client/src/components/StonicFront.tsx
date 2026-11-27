@@ -201,6 +201,8 @@ export function FrontStage({
   onStartAi,
   /** "What do you remember?" — asks her about her memory. */
   onAskMemory,
+  /** Open Uniqa's own side browser (2026-11-28, user order). */
+  onOpenBrowser,
   /** STAYED QUIET chip (study reel 6): true when she stayed quiet
    *  because it sounded like he was talking to someone else.
    *  The flag comes from useAwareness; the parent wires it. */
@@ -240,6 +242,7 @@ export function FrontStage({
   onTerminate?: () => void;
   onStartAi?: () => void;
   onAskMemory?: () => void;
+  onOpenBrowser?: () => void;
   stayedQuiet?: boolean;
 }) {
   // While terminated she is asleep: the face dims, the status says
@@ -353,6 +356,17 @@ export function FrontStage({
           (face dims, status says so); START AI wakes her. Uses the
           existing .ufront-power CSS — red .active = TERMINATE. */}
       <div className="ufront-power-row" dir="rtl">
+        {onOpenBrowser && (
+          <button
+            type="button"
+            className="ufront-browser"
+            onClick={onOpenBrowser}
+            data-testid="button-open-side-browser"
+            title="یونیکا کا اپنا براؤزر — سائٹ کھولیں یا تلاش کریں"
+          >
+            <span aria-hidden="true">🌐</span> براؤزر
+          </button>
+        )}
         {aiTerminated ? (
           <button
             type="button"
