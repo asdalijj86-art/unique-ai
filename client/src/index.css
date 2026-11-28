@@ -3743,10 +3743,19 @@ body {
   background: linear-gradient(to left, var(--node-color, #22d3ee), color-mix(in srgb, var(--node-color, #22d3ee) 22%, transparent));
 }
 .usil-mode-new .unode-line-text { border-radius: 10px; padding: 6px 10px; }
-/* The silhouette frame: the SVG is the face; the bottom bar floats
-   over its lower edge like the reference's status bar. */
+/* The silhouette frame: the mist image is the face; the bottom bar
+   floats over its lower edge like the reference's status bar. */
 .usil-frame { padding: 8px 8px 52px; }
-.usil-svg { display: block; width: 100%; height: 230px; }
+.usil-figure { position: relative; width: 100%; height: 230px; overflow: hidden; }
+.usil-figure .usil-halo {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 65% 60% at 50% 38%, rgba(155, 233, 245, 0.20) 0%, rgba(34, 211, 238, 0.08) 50%, rgba(14, 116, 144, 0) 100%);
+}
+.usil-figure .usil-breathe, .usil-figure .usil-drift { height: 100%; }
+/* The image carries its own transparency (black -> transparent, built
+   from the generated mist), so it composites straight onto the dark
+   panel — the reference's faint ghost, no box, no blend hack. */
+.usil-img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0.92; }
 .usil-bottombar {
   position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2;
   display: flex; align-items: center; gap: 8px;
@@ -3781,7 +3790,7 @@ body {
    faster glow. Never fast, never distracting. */
 .usil-halo { animation: usil-halo 8s ease-in-out infinite; }
 @keyframes usil-halo { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.9; } }
-.usil-svg.speaking .usil-halo { animation-duration: 2.6s; }
+.usil-figure.speaking .usil-halo { animation-duration: 2.6s; }
 .usil-breathe {
   transform-box: fill-box; transform-origin: 50% 62%;
   animation: usil-breathe 7s ease-in-out infinite;
@@ -3795,8 +3804,8 @@ body {
   0% { transform: translateX(-3px) rotate(-0.5deg); }
   100% { transform: translateX(3px) rotate(0.5deg); }
 }
-.usil-svg.terminated .usil-breathe, .usil-svg.terminated .usil-halo,
-.usil-svg.terminated .usil-drift { animation-play-state: paused; }
+.usil-figure.terminated .usil-breathe, .usil-figure.terminated .usil-halo,
+.usil-figure.terminated .usil-drift { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
   .usil-halo, .usil-breathe, .usil-drift,
   .uwake-dot, .usil-mic.recording { animation: none; }
