@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ur" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<style>
+  body { width: 260px; margin: 0; padding: 14px; font-family: sans-serif; background: #0b1220; color: #e2e8f0; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p { font-size: 12.5px; line-height: 1.7; color: #cbd5e1; margin: 6px 0; }
+  button { width: 100%; padding: 9px; margin-top: 8px; border-radius: 10px; cursor: pointer; font-size: 13.5px; font-family: inherit; background: rgba(56,189,248,0.18); border: 1px solid rgba(56,189,248,0.5); color: #bae6fd; }
+  .row { display: flex; gap: 6px; margin-top: 8px; }
+  .row button { margin-top: 0; }
+  .row button.active { background: rgba(52,211,153,0.18); border-color: rgba(52,211,153,0.55); color: #a7f3d0; }
+  .note { font-size: 11.5px; color: #94a3b8; }
+  kbd { background: rgba(255,255,255,0.1); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>💛 Unique AI Companion</h1>
+<p>یونیکا کی ساتھی ایکسٹینشن — گلوبل پش ٹو ٹاک اور تیرتا ہوا کردار۔</p>
+<button id="open">Unique AI کھولیں</button>
+<div class="row">
+  <button id="live" class="active">لائیو سائٹ</button>
+  <button id="local">اپنا لیپ ٹاپ (:5000)</button>
+</div>
+<p><kbd>Ctrl+Shift+U</kbd> — کہیں سے بھی بولیں (ایپ کا ٹیب کھلا ہونا چاہیے)<br />
+<kbd>Ctrl+Shift+Y</kbd> — ایپ کھولیں</p>
+<p class="note">ایکسٹینشن آپ کا صفحہ نہیں پڑھتی، کچھ ریکارڈ نہیں کرتی — صرف ایپ کھولتی ہے اور مائیک کا بٹن دباتی ہے۔ ایپ بند ہو تو مائیک نہیں سن سکتا — یہ Chrome کی حد ہے، ایکسٹینشن کی نہیں۔</p>
+<script src="popup.js"></script>
+</body>
+</html>

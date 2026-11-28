@@ -81,6 +81,27 @@ type SettingsPanelProps = {
   onOpenWorldMonitor?: () => void;
   /** "Hey Unique" wake word — plain-language live state for its row. */
   wakeWordStatus?: string;
+  /** Phase 2 (Stonic gaps) — rows that open their panel. All optional;
+   *  a missing handler hides that row (no dead buttons ever). */
+  onOpenFaceLock?: () => void;
+  onOpenPhoneRemote?: () => void;
+  onStartTour?: () => void;
+  onOpenPlans?: () => void;
+  onOpenHelp?: () => void;
+  onOpenChangelog?: () => void;
+  onOpenBuildGuide?: () => void;
+  /** Push-to-talk: Ctrl+Space hold-to-talk (in-app; the global
+   *  hotkey lives in the companion extension, not here). */
+  pushToTalkEnabled?: boolean;
+  onPushToTalkChange?: (v: boolean) => void;
+  /** PWA install: true once the browser offers it (beforeinstallprompt). */
+  pwaInstallable?: boolean;
+  onInstallPwa?: () => void;
+  /** Floating character + living wallpaper (in-app equivalents). */
+  floatingVisible?: boolean;
+  onToggleFloating?: () => void;
+  livingWallpaper?: boolean;
+  onToggleWallpaper?: () => void;
 };
 
 const chipStyle = (active: boolean): React.CSSProperties => ({
@@ -697,7 +718,7 @@ function PasswordSection() {
   );
 }
 
-export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange, awarenessEnabled, onAwarenessChange, onTestAwareness, status, theme, onThemeChange, cameraPermission, onCameraPermissionChange, cameraStatus, cameraStatusMessage, micLive, lastCameraNote, onStopCameraLook, supportNumber, onSaveSupportNumber, onOpenPlayer, onOpenHub, onOpenWorldMonitor, wakeWordStatus }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onChange, onClearChat, onTestVoice, chatLang, onChatLangChange, onOpenPairing, onBackupDownload, onBackupRestore, persona, onPersonaChange, tone, onToneChange, awarenessEnabled, onAwarenessChange, onTestAwareness, status, theme, onThemeChange, cameraPermission, onCameraPermissionChange, cameraStatus, cameraStatusMessage, micLive, lastCameraNote, onStopCameraLook, supportNumber, onSaveSupportNumber, onOpenPlayer, onOpenHub, onOpenWorldMonitor, wakeWordStatus, onOpenFaceLock, onOpenPhoneRemote, onStartTour, onOpenPlans, onOpenHelp, onOpenChangelog, onOpenBuildGuide, pushToTalkEnabled, onPushToTalkChange, pwaInstallable, onInstallPwa, floatingVisible, onToggleFloating, livingWallpaper, onToggleWallpaper }: SettingsPanelProps) {
   const toggle = (key: keyof AppSettings) =>
     onChange({ ...settings, [key]: !settings[key] });
 
@@ -983,6 +1004,119 @@ export default function SettingsPanel({ settings, onChange, onClearChat, onTestV
         }}
         testId="setting-row-clear-chat"
       />
+
+      {/* PHASE 2 (Stonic gaps, 2026-11-28) — rows that open their
+          panel. A row only shows when its handler exists. */}
+      {onOpenFaceLock && (
+        <RowAction
+          icon={<span aria-hidden="true">🔐</span>}
+          name="فیس لاک"
+          hint="یہ چہرے سے کھولنے کی سیٹنگ ہے — پاس کوڈ ہمیشہ کام کرتا ہے"
+          actionLabel="کھولیں"
+          onAction={onOpenFaceLock}
+          testId="setting-row-face-lock"
+        />
+      )}
+      {onOpenPhoneRemote && (
+        <RowAction
+          icon={<span aria-hidden="true">📱</span>}
+          name="فون ریموٹ"
+          hint="یہ فون سے کام بھیجنے کی سیٹنگ ہے — کام، نوٹ اور تصویر"
+          actionLabel="کھولیں"
+          onAction={onOpenPhoneRemote}
+          testId="setting-row-phone-remote"
+        />
+      )}
+      {onStartTour && (
+        <RowAction
+          icon={<span aria-hidden="true">🧭</span>}
+          name="رہنمائی والا ٹور"
+          hint="یہ ایپ گھومانے والے ٹور کی سیٹنگ ہے"
+          actionLabel="شروع کریں"
+          onAction={onStartTour}
+          testId="setting-row-tour"
+        />
+      )}
+      {onPushToTalkChange && (
+        <RowToggle
+          icon={<span aria-hidden="true">🎙️</span>}
+          name="پش ٹو ٹاک (Ctrl+Space)"
+          hint="یہ دبا کر بولنے کی سیٹنگ ہے — Ctrl+Space دبا کر رکھیں، بولیں، چھوڑ دیں"
+          value={pushToTalkEnabled ?? true}
+          onToggle={() => onPushToTalkChange(!(pushToTalkEnabled ?? true))}
+          testId="setting-row-push-to-talk"
+        />
+      )}
+      {onToggleFloating && (
+        <RowToggle
+          icon={<span aria-hidden="true">✨</span>}
+          name="تیرتا ہوا کردار"
+          hint="یہ چھوٹے تیرتے ہوئے کردار کی سیٹنگ ہے — اسکرین پر کہیں بھی کھینچ کر رکھیں"
+          value={floatingVisible ?? false}
+          onToggle={onToggleFloating}
+          testId="setting-row-floating"
+        />
+      )}
+      {onToggleWallpaper && (
+        <RowToggle
+          icon={<span aria-hidden="true">🌌</span>}
+          name="زندہ وال پیپر"
+          hint="یہ پیچھے ہلتے ہوئے وال پیپر کی سیٹنگ ہے — سامنے والا حصہ ویسا ہی رہتا ہے"
+          value={livingWallpaper ?? false}
+          onToggle={onToggleWallpaper}
+          testId="setting-row-wallpaper"
+        />
+      )}
+      {onInstallPwa && pwaInstallable && (
+        <RowAction
+          icon={<span aria-hidden="true">💻</span>}
+          name="ایپ انسٹال کریں"
+          hint="یہ ایپ کو ڈیسک ٹاپ پر انسٹال کرنے کی سیٹنگ ہے"
+          actionLabel="انسٹال کریں"
+          onAction={onInstallPwa}
+          testId="setting-row-install-pwa"
+        />
+      )}
+      {onOpenPlans && (
+        <RowAction
+          icon={<span aria-hidden="true">💎</span>}
+          name="پلانز"
+          hint="یہ پلانز دیکھنے کی سیٹنگ ہے — کوئی ادائیگی نہیں، صرف معلومات"
+          actionLabel="دیکھیں"
+          onAction={onOpenPlans}
+          testId="setting-row-plans"
+        />
+      )}
+      {onOpenHelp && (
+        <RowAction
+          icon={<span aria-hidden="true">❓</span>}
+          name="مدد و سپورٹ"
+          hint="یہ مدد اور سپورٹ کی سیٹنگ ہے"
+          actionLabel="کھولیں"
+          onAction={onOpenHelp}
+          testId="setting-row-help"
+        />
+      )}
+      {onOpenChangelog && (
+        <RowAction
+          icon={<span aria-hidden="true">📜</span>}
+          name="تبدیلیاں (Changelog)"
+          hint="یہ ایپ کی تبدیلیوں کی تاریخ کی سیٹنگ ہے"
+          actionLabel="کھولیں"
+          onAction={onOpenChangelog}
+          testId="setting-row-changelog"
+        />
+      )}
+      {onOpenBuildGuide && (
+        <RowAction
+          icon={<span aria-hidden="true">🛠️</span>}
+          name="اپنا اپنا AI بنائیں"
+          hint="یہ اپنی AI بنانے کی رہنمائی کی سیٹنگ ہے"
+          actionLabel="کھولیں"
+          onAction={onOpenBuildGuide}
+          testId="setting-row-build-guide"
+        />
+      )}
     </div>
   );
 }

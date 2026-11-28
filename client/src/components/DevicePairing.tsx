@@ -30,6 +30,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Link2, Unlink, Send, BookOpen, Map as MapIcon, Phone, PhoneOff } from 'lucide-react';
 import { getDeviceIdentity, saveDeviceName, pairApi, formatCallDuration, type PairPeer, type CallPayload } from '@/lib/pairing-client';
+import { isValidSyncPayload, type SyncPayload } from '@/lib/remote-tasks';
 
 export type RemoteCommand = { action: string; tool?: string };
 export type ConversationHandover = { title: string; messages: { role: string; content: string }[] };
@@ -45,6 +46,12 @@ export type CallControl = {
   sendUtterance: (text: string) => boolean;
   startCall: () => void;
   endCall: () => void;
+};
+
+/** Phone Remote sync (Phase 2): send one to-do / note / photo
+ *  payload over the relay's 'sync' kind. Filled while linked. */
+export type SyncControl = {
+  sendSync: (payload: SyncPayload) => boolean;
 };
 
 /** Link status mirrored up to chat.tsx (the Call panel shows it). */
@@ -68,6 +75,10 @@ export default function DevicePairing({
   onCallStateChange,
   onLinkStateChange,
   callControlRef,
+  /** Phase 2 — Phone Remote sync: one validated payload arrived. */
+  onRemoteSync,
+  /** Filled with { sendSync } while linked. */
+  syncControlRef,
 }: {
   open: boolean;
   onClose: () => void;
@@ -90,6 +101,8 @@ export default function DevicePairing({
   onLinkStateChange?: (state: LinkState) => void;
   /** Filled with { sendUtterance, startCall, endCall } while linked. */
   callControlRef?: React.MutableRefObject<CallControl | null>;
+  onRemoteSync?: (payload: SyncPayload, fromName: string) => void;
+  syncControlRef?: React.MutableRefObject<SyncControl | null>;
 }) {
   const identityRef = useRef(getDeviceIdentity());
   const [deviceName, setDeviceName] = useState(identityRef.current.name);
@@ -106,8 +119,24 @@ export default function DevicePairing({
   const sessionRef = useRef(sessionId);
   sessionRef.current = sessionId;
   // Keep the latest callbacks without re-arming the poll loops.
-  const callbacksRef = useRef({ onReceiveConversation, onRemoteCommand, onCallUtterance, onCallReply });
-  callbacksRef.current = { onReceiveConversation, onRemoteCommand, onCallUtterance, onCallReply };
+  const callbacksRef = useRef({ onReceiveConversation, onRemoteCommand, onCallUtterance, onCallReply, onRemoteSync });
+  callbacksRef.current = { onReceiveConversation, onRemoteCommand, onCallUtterance, onCallReply, onRemoteSync };
+
+  // ---- Phone Remote sync (Phase 2): send one validated payload. ----
+  function sendSync(payload: SyncPayload): boolean {
+    if (phaseRef.current !== 'linked' || !sessionRef.current) return false;
+    if (!isValidSyncPayload(payload)) return false;
+    void pairApi.send(sessionRef.current, identityRef.current.deviceId, 'sync', payload).catch(() => { /* transient — next action retries */ });
+    return true;
+  }
+
+  // Fill the sync control while linked (chat.tsx owns the ref).
+  useEffect(() => {
+    if (!syncControlRef) return;
+    syncControlRef.current = phase === 'linked' ? { sendSync } : null;
+    return () => { if (syncControlRef) syncControlRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, sessionId]);
 
   // ---- Call state (Phase 4) ----
   const [callPhase, setCallPhase] = useState<CallPhase>('idle');
@@ -384,6 +413,12 @@ export default function DevicePairing({
                 .catch(() => { /* a failed turn never wedges the chain */ });
             } else {
               void handleCallMessageRef.current(message.payload, fromName);
+            }
+          } else if (message.kind === 'sync') {
+            // Phone Remote (Phase 2): validate before applying —
+            // a bad payload is dropped, never merged.
+            if (isValidSyncPayload(message.payload)) {
+              callbacksRef.current.onRemoteSync?.(message.payload, message.from?.name || 'دوسری ڈیوائس');
             }
           }
         }

@@ -170,6 +170,7 @@ const assistantInstructions = [
   "STUDY — UPCOMING / ANTICIPATORY (ADD-ONLY 2026-11-28, user instruction): when a saved exam or class date approaches, help prepare in advance — what comes next, how the next class builds on this one, what to study beforehand, a revision plan. Only ever speak about a REAL stored exam/class date the user told you — never an invented one.",
   "OWN SIDE BROWSER (ADD-ONLY 2026-11-28, user instruction — her own browser): when the user asks you to open a website or app (YouTube, Facebook, TikTok, Instagram, Google, any site) or to search for something, open it in YOUR OWN small side browser inside this app — it opens on his word, right there beside the front; never send him to another tab yourself. Search results you give must be real (from the live search you actually ran) — never invent a result, a link or a page. If a big site refuses to open inside (YouTube, Facebook, Instagram, TikTok block embedding), say so plainly in one short line and tell him the one-tap button in the browser opens it in a new tab — never pretend it opened inside.",
   "DOWNLOAD AND HOW-TO (ADD-ONLY 2026-11-28, user instruction — complete steps, no guessing): when he asks how to download an app or use a website/app, give the COMPLETE steps in order, from the real official source when you know it (official site or Play Store link) — and when you do not know the exact steps for his device, say so plainly in one line («یہ مجھے یقینی طور پر نہیں آتا») and give him the official link instead of inventing steps. Never invent a download link, a button name or a step you are not sure of.",
+  "CUSTOM CHARACTERS (ADD-ONLY 2026-11-28, user instruction — his own characters): the user can create characters of his own — nine preset roles (Girlfriend, Partner, Best Friend, Assistant, Listener, Boyfriend, Bro, Mentor, a sci-fi butler) or a fully custom one with a name, a voice and a personality — and summon one by name. When a custom character is active, the request carries its name, role and personality: speak AS that character, in the gender grammar of its voice (female → feminine Urdu, male → masculine Urdu), and never call yourself Unique or Uniqa in that reply. Uniqa stays the default front character; a custom character never renames the app. The voice is always one of the two locked chains — never invent a third voice.",
 ].join(" ");
 
 // CRITICAL RULES FIRST (2026-10-25 — never-down voice + open-permission
@@ -398,7 +399,7 @@ async function executeDataIntent(dc, lang) {
 // POST /api/openai/chat — chat with Gemini (+ smart-brain intent actions)
 // ---------------------------------------------------------------------------
 app.post("/api/openai/chat", async (req, res) => {
-  const { messages, stream, language, persona, tone, memory, team, study } = req.body ?? {};
+  const { messages, stream, language, persona, tone, memory, team, study, character } = req.body ?? {};
   if (!validMessages(messages)) {
     res.status(400).json({ error: "پیغام درست نہیں ہے۔ دوبارہ کوشش کریں۔" });
     return;
@@ -842,6 +843,24 @@ app.post("/api/openai/chat", async (req, res) => {
       : tone === 'romantic'
         ? ' The user has set a ROMANTIC tone: let this reply be warm, soft and affectionate in a dignified way (within the active persona).'
         : '';
+    // Custom character (Phase 2, 2026-11-28): when the user has
+    // picked one of his own characters, the client attaches its
+    // name/role/personality/gender — the reply speaks AS that
+    // character, in the gender grammar of its voice. Sanitized and
+    // capped like memory/team; background facts only, never
+    // instructions — a character's personality never overrides the
+    // locked rules above.
+    const characterDirective = (() => {
+      if (!character || typeof character !== 'object') return '';
+      const name = String(character.name || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+      const role = String(character.role || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+      const personality = String(character.personality || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (!name) return '';
+      const grammar = character.gender === 'male'
+        ? 'Use MASCULINE Urdu grammar throughout (میں کر سکتا ہوں، میں نے بتایا) and refer to yourself by this name.'
+        : 'Use FEMININE Urdu grammar throughout (میں کر سکتی ہوں، میں نے کہی تھی) and refer to yourself by this name.';
+      return ` CUSTOM CHARACTER — THIS reply is spoken as the user's chosen character «${name}» (${role}): ${personality} ${grammar} Never call yourself Unique or Uniqa in this reply, and never call the user «بھائی» when speaking as a female character.`;
+    })();
     // Own-decision directive (2026-11-27): this turn only — the model
     // must pick a side. The fallback in the reply paths below is the
     // backstop if it still answers neutrally.
@@ -872,8 +891,8 @@ app.post("/api/openai/chat", async (req, res) => {
     // (see CRITICAL_FIRST_RULES comment). The full locked prompt still
     // follows unchanged — this only changes ORDER, never content.
     const systemText = multiStep
-      ? `${CRITICAL_FIRST_RULES} ${assistantInstructions} ${langOverride}${personaDirective}${toneDirective}${decisionDirective}${studyDirective}${memoryDirective}${teamDirective} The user gave a multi-step request. Structure your answer with clear numbered steps (1. 2. 3.), one step per line, then a brief closing line.`
-      : `${CRITICAL_FIRST_RULES} ${assistantInstructions} ${langOverride}${personaDirective}${toneDirective}${decisionDirective}${studyDirective}${memoryDirective}${teamDirective}`;
+      ? `${CRITICAL_FIRST_RULES} ${assistantInstructions} ${langOverride}${personaDirective}${toneDirective}${characterDirective}${decisionDirective}${studyDirective}${memoryDirective}${teamDirective} The user gave a multi-step request. Structure your answer with clear numbered steps (1. 2. 3.), one step per line, then a brief closing line.`
+      : `${CRITICAL_FIRST_RULES} ${assistantInstructions} ${langOverride}${personaDirective}${toneDirective}${characterDirective}${decisionDirective}${studyDirective}${memoryDirective}${teamDirective}`;
 
     const requestBody = {
       systemInstruction: { parts: [{ text: systemText }] },

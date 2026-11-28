@@ -160,6 +160,47 @@ import SettingsPanel from '@/components/SettingsPanel';
 import MapWidget from '@/components/MapWidget';
 import WhatsAppSender from '@/components/WhatsAppSender';
 import QuranReader from '@/components/QuranReader';
+// Phase 2 (2026-11-28, user order): all 19 Stonic gaps — custom
+// characters, visual memories, Face Lock, guided tour, phone remote,
+// push-to-talk, computer-agent steps, floating character, Your World
+// briefing, skills toggles, Plans/Help/Changelog/guide, PWA.
+import {
+  allCharacters,
+  buildCharacterDirective,
+  charNotesRecallText,
+  detectCharacterSummon,
+  getActiveCharacter,
+  loadActiveCharacterId,
+  loadCharacters,
+  roleLabelUrdu,
+  saveActiveCharacterId,
+  saveCharacters,
+  type CharacterDef,
+} from '@/lib/characters';
+import { addVisualMemory, loadVisualMemories, makeVisualMemory } from '@/lib/visual-memories';
+import { faceLockReady, loadFaceLock, saveFaceLock, type FaceLockState } from '@/lib/face-lock';
+import { markChangelogSeen, markTourSeen, tourSeen, whatsNewSince } from '@/lib/tour';
+import {
+  applySyncPayload,
+  isValidSyncPayload,
+  loadRemoteNotes,
+  loadRemoteTodos,
+  saveRemoteNotes,
+  saveRemoteTodos,
+  type SyncPayload,
+} from '@/lib/remote-tasks';
+import { loadSkillsEnabled, saveSkillsEnabled, setSkillEnabled, isSkillEnabled, type SkillKey, type SkillsEnabledMap } from '@/lib/skills-toggle';
+import { attachInstallPromptListener, canInstallNow, isInstalledApp, promptInstall } from '@/lib/pwa';
+import { advanceSteps, buildGeneralSteps, buildSearchSteps, failStep, narrateLineFor, type AgentStep } from '@/lib/agent-steps';
+import CharactersPanel from '@/components/CharactersPanel';
+import FaceLockPanel from '@/components/FaceLockPanel';
+import FaceLockScreen from '@/components/FaceLockScreen';
+import PhoneRemotePanel from '@/components/PhoneRemotePanel';
+import { TourOverlay, WhatsNewDialog } from '@/components/GuidedTour';
+import { BuildGuidePanel, ChangelogPanel, HelpPanel, PlansPanel } from '@/components/InfoPanels';
+import FloatingCharacter from '@/components/FloatingCharacter';
+import { getDeviceIdentity } from '@/lib/pairing-client';
+import type { SyncControl } from '@/components/DevicePairing';
 // Phase 1 (2026-11-22): the new main screen — panels around the
 // living face, and Awareness (speaks first, thought bubble first).
 // Study system (2026-11-28, user order): study mode / Study Studio,
@@ -383,6 +424,11 @@ export default function ChatPage() {
   function changePersona(next: Persona) {
     personaRef.current = next;
     setPersona(next);
+    // A persona summon ends any custom character's turn — Uniqa or
+    // Unique is present again (Phase 2).
+    if (activeCharacterRef.current) {
+      setActiveCharacterById(null);
+    }
     logActivity(next === 'uniqa' ? 'یونیکا سامنے آئی' : 'یونیک سامنے آیا');
     try { secureAppStorage.setItem(PERSONA_STORAGE_KEY, next); } catch { /* ignore */ }
   }
@@ -504,6 +550,43 @@ export default function ChatPage() {
   const callControlRef = useRef<CallControl | null>(null);
   const callUiRef = useRef<CallUiState>({ phase: 'idle', role: null, peerName: '' });
   const prevCallPhaseRef = useRef<CallUiState['phase']>('idle');
+  // Phase 2 — Phone Remote sync control (filled by DevicePairing
+  // while linked); Face Lock gate state; custom characters.
+  const syncControlRef = useRef<SyncControl | null>(null);
+  const [faceLockState, setFaceLockState] = useState<FaceLockState>(() => loadFaceLock(secureAppStorage));
+  // Locked at launch when Face Lock is armed (enabled + passcode +
+  // face enrolled). App.tsx owns the actual gate; this mirrors the
+  // state for the Settings row + panel.
+  const faceLockArmed = faceLockState.enabled && faceLockReady(faceLockState);
+  const [characters, setCharacters] = useState<CharacterDef[]>(() => loadCharacters(secureAppStorage));
+  const [activeCharacter, setActiveCharacter] = useState<CharacterDef | null>(() => getActiveCharacter(secureAppStorage));
+  const activeCharacterRef = useRef<CharacterDef | null>(activeCharacter);
+  activeCharacterRef.current = activeCharacter;
+  /** Switch the active custom character (null = plain Uniqa/Unique). */
+  function setActiveCharacterById(id: string | null) {
+    try { saveActiveCharacterId(secureAppStorage, id); } catch { /* ignore */ }
+    setActiveCharacter(getActiveCharacter(secureAppStorage));
+  }
+  // Phase 2 — panels + tour + PWA + floating character + wallpaper.
+  const [charactersOpen, setCharactersOpen] = useState(false);
+  const [faceLockOpen, setFaceLockOpen] = useState(false);
+  const [phoneRemoteOpen, setPhoneRemoteOpen] = useState(false);
+  const [infoPanel, setInfoPanel] = useState<'plans' | 'help' | 'changelog' | 'guide' | null>(null);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [whatsNewEntries, setWhatsNewEntries] = useState<import('@/lib/changelog').ChangelogEntry[]>([]);
+  const [pwaInstallable, setPwaInstallable] = useState(false);
+  const [floatingVisible, setFloatingVisible] = useState(false);
+  const [livingWallpaper, setLivingWallpaper] = useState(false);
+  const [pushToTalkEnabled, setPushToTalkEnabled] = useState(() => {
+    try { return secureAppStorage.getItem('unique-ai-push-to-talk') !== 'off'; } catch { return true; }
+  });
+  // Phase 2 — skills toggles (missing = ON) + agent work steps.
+  const [skillsEnabled, setSkillsEnabled] = useState<SkillsEnabledMap>(() => loadSkillsEnabled(secureAppStorage));
+  const [workSteps, setWorkSteps] = useState<AgentStep[]>([]);
+  const workStepsRef = useRef<AgentStep[]>([]);
+  workStepsRef.current = workSteps;
+  const [workStopped, setWorkStopped] = useState(false);
   // Resolver for the reply text of a turn that arrived AS a call
   // utterance: set by handleCallUtterance, fired where the reply is
   // finalized (and on the failure path with the failure text itself —
@@ -715,11 +798,32 @@ export default function ChatPage() {
         detail: heroStatus,
         status: isSpeaking || busy ? 'working' : 'idle',
       });
+      setWorkSteps([]);
       return;
     }
     const def = AGENT_DEFS.find((d) => d.key === key);
     if (!def) return;
     const state = agentTeam?.find((t) => t.key === key);
+    // Computer-agent steps (Phase 2): the job's steps, from the
+    // agent's real task — the view shows each step, and the active
+    // step's narration is spoken once on open (only when nothing
+    // else is speaking, so the main reply's voice is never cut).
+    const detail = state?.detail ?? def.blurb;
+    const steps = def.actionTypes.includes('search_results') || def.actionTypes.includes('news_results')
+      ? buildSearchSteps(detail)
+      : buildGeneralSteps(detail);
+    if (state?.status === 'working') {
+      setWorkSteps(steps);
+      const first = steps[0];
+      if (first && appSettings.voiceEnabled && !isSpeaking && !ttsActiveRef.current) {
+        void playAssistantMessage(narrateLineFor(first), undefined, personaRef.current === 'uniqa');
+      }
+    } else if (state?.status === 'done') {
+      setWorkSteps(advanceSteps(steps, steps.length));
+    } else {
+      setWorkSteps(steps);
+    }
+    setWorkStopped(false);
     setWorkView({
       key: def.key,
       icon: def.icon,
@@ -728,6 +832,24 @@ export default function ChatPage() {
       detail: state?.detail,
       status: state?.status ?? 'idle',
     });
+  }
+  /** Stop a running agent job (Phase 2 — the Stop button / Esc):
+   *  the view closes, the running step is marked stopped, the
+   *  agent's card is marked failed with «روک دیا گیا». The brain
+   *  reply already in flight still lands in chat — it was asked
+   *  before the stop, and stopping a question already asked cannot
+   *  unsend it. Said plainly in the log. */
+  function stopAgentWork() {
+    if (!workView || workView.key === 'uniqa') { setWorkView(null); setWorkSteps([]); return; }
+    const key = workView.key;
+    setWorkSteps((prev) => {
+      const active = prev.find((s) => s.status === 'active');
+      return active ? failStep(prev, active.id) : prev;
+    });
+    setAgentTeam((prev) => (prev ?? []).map((t) => (t.key === key ? { ...t, status: 'failed' as const, detail: 'روک دیا گیا' } : t)));
+    setWorkStopped(true);
+    setWorkView(null);
+    logActivity(`${key} کا کام روک دیا گیا`);
   }
   // When an agent STARTS working, open its own live work view
   // automatically (the Stonic-video behaviour).
@@ -746,6 +868,16 @@ export default function ChatPage() {
     const state = agentTeam?.find((t) => t.key === workView.key);
     if (state && (state.status !== workView.status || state.detail !== workView.detail)) {
       setWorkView((prev) => (prev ? { ...prev, status: state.status, detail: state.detail } : prev));
+    }
+    // Steps follow the real job: done → every step done; failed →
+    // the active step failed, the rest stay pending (never faked).
+    if (state?.status === 'done') {
+      setWorkSteps((prev) => advanceSteps(prev, prev.length));
+    } else if (state?.status === 'failed') {
+      setWorkSteps((prev) => {
+        const active = prev.find((s) => s.status === 'active');
+        return active ? failStep(prev, active.id) : prev;
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentTeam]);
@@ -1136,15 +1268,75 @@ export default function ChatPage() {
 
   // Esc stops speech/work at once (Stonic screen rule: Stop is always
   // in reach, Esc stops the work) — the orb tap does the same.
+  // Push-to-talk (Phase 2, Stonic v3.1.22): hold Ctrl+Space to talk,
+  // release to send. In-app only — a web page cannot grab a global
+  // hotkey; the companion extension owns that (extension/ README).
+  // Never fires while typing in a field, and never during a call.
+  const pttActiveRef = useRef(false);
+  const recordingRef = useRef(recording);
+  recordingRef.current = recording;
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape' && (isSpeaking || busy || isPreparingVoice)) {
         interruptSpeech();
+        return;
+      }
+      if (e.code === 'Space' && (e.ctrlKey || e.metaKey) && pushToTalkEnabled && !e.repeat) {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+        if (callUiRef.current.phase === 'active' && callUiRef.current.role === 'caller') return;
+        e.preventDefault();
+        pttActiveRef.current = true;
+        if (!recordingRef.current) toggleRecording();
+      }
+    };
+    const onKeyUp = (e: globalThis.KeyboardEvent) => {
+      if (e.code === 'Space' && pttActiveRef.current) {
+        pttActiveRef.current = false;
+        if (recordingRef.current) toggleRecording();
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isSpeaking, busy, isPreparingVoice]);
+    window.addEventListener('keyup', onKeyUp);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKeyUp); };
+  }, [isSpeaking, busy, isPreparingVoice, pushToTalkEnabled]);
+
+  // Extension bridge (Phase 2): the companion extension's global
+  // hotkey (Ctrl+Shift+U from any tab) toggles push-to-talk here —
+  // the app owns the real recording state, so the toggle never
+  // desyncs from what the mic is actually doing.
+  useEffect(() => {
+    const onToggle = () => { toggleRecording(); };
+    window.addEventListener('unique-ai:ptt-toggle', onToggle);
+    return () => window.removeEventListener('unique-ai:ptt-toggle', onToggle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording]);
+
+  // Guided tour + what's-new (Phase 2, Stonic v3.1.19/22): the tour
+  // runs ONCE, the first time the app opens after this build; after
+  // an update, the what's-new walkthrough shows once instead. Both
+  // are skippable and never re-appear on their own.
+  useEffect(() => {
+    if (!tourSeen(secureAppStorage)) {
+      setTourOpen(true);
+    } else {
+      const unseen = whatsNewSince(secureAppStorage);
+      if (unseen.length > 0) {
+        setWhatsNewEntries(unseen);
+        setWhatsNewOpen(true);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // PWA install (Phase 2): capture the browser's install offer when
+  // it fires — the Settings row then shows a real install button.
+  useEffect(() => {
+    attachInstallPromptListener();
+    const onAvailable = () => setPwaInstallable(canInstallNow());
+    window.addEventListener('unique-ai:install-available', onAvailable);
+    setPwaInstallable(canInstallNow());
+    return () => window.removeEventListener('unique-ai:install-available', onAvailable);
+  }, []);
 
   // "Hey Unique" WAKE WORD (2026-11-28, user order): while the app
   // is OPEN she listens continuously for «Hey Unique» / «ہے یونیک» /
@@ -1349,6 +1541,37 @@ export default function ChatPage() {
       // OLD TOOLS DELETED: legacy tool open ignored.
     } else return;
     void playAssistantMessage(`📱 دوسری ڈیوائس کے کہنے پر ${labels[command.action] || 'ٹول'} کھول دیا ہے۔`);
+  }
+
+  /** Phone Remote sync (Phase 2): one validated payload arrived
+   *  from the paired phone. To-dos/notes merge into the local
+   *  stores; a photo becomes a VISUAL MEMORY (photo + sender's
+   *  note as its story) and is announced once, plainly. */
+  function handleRemoteSync(payload: SyncPayload, fromName: string) {
+    if (!isValidSyncPayload(payload)) return;
+    const todos = loadRemoteTodos(secureAppStorage);
+    const notes = loadRemoteNotes(secureAppStorage);
+    const result = applySyncPayload(todos, notes, payload);
+    try {
+      if (result.todos !== todos) saveRemoteTodos(secureAppStorage, result.todos);
+      if (result.notes !== notes) saveRemoteNotes(secureAppStorage, result.notes);
+    } catch { /* storage unavailable — in-memory only */ }
+    if (result.photo) {
+      try {
+        const made = makeVisualMemory(result.photo.dataUrl, result.photo.note || `فون سے بھیجی گئی تصویر (${fromName})`, personaRef.current);
+        if (made) addVisualMemory(secureAppStorage, made);
+      } catch { /* photo dropped — memory store unavailable */ }
+      const line = `📱 ${fromName} نے فون سے ایک تصویر بھیجی — تصویری یادداشت میں محفوظ کر لی ہے۔`;
+      if (appendAssistantMessage(line)) void playAssistantMessage(line);
+      return;
+    }
+    const line =
+      payload.type === 'todo-add' ? `📱 ${fromName} نے ایک کام بھیجا: ${payload.todo.text}`
+      : payload.type === 'note-add' ? `📱 ${fromName} نے ایک نوٹ بھیجا: ${payload.note.text}`
+      : payload.type === 'todo-toggle' ? `📱 ${fromName} نے ایک کام ${payload.done ? 'مکمل' : 'دوبارہ کھلا'} کر دیا`
+      : payload.type === 'todo-delete' ? `📱 ${fromName} نے ایک کام مٹا دیا`
+      : '';
+    if (line && appendAssistantMessage(line)) void playAssistantMessage(line);
   }
 
   // ---- Call (Phase 4) ----
@@ -1650,9 +1873,75 @@ export default function ChatPage() {
    *    persona switched; the caller sends THIS rest as the message.
    *  - null      → not a persona/tone order; normal flow continues.
    */
+  /**
+   * A custom character's own notes (Phase 2): the character's own
+   * store, as one recall line — so the character remembers what it
+   * was told, separately from Uniqa's and Unique's memories.
+   */
+  function characterNotesText(): string {
+    const c = activeCharacterRef.current;
+    if (!c) return '';
+    try {
+      return charNotesRecallText(secureAppStorage, c.id);
+    } catch {
+      return '';
+    }
+  }
+
+  /** Summon a custom character by name (Phase 2). Returns the
+   *  character + the rest of the message (null when the name alone
+   *  was the whole message — a pure summon). */
+  function summonCustomCharacter(textValue: string): { character: CharacterDef; rest: string | null; pure: boolean } | null {
+    const all = allCharacters(secureAppStorage);
+    for (const c of all) {
+      if (c.builtin) continue;
+      if (!detectCharacterSummon(textValue, c)) continue;
+      // Strip the leading name + optional summon verb + separator to
+      // find the rest (the actual request, if any).
+      const name = c.name.trim();
+      const rest = textValue
+        .replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim()
+        .replace(new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(کو بلاؤ|کو بلا لو|سے بات کرو|بلاؤ|بلا لو|بات کرو|talk to|call)?\\s*[،,:\\-—]?\\s*`, 'i'), '')
+        .trim();
+      return { character: c, rest: rest || null, pure: !rest };
+    }
+    return null;
+  }
+
   function handlePersonaCommand(textValue: string): 'handled' | string | null {
+    // Custom characters (Phase 2): summon one of his own characters
+    // by name («سارہ کو بلاؤ» / «call Sara»). The character stays
+    // active until Uniqa/Unique is summoned by name or another
+    // character is picked — changePersona clears it. A name merely
+    // mentioned inside a sentence does NOT summon (detectCharacter
+    // Summon requires the name to lead or stand alone).
+    const charSummon = summonCustomCharacter(textValue);
+    if (charSummon) {
+      setActiveCharacterById(charSummon.character.id);
+      if (!charSummon.pure) return charSummon.rest;
+      const greeting = `جی، میں ${charSummon.character.name} ہوں — ${roleLabelUrdu(charSummon.character.role)}۔ بتائیے، کیا بات ہے؟`;
+      appendWebsiteCommandExchange(textValue, greeting);
+      void playAssistantMessage(greeting, undefined, charSummon.character.gender === 'female');
+      setDraft('');
+      return 'handled';
+    }
     const summon = detectPersonaSummon(textValue, personaRef.current);
-    if (summon) {
+    // DEFECT (found in render verification 2026-11-28, run 1+2):
+    // detectPersonaSummon returns null for a SAME-persona summon by
+    // design («یونیکا کو بلاؤ» while Uniqa is already present), so
+    // changePersona never ran and an active custom character (e.g.
+    // سارہ) stayed on screen after the user called Uniqa back by
+    // name. Re-check with the OTHER persona as current: a by-name
+    // call of the current built-in then returns, and the block below
+    // runs changePersona — which clears the custom character.
+    let effectiveSummon = summon;
+    if (!effectiveSummon && activeCharacterRef.current) {
+      const other: Persona = personaRef.current === 'uniqa' ? 'unique' : 'uniqa';
+      const same = detectPersonaSummon(textValue, other);
+      if (same && same.target === personaRef.current) effectiveSummon = same;
+    }
+    if (effectiveSummon) {
+      const summon = effectiveSummon;
       changePersona(summon.target);
       if (!summon.pure) {
         // The rest might itself be a pure tone order («یونیکا، رومینٹک
@@ -2216,7 +2505,10 @@ export default function ChatPage() {
     // reply in the other (the reported «کبھی لڑکے والی آواز، کبھی
     // لڑکی کی» flip inside a single reply). Every voice decision
     // for this reply now uses sendFemale, never the live persona.
-    const sendFemale = personaRef.current === 'uniqa';
+    // Phase 2: a custom character's gender owns it (female →
+    // Uniqa's voice chain, male → Unique's voice chain).
+    const activeChar = activeCharacterRef.current;
+    const sendFemale = activeChar ? activeChar.gender === 'female' : personaRef.current === 'uniqa';
     // Reset TTS prefetch for this new message
     ttsPrefetchRef.current = null;
     streamedTextRef.current = '';
@@ -2231,12 +2523,19 @@ export default function ChatPage() {
           // that persona, in that register.
           persona: personaRef.current,
           tone: toneRef.current,
+          // Custom character (Phase 2, 2026-11-28): when one of his
+          // own characters is active, its name/role/personality ride
+          // along and the reply speaks AS that character.
+          character: activeChar
+            ? { name: activeChar.name, role: roleLabelUrdu(activeChar.role), personality: activeChar.personality, gender: activeChar.gender }
+            : undefined,
           // Learned-memory recall (Round 5) + unified recall
           // (Stonic study 2026-11-26): the speaking persona's
           // learnings PLUS one merged recall (both personas' notes
           // + old conversations, tagged second-hand context) ride
-          // along, so replies answer with that knowledge.
-          memory: [buildRecallBlock(loadLearnings(secureAppStorage, personaRef.current)), getUnifiedMemoryText(personaRef.current)].filter(Boolean).join('\n') || undefined,
+          // along, so replies answer with that knowledge. A custom
+          // character's own notes ride along too (Phase 2).
+          memory: [buildRecallBlock(loadLearnings(secureAppStorage, personaRef.current)), getUnifiedMemoryText(personaRef.current), characterNotesText()].filter(Boolean).join('\n') || undefined,
           // Team-work context (2026-10-24): today's real team state so
           // any member asked about their work can answer in full
           // spoken detail from facts, never invention or refusal.
@@ -4968,6 +5267,13 @@ export default function ChatPage() {
       library: 'لائبریری', document: 'ڈاکومنٹ اسٹوڈیو', media: 'میڈیا اسٹوڈیو',
       islamic: 'اسلامی اسٹوڈیو', game: 'گیم اسٹوڈیو',
     };
+    // Skills toggle (Phase 2): a switched-off skill stays closed
+    // and says so plainly — it is not deleted, just off.
+    if (!isSkillEnabled(skillsEnabled, key)) {
+      const line = `${labels[key]} ابھی بند ہے — SKILLS سے اس کا سوئچ آن کریں، پھر کھل جائے گا۔`;
+      if (appendAssistantMessage(line)) void playAssistantMessage(line);
+      return;
+    }
     logActivity(`${labels[key]} کھلا`);
     if (key === 'library') setLibraryOpen(true);
     else if (key === 'document') setDocumentStudioOpen(true);
@@ -4991,19 +5297,41 @@ export default function ChatPage() {
             }}
             onOpenStudio={(key: StudioKey) => { setActivePanel(null); openStudio(key); }}
             onOpenFocus={(key: FocusViewKey) => { setActivePanel(null); setFocusView(key); }}
+            skillsEnabled={skillsEnabled}
+            onToggleSkill={(key: SkillKey) => {
+              const next = setSkillEnabled(skillsEnabled, key, !isSkillEnabled(skillsEnabled, key));
+              setSkillsEnabled(next);
+              try { saveSkillsEnabled(secureAppStorage, next); } catch { /* ignore */ }
+              logActivity(`مہارت ${isSkillEnabled(next, key) ? 'آن' : 'بند'}: ${key}`);
+            }}
           />
         );
       case 'character':
         return (
-          <VoicesPanel
-            persona={persona}
-            onPersonaChange={changePersona}
-            tone={tone}
-            onToneChange={changeTone}
-            onTestVoice={() => {
-              void playAssistantMessage('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
-            }}
-          />
+          <>
+            <VoicesPanel
+              persona={persona}
+              onPersonaChange={changePersona}
+              tone={tone}
+              onToneChange={changeTone}
+              onTestVoice={() => {
+                void playAssistantMessage('السلام علیکم! یہ آواز کا ٹیسٹ ہے۔ کیا آپ مجھے سن سکتے ہیں؟');
+              }}
+            />
+            <button
+              type="button"
+              className="upanel-refresh"
+              onClick={() => { setActivePanel(null); setCharactersOpen(true); }}
+              data-testid="button-open-characters"
+            >
+              👥 اپنے کردار — 9 کردار + اپنا کردار بنائیں
+            </button>
+            {activeCharacter && (
+              <p className="upanel-empty" data-testid="text-active-character">
+                ابھی {activeCharacter.name} حاضر ہے — یونیکا/یونیک کو بلانے پر وہ واپس آ جائیں گے۔
+              </p>
+            )}
+          </>
         );
       case 'settings':
         return (
@@ -5059,6 +5387,29 @@ export default function ChatPage() {
             onOpenHub={() => { setActivePanel(null); setHubDialogOpen(true); }}
             onOpenWorldMonitor={() => { setActivePanel(null); setWorldMonitorOpen(true); }}
             wakeWordStatus={wakeWordStatusLabel}
+            onOpenFaceLock={() => { setActivePanel(null); setFaceLockOpen(true); }}
+            onOpenPhoneRemote={() => { setActivePanel(null); setPhoneRemoteOpen(true); }}
+            onStartTour={() => { setActivePanel(null); setTourOpen(true); }}
+            onOpenPlans={() => { setActivePanel(null); setInfoPanel('plans'); }}
+            onOpenHelp={() => { setActivePanel(null); setInfoPanel('help'); }}
+            onOpenChangelog={() => { setActivePanel(null); setInfoPanel('changelog'); }}
+            onOpenBuildGuide={() => { setActivePanel(null); setInfoPanel('guide'); }}
+            pushToTalkEnabled={pushToTalkEnabled}
+            onPushToTalkChange={(v) => {
+              setPushToTalkEnabled(v);
+              try { secureAppStorage.setItem('unique-ai-push-to-talk', v ? 'on' : 'off'); } catch { /* ignore */ }
+            }}
+            pwaInstallable={pwaInstallable && !isInstalledApp()}
+            onInstallPwa={() => {
+              void (async () => {
+                const outcome = await promptInstall();
+                if (outcome !== 'unavailable') setPwaInstallable(false);
+              })();
+            }}
+            floatingVisible={floatingVisible}
+            onToggleFloating={() => setFloatingVisible((v) => !v)}
+            livingWallpaper={livingWallpaper}
+            onToggleWallpaper={() => setLivingWallpaper((v) => !v)}
           />
         );
       default:
@@ -5305,7 +5656,7 @@ export default function ChatPage() {
           face | globe. Nothing else is visible — no world strip, no
           hub, no library, no bottom strip. Everything hidden opens
           only when named or tapped. ======= */}
-      <div className="unique-main usimple-main">
+      <div className={`unique-main usimple-main${livingWallpaper ? ' uliving-wallpaper' : ''}`}>
         {/* Camera look video — ALWAYS mounted but NEVER shown on
             screen (preview rule: his own picture never appears).
             Face detection reads from it; the MEDIA LINK card in
@@ -5385,6 +5736,7 @@ export default function ChatPage() {
               heardText: wakeWord.heardText,
               onToggle: toggleWakeWord,
             }}
+            characterName={activeCharacter?.name}
           />
           {/* YOUR WORLD digest — \"آج کی جھلک\" (Stonic study
               2026-11-26). It lived under the globe first, but at
@@ -5791,9 +6143,90 @@ export default function ChatPage() {
         />
       )}
 
+      {/* PHASE 2 overlays: custom characters, Face Lock, phone remote,
+          guided tour + what's-new, Plans/Help/Changelog/guide, and
+          the floating character. */}
+      {charactersOpen && (
+        <NodeDialog title="👥 اپنے کردار" onClose={() => { setCharactersOpen(false); setCharacters(loadCharacters(secureAppStorage)); }} testId="dialog-characters">
+          <CharactersPanel
+            activeCharacter={activeCharacter}
+            onActiveChange={(c) => { setActiveCharacterById(c ? c.id : null); setCharacters(loadCharacters(secureAppStorage)); }}
+            basePersona={persona}
+          />
+        </NodeDialog>
+      )}
+      {faceLockOpen && (
+        <NodeDialog title="🔐 فیس لاک" onClose={() => { setFaceLockOpen(false); setFaceLockState(loadFaceLock(secureAppStorage)); }} testId="dialog-face-lock">
+          <FaceLockPanel />
+        </NodeDialog>
+      )}
+      {phoneRemoteOpen && (
+        <NodeDialog title="📱 فون ریموٹ" onClose={() => setPhoneRemoteOpen(false)} testId="dialog-phone-remote">
+          <PhoneRemotePanel
+            linkState={linkState}
+            deviceName={getDeviceIdentity().name}
+            onOpenPairing={() => { setPhoneRemoteOpen(false); setPairingOpen(true); }}
+            onSendSync={(payload) => syncControlRef.current?.sendSync(payload) ?? false}
+          />
+        </NodeDialog>
+      )}
+      {tourOpen && (
+        <TourOverlay
+          onClose={() => {
+            setTourOpen(false);
+            markTourSeen(secureAppStorage);
+            logActivity('گائیڈڈ ٹور مکمل');
+          }}
+        />
+      )}
+      {whatsNewOpen && (
+        <NodeDialog title="✨ نیا کیا ہے" onClose={() => { setWhatsNewOpen(false); markChangelogSeen(secureAppStorage); }} testId="dialog-whats-new">
+          <WhatsNewDialog
+            entries={whatsNewEntries}
+            onClose={() => { setWhatsNewOpen(false); markChangelogSeen(secureAppStorage); }}
+          />
+        </NodeDialog>
+      )}
+      {infoPanel === 'plans' && (
+        <NodeDialog title="💎 پلانز" onClose={() => setInfoPanel(null)} testId="dialog-plans">
+          <PlansPanel
+            usage={{
+              messagesToday: messageCount,
+              alarmsActive: alarms.length,
+              memoriesCount: memoryCount,
+              charactersCount: characters.length,
+            }}
+          />
+        </NodeDialog>
+      )}
+      {infoPanel === 'help' && (
+        <NodeDialog title="❓ مدد و سپورٹ" onClose={() => setInfoPanel(null)} testId="dialog-help">
+          <HelpPanel />
+        </NodeDialog>
+      )}
+      {infoPanel === 'changelog' && (
+        <NodeDialog title="📜 تبدیلیاں" onClose={() => setInfoPanel(null)} testId="dialog-changelog">
+          <ChangelogPanel />
+        </NodeDialog>
+      )}
+      {infoPanel === 'guide' && (
+        <NodeDialog title="🛠️ اپنا اپنا AI بنائیں" onClose={() => setInfoPanel(null)} testId="dialog-build-guide">
+          <BuildGuidePanel />
+        </NodeDialog>
+      )}
+      {floatingVisible && (
+        <FloatingCharacter
+          onMicClick={() => {
+            if (isSpeaking || isPreparingVoice || ttsActiveRef.current) interruptSpeechAndListen();
+            else void toggleRecording();
+          }}
+          onClose={() => setFloatingVisible(false)}
+        />
+      )}
+
       {/* An agent's own live work view. */}
       {workView && (
-        <AgentWorkView subject={workView} boardEntries={boardEntries} onClose={() => setWorkView(null)} />
+        <AgentWorkView subject={workView} boardEntries={boardEntries} onClose={() => { setWorkView(null); setWorkSteps([]); }} steps={workSteps} onStop={workView.status === 'working' ? stopAgentWork : undefined} />
       )}
 
       {/* Uniqa's own side browser (2026-11-28): a small browser
@@ -5933,6 +6366,8 @@ export default function ChatPage() {
         onCallStateChange={handleCallStateChange}
         onLinkStateChange={setLinkState}
         callControlRef={callControlRef}
+        onRemoteSync={handleRemoteSync}
+        syncControlRef={syncControlRef}
       />
 
       {/* Brain backup restore (Phase 4): the hidden picker — opened

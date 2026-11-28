@@ -40,6 +40,41 @@ const CALL_TYPES = new Set(["call_invite", "call_accept", "call_reject", "call_e
 const CALL_TEXT_TYPES = new Set(["call_utterance", "call_reply"]);
 const MAX_CALL_TEXT_CHARS = 8000;
 
+// Sync messages (Phase 2 — Phone Remote): to-dos, notes and a
+// downscaled photo travel between the two linked app instances.
+// The relay validates the payload shapes strictly (mirror of
+// client/lib/remote-tasks.ts isValidSyncPayload); a photo that
+// arrives becomes a visual memory on the receiving device. Photos
+// are capped well under MAX_MESSAGE_BYTES (150 KB data URL).
+const SYNC_TYPES = new Set(["todo-add", "todo-toggle", "todo-delete", "note-add", "photo"]);
+const MAX_SYNC_TEXT = 500;
+const MAX_SYNC_PHOTO_CHARS = 150_000;
+
+function isValidSyncPayload(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  const type = String(payload.type || "");
+  if (!SYNC_TYPES.has(type)) return false;
+  if (type === "todo-add") {
+    const t = payload.todo;
+    return !!t && typeof t === "object" && typeof t.id === "string"
+      && typeof t.text === "string" && t.text.length > 0 && t.text.length <= 200;
+  }
+  if (type === "todo-toggle") return typeof payload.id === "string" && typeof payload.done === "boolean";
+  if (type === "todo-delete") return typeof payload.id === "string";
+  if (type === "note-add") {
+    const n = payload.note;
+    return !!n && typeof n === "object" && typeof n.id === "string"
+      && typeof n.text === "string" && n.text.length > 0 && n.text.length <= MAX_SYNC_TEXT;
+  }
+  if (type === "photo") {
+    return typeof payload.dataUrl === "string" && payload.dataUrl.startsWith("data:image/")
+      && payload.dataUrl.length <= MAX_SYNC_PHOTO_CHARS
+      && typeof payload.note === "string" && payload.note.length <= MAX_SYNC_TEXT
+      && typeof payload.from === "string";
+  }
+  return false;
+}
+
 function cleanDevice(input) {
   const name = String(input?.name || "").trim().slice(0, 40) || "ڈیوائس";
   const type = String(input?.type || "").trim().slice(0, 20) || "device";
@@ -161,7 +196,8 @@ export function createPairingRelay(now = () => Date.now()) {
     const id = String(deviceId || "");
     const session = getSession(sessionId, id);
     if (!session) return { ok: false, error: "session_closed" };
-    if (kind !== "conversation" && kind !== "command" && kind !== "call") return { ok: false, error: "bad_kind" };
+    if (kind !== "conversation" && kind !== "command" && kind !== "call" && kind !== "sync") return { ok: false, error: "bad_kind" };
+    if (kind === "sync" && !isValidSyncPayload(payload)) return { ok: false, error: "bad_payload" };
     if (kind === "command" && !COMMAND_ACTIONS.has(String(payload?.action || ""))) {
       return { ok: false, error: "bad_action" };
     }

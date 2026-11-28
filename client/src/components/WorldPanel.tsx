@@ -28,6 +28,7 @@ import { secureAppStorage } from '@/lib/secure-app-storage';
 import { loadNotes } from '@/lib/memory';
 import { loadLearnings } from '@/lib/learnings';
 import type { WorldPick } from './VisualHub';
+import YourWorldBriefing from './YourWorldBriefing';
 
 type NewsItem = { title: string; link: string; source: string };
 
@@ -315,6 +316,16 @@ export default function WorldPanel({
           <p className="uworld-digest-src">آپ کی اپنی محفوظ یادوں اور کام سے — کچھ بھی بناوٹی نہیں۔</p>
         )}
       </div>
+
+      {/* YOUR WORLD BRIEFING (Phase 2, Stonic v3.1.22): exactly
+          three daily picks — memory + weather + news — computed from
+          the same real data, cached per day, reshuffled on demand. */}
+      <YourWorldBriefing
+        latestLearning={digest.latestLearning}
+        latestNote={digest.latestNote}
+        todayWork={digest.todayWork ? { title: digest.todayWork.title, detail: digest.todayWork.detail } : null}
+        topNews={news && news.length > 0 ? { title: news[0].title, link: news[0].link } : null}
+      />
     </>
   );
 }

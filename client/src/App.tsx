@@ -6,6 +6,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import ChatPage from '@/pages/chat';
 import LoginScreen from '@/components/LoginScreen';
+import FaceLockScreen from '@/components/FaceLockScreen';
+import { faceLockReady, loadFaceLock } from '@/lib/face-lock';
+import { secureAppStorage } from '@/lib/secure-app-storage';
 import {
   getAuthUser,
   isLoggedIn,
@@ -52,9 +55,15 @@ function App() {
   // the session survives (sessionStorage) but the encrypted memory
   // vault is locked — the user re-enters only their password to
   // unlock it (unlock mode), never a full re-login.
-  const [gate, setGate] = useState<"login" | "unlock" | "ready">(() => {
+  // FACE LOCK (Phase 2, 2026-11-28): when armed (enabled + passcode
+  // + face enrolled), the face/passcode screen sits AFTER the vault
+  // unlock and BEFORE the app — the passcode always unlocks, so the
+  // user is never locked out.
+  const [gate, setGate] = useState<"login" | "unlock" | "facelock" | "ready">(() => {
     if (!isLoggedIn()) return "login";
-    return isVaultUnlocked() ? "ready" : "unlock";
+    if (!isVaultUnlocked()) return "unlock";
+    const fl = loadFaceLock(secureAppStorage);
+    return fl.enabled && faceLockReady(fl) ? "facelock" : "ready";
   });
   const [gateUser, setGateUser] = useState<AuthUser | null>(() => getAuthUser());
   const [vaultNote, setVaultNote] = useState<string | null>(null);
@@ -90,7 +99,10 @@ function App() {
     } else {
       setVaultNote("میموری نہیں کھل سکی — پاسورڈ چیک کریں۔ میموری خالی دکھے گی، ختم نہیں ہوئی۔");
     }
-    setGate("ready");
+    // Face Lock gate (Phase 2): armed only when enabled + passcode
+    // + face enrolled; the passcode always unlocks.
+    const fl = loadFaceLock(secureAppStorage);
+    setGate(fl.enabled && faceLockReady(fl) ? "facelock" : "ready");
   }
 
   if (gate === "login") {
@@ -103,6 +115,9 @@ function App() {
         onDone={handleLoggedIn}
       />
     );
+  }
+  if (gate === "facelock") {
+    return <FaceLockScreen onUnlock={() => setGate("ready")} />;
   }
 
   return (

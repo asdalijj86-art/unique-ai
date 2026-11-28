@@ -15,11 +15,25 @@
  * seven agents with their LIVE status from the task board.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { secureAppStorage } from '@/lib/secure-app-storage';
 import { AGENT_DEFS, agentLabel, type AgentTaskState } from '../lib/agent-team';
 import { loadLearnings, saveLearnings, type Learning, type MemoryPersona } from '../lib/learnings';
 import { loadNotes, saveNotes, type Note } from '../lib/memory';
+import {
+  addVisualMemory,
+  deleteVisualMemory,
+  downscaleImageFile,
+  loadVisualMemories,
+  makeVisualMemory,
+  type VisualMemory,
+} from '../lib/visual-memories';
+import {
+  isSkillEnabled,
+  SKILL_LABELS,
+  type SkillKey,
+  type SkillsEnabledMap,
+} from '../lib/skills-toggle';
 import type { BoardEntry } from '../lib/task-board';
 
 // ---------------------------------------------------------------------------
@@ -76,6 +90,14 @@ export function MemoryPanel({
   /** Whose memory is being viewed. Starts on the speaking persona;
    *  switching here is view-only — it never calls onPersonaChange. */
   const [viewPersona, setViewPersona] = useState<MemoryPersona>(persona);
+  // Visual memories (Phase 2, Stonic v3.1.25): photo + its story.
+  const [visuals, setVisuals] = useState<VisualMemory[]>([]);
+  const [vmPhoto, setVmPhoto] = useState<string | null>(null);
+  const [vmStory, setVmStory] = useState('');
+  const [vmTitle, setVmTitle] = useState('');
+  const [vmNotice, setVmNotice] = useState('');
+  const [vmBusy, setVmBusy] = useState(false);
+  const vmFileRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = () => {
     try {
@@ -87,6 +109,11 @@ export function MemoryPanel({
       setLearnings(loadLearnings(secureAppStorage, viewPersona));
     } catch {
       setLearnings([]);
+    }
+    try {
+      setVisuals(loadVisualMemories(secureAppStorage).filter((m) => m.persona === viewPersona));
+    } catch {
+      setVisuals([]);
     }
   };
 
@@ -119,6 +146,38 @@ export function MemoryPanel({
     saveLearnings(secureAppStorage, next, viewPersona);
     setLearnings(next);
   };
+
+  async function onVmFile(file: File | undefined) {
+    if (!file) return;
+    setVmBusy(true);
+    setVmNotice('');
+    try {
+      const dataUrl = await downscaleImageFile(file);
+      setVmPhoto(dataUrl);
+      setVmNotice('تصویر تیار ہے — اب اس کی کہانی لکھیں۔');
+    } catch (e) {
+      setVmNotice(e instanceof Error ? e.message : 'تصویر تیار نہیں ہو سکی۔');
+    } finally {
+      setVmBusy(false);
+    }
+  }
+
+  function saveVisual() {
+    if (!vmPhoto) { setVmNotice('پہلے تصویر چنیں۔'); return; }
+    const made = makeVisualMemory(vmPhoto, vmStory, viewPersona, vmTitle);
+    if (!made) { setVmNotice('کہانی لکھیں — تصویر کی کہانی کے بغیر یادداشت نہیں بنتی۔'); return; }
+    const next = addVisualMemory(secureAppStorage, made);
+    setVisuals(next.filter((m) => m.persona === viewPersona));
+    setVmPhoto(null);
+    setVmStory('');
+    setVmTitle('');
+    setVmNotice('✅ تصویری یادداشت محفوظ ہو گئی۔');
+  }
+
+  function removeVisual(id: string) {
+    const next = deleteVisualMemory(secureAppStorage, id);
+    setVisuals(next.filter((m) => m.persona === viewPersona));
+  }
 
   return (
     <div className="upanel" data-testid="panel-memory" dir="rtl">
@@ -201,6 +260,80 @@ export function MemoryPanel({
       <button type="button" className="upanel-refresh" onClick={refresh} data-testid="button-memory-refresh">
         ↻ تازہ کریں
       </button>
+
+      {/* VISUAL MEMORIES (Phase 2, Stonic v3.1.25): a photo as a
+          memory, with its story. Photos are downscaled on the way
+          in; nothing leaves this device. */}
+      <div className="upanel-section-title">📷 تصویری یادیں</div>
+      <p className="upanel-empty">
+        کوئی تصویر یادداشت کے طور پر رکھیں — ساتھ اس کی کہانی۔ تصویر چھوٹی کر کے محفوظ ہوتی ہے۔
+      </p>
+      <input
+        ref={vmFileRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={(e) => { void onVmFile(e.target.files?.[0]); e.target.value = ''; }}
+        data-testid="input-visual-memory-photo"
+      />
+      {vmPhoto && (
+        <div className="uvmem-preview">
+          <img src={vmPhoto} alt="نئی تصویری یادداشت" className="uvmem-thumb" />
+        </div>
+      )}
+      <div className="uvmem-form">
+        <input
+          type="text"
+          value={vmTitle}
+          maxLength={80}
+          onChange={(e) => setVmTitle(e.target.value)}
+          placeholder="عنوان (اختیاری)"
+          data-testid="input-visual-memory-title"
+        />
+        <textarea
+          value={vmStory}
+          maxLength={500}
+          rows={2}
+          onChange={(e) => setVmStory(e.target.value)}
+          placeholder="اس تصویر کی کہانی لکھیں…"
+          data-testid="input-visual-memory-story"
+        />
+        <div className="uvmem-actions">
+          <button type="button" onClick={() => vmFileRef.current?.click()} disabled={vmBusy} data-testid="button-visual-memory-pick">
+            📷 تصویر چنیں
+          </button>
+          <button type="button" onClick={saveVisual} disabled={vmBusy || !vmPhoto} data-testid="button-visual-memory-save">
+            ✅ یادداشت محفوظ کریں
+          </button>
+        </div>
+      </div>
+      {vmNotice && (
+        <p className="upanel-empty" role="status" data-testid="visual-memory-notice">{vmNotice}</p>
+      )}
+      {visuals.length === 0 ? (
+        <p className="upanel-empty">ابھی کوئی تصویری یادداشت نہیں۔</p>
+      ) : (
+        <ul className="uvmem-list">
+          {visuals.map((m) => (
+            <li key={m.id} className="uvmem-item" data-testid={`visual-memory-${m.id}`}>
+              <img src={m.photo} alt={m.title || 'تصویری یادداشت'} className="uvmem-thumb" />
+              <span className="uvmem-body">
+                {m.title && <strong>{m.title} — </strong>}
+                <span>{m.story}</span>
+              </span>
+              <button
+                type="button"
+                className="upanel-item-delete"
+                onClick={() => removeVisual(m.id)}
+                aria-label="یہ تصویری یادداشت مٹائیں"
+                data-testid={`button-delete-visual-memory-${m.id}`}
+              >
+                🗑️
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -232,6 +365,9 @@ export function SkillsPanel({
   customSkills = [],
   onNewSkill,
   onDeleteSkill,
+  /** On/off map (Phase 2): missing = ON. */
+  skillsEnabled = {},
+  onToggleSkill,
 }: {
   onOpenStudio: (key: StudioKey) => void;
   onOpenFocus: (key: FocusViewKey) => void;
@@ -240,27 +376,59 @@ export function SkillsPanel({
   customSkills?: { id: string; name: string; description: string; instructions: string }[];
   onNewSkill?: () => void;
   onDeleteSkill?: (id: string) => void;
+  skillsEnabled?: SkillsEnabledMap;
+  onToggleSkill?: (key: SkillKey) => void;
 }) {
+  const customOn = isSkillEnabled(skillsEnabled, 'custom');
   return (
     <div className="upanel" data-testid="panel-skills" dir="rtl">
-      <p className="upanel-intro">یہ سب کچھ میں واقعی کر سکتا ہوں — کسی بھی چیز کو چھونے پر وہ کھل جائے گی۔</p>
+      <p className="upanel-intro">یہ سب کچھ میں واقعی کر سکتا ہوں — کسی بھی چیز کو چھونے پر وہ کھل جائے گی۔ ہر مہارت کا سوئچ بھی یہیں ہے — بند کریں تو وہ رک جاتی ہے، مٹتی نہیں۔</p>
       <div className="upanel-section-title">🛠️ اسٹوڈیو</div>
       <div className="uskills-grid">
-        {STUDIOS.map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            className="uskills-card"
-            onClick={() => onOpenStudio(s.key)}
-            data-testid={`button-skill-${s.key}`}
-          >
-            <span className="uskills-icon">{s.icon}</span>
-            <span className="uskills-label">{s.label}</span>
-            <span className="uskills-desc">{s.desc}</span>
-          </button>
-        ))}
+        {STUDIOS.map((s) => {
+          const on = isSkillEnabled(skillsEnabled, s.key);
+          return (
+            <div key={s.key} className={`uskills-wrap${on ? '' : ' off'}`}>
+              <button
+                type="button"
+                className="uskills-card"
+                onClick={() => onOpenStudio(s.key)}
+                disabled={!on}
+                aria-disabled={!on}
+                data-testid={`button-skill-${s.key}`}
+              >
+                <span className="uskills-icon">{s.icon}</span>
+                <span className="uskills-label">{s.label}</span>
+                <span className="uskills-desc">{on ? s.desc : 'بند ہے — سوئچ سے آن کریں'}</span>
+              </button>
+              {onToggleSkill && (
+                <button
+                  type="button"
+                  className={`uskills-toggle${on ? ' on' : ''}`}
+                  onClick={() => onToggleSkill(s.key)}
+                  aria-pressed={on}
+                  aria-label={`${SKILL_LABELS[s.key]} ${on ? 'بند کریں' : 'آن کریں'}`}
+                  data-testid={`button-skill-toggle-${s.key}`}
+                >
+                  {on ? '✅ آن ہے' : '⏸️ بند ہے'}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div className="upanel-section-title">✨ میری بنائی ہوئی مہارتیں</div>
+      {onToggleSkill && (
+        <button
+          type="button"
+          className={`uskills-toggle${customOn ? ' on' : ''}`}
+          onClick={() => onToggleSkill('custom')}
+          aria-pressed={customOn}
+          data-testid="button-skill-toggle-custom"
+        >
+          {customOn ? '✅ میری مہارتیں آن ہیں' : '⏸️ میری مہارتیں بند ہیں'}
+        </button>
+      )}
       {customSkills.length === 0 ? (
         <p className="upanel-empty">ابھی کوئی اپنی مہارت نہیں بنائی — نیچے والے بٹن سے بنائیں۔</p>
       ) : (
@@ -287,25 +455,43 @@ export function SkillsPanel({
         </ul>
       )}
       {onNewSkill && (
-        <button type="button" className="upanel-refresh" onClick={onNewSkill} data-testid="button-new-skill">
+        <button type="button" className="upanel-refresh" onClick={onNewSkill} disabled={!customOn} data-testid="button-new-skill">
           ＋ نئی مہارت بنائیں
         </button>
       )}
       <div className="upanel-section-title">📍 دیگر سہولتیں</div>
       <div className="uskills-grid">
-        {FOCUS_VIEWS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            className="uskills-card"
-            onClick={() => onOpenFocus(f.key)}
-            data-testid={`button-skill-${f.key}`}
-          >
-            <span className="uskills-icon">{f.icon}</span>
-            <span className="uskills-label">{f.label}</span>
-            <span className="uskills-desc">{f.desc}</span>
-          </button>
-        ))}
+        {FOCUS_VIEWS.map((f) => {
+          const on = isSkillEnabled(skillsEnabled, f.key);
+          return (
+            <div key={f.key} className={`uskills-wrap${on ? '' : ' off'}`}>
+              <button
+                type="button"
+                className="uskills-card"
+                onClick={() => onOpenFocus(f.key)}
+                disabled={!on}
+                aria-disabled={!on}
+                data-testid={`button-skill-${f.key}`}
+              >
+                <span className="uskills-icon">{f.icon}</span>
+                <span className="uskills-label">{f.label}</span>
+                <span className="uskills-desc">{on ? f.desc : 'بند ہے — سوئچ سے آن کریں'}</span>
+              </button>
+              {onToggleSkill && (
+                <button
+                  type="button"
+                  className={`uskills-toggle${on ? ' on' : ''}`}
+                  onClick={() => onToggleSkill(f.key)}
+                  aria-pressed={on}
+                  aria-label={`${SKILL_LABELS[f.key]} ${on ? 'بند کریں' : 'آن کریں'}`}
+                  data-testid={`button-skill-toggle-${f.key}`}
+                >
+                  {on ? '✅ آن ہے' : '⏸️ بند ہے'}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

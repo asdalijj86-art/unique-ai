@@ -58,6 +58,10 @@ const VAULT_KEYS = new Set([
   "unique-ai-notes-unique",
   "unique-ai-learnings",
   "unique-ai-learnings-unique",
+  // Face Lock (Phase 2, 2026-11-28): the face descriptor + passcode
+  // hash are biometric/auth material — encrypted like memory, never
+  // plaintext. No legacy plaintext copy exists for this key.
+  "unique-ai-face-lock",
 ]);
 // Legacy plaintext keys that migration consumes (owner only). The
 // bare localStorage keys have the SAME names as the vault keys — the

@@ -14,7 +14,7 @@
 export type PairDevice = { deviceId: string; name: string; type: string };
 export type PairPeer = { name: string; type: string; online?: boolean };
 export type PairMessage = {
-  kind: 'conversation' | 'command' | 'call';
+  kind: 'conversation' | 'command' | 'call' | 'sync';
   payload: any;
   from: { name: string; type: string };
   at: number;

@@ -27,6 +27,7 @@ import AwarenessBubble from './AwarenessBubble';
 import { wakeWordReasonLabel } from '../lib/wake-word';
 import type { WakeWordStatus } from '../lib/use-wake-word';
 import { AGENT_DEFS, agentLabel, type AgentDef, type AgentTaskState } from '../lib/agent-team';
+import { isRiskyStepLabel, narrateLineFor, type AgentStep } from '../lib/agent-steps';
 import type { BoardEntry } from '../lib/task-board';
 
 export type FrontNodeKey = 'memory' | 'skills' | 'character' | 'settings';
@@ -238,6 +239,10 @@ export function FrontStage({
   onMicClick,
   /** "Hey Unique" wake-word state for the listening indicator. */
   wakeWord,
+  /** Custom character (Phase 2): the active character's display
+   *  name — shown under the face instead of یونیکا/یونیک when set.
+   *  Default (unset) keeps the locked Uniqa/Unique names. */
+  characterName,
 }: {
   persona: 'unique' | 'uniqa';
   tone: 'neutral' | 'serious' | 'romantic';
@@ -248,6 +253,8 @@ export function FrontStage({
   faceState: 'listening' | 'thinking' | 'speaking' | 'ready';
   faceStateLabel: string;
   speakingText: string | null;
+  /** Custom character display name (Phase 2) — see above. */
+  characterName?: string;
   waveMode: WaveMode;
   recording: boolean;
   recordingLabel: string;
@@ -583,14 +590,14 @@ export function FrontStage({
 
       <div className="unique-name">
         <span className={`unique-name-text${persona === 'uniqa' ? ' uniqa' : ''}`}>
-          {persona === 'uniqa' ? 'یونیکا' : 'یونیک'}
+          {characterName ?? (persona === 'uniqa' ? 'یونیکا' : 'یونیک')}
         </span>
         <span
           className="unique-name-sub"
           dir="rtl"
           style={{ color: persona === 'uniqa' ? '#67e8f9' : undefined }}
         >
-          {persona === 'uniqa' ? '💛 یونیکا حاضر ہے' : 'یونیک حاضر ہے'}
+          {characterName ? `💛 ${characterName} حاضر ہے` : persona === 'uniqa' ? '💛 یونیکا حاضر ہے' : 'یونیک حاضر ہے'}
           {tone === 'serious' ? ' · سنجیدہ لہجہ' : tone === 'romantic' ? ' · رومینٹک لہجہ' : ''}
         </span>
         {(isSpeaking || isThinking || isPreparingVoice) && (
@@ -804,10 +811,18 @@ export function AgentWorkView({
   subject,
   boardEntries,
   onClose,
+  /** Phase 2 (computer-agent equivalent): the steps of this job,
+   *  with the current one speaking its narration. When a step is
+   *  risky the parent asks before it runs — the view only shows. */
+  steps = [],
+  /** Stop the job (the Stop button + Esc). Missing = no job running. */
+  onStop,
 }: {
   subject: AgentWorkSubject;
   boardEntries: BoardEntry[];
   onClose: () => void;
+  steps?: AgentStep[];
+  onStop?: () => void;
 }) {
   const initialQuery = subject.detail || subject.blurb;
   const [query, setQuery] = useState(initialQuery);
@@ -843,6 +858,19 @@ export function AgentWorkView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Esc: stop a running job, else close the view.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (subject.status === 'working' && onStop) onStop();
+      else onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [subject.status, onStop, onClose]);
+
+  const currentStep = steps.find((s) => s.status === 'active') ?? steps.find((s) => s.status === 'pending');
+
   const statusLabel =
     subject.status === 'working' ? 'کام کر رہا ہے'
     : subject.status === 'done' ? 'مکمل — رپورٹ چیٹ میں آ گئی ہے'
@@ -864,6 +892,18 @@ export function AgentWorkView({
             <span aria-hidden="true">{subject.icon}</span> {subject.label} کی اسکرین
           </span>
           <span className={`uwork-status uwork-status-${subject.status}`} dir="rtl">{statusLabel}</span>
+          {subject.status === 'working' && onStop && (
+            <button
+              type="button"
+              className="uwork-stop"
+              onClick={onStop}
+              data-testid="button-stop-agent-work"
+              aria-label="کام روکیں"
+              title="کام روکیں — Esc بھی یہی کرتا ہے"
+            >
+              ⏹ روکیں
+            </button>
+          )}
           <button type="button" className="uwork-close" onClick={onClose} aria-label="بند کریں" data-testid="button-close-agent-work">
             ✕
           </button>
@@ -872,6 +912,27 @@ export function AgentWorkView({
           <p className="uwork-task">
             <strong>کام:</strong> {subject.detail || subject.blurb}
           </p>
+          {steps.length > 0 && (
+            <div className="uwork-steps" data-testid="agent-work-steps">
+              <div className="upanel-section-title">📋 کام کے مراحل</div>
+              <ol className="uwork-steps-list">
+                {steps.map((s) => (
+                  <li key={s.id} className={`uwork-step uwork-step-${s.status}`}>
+                    <span aria-hidden="true">
+                      {s.status === 'done' ? '✅' : s.status === 'active' ? '🔄' : s.status === 'failed' ? '❌' : '⏳'}
+                    </span>
+                    <span className="uwork-step-label">{s.label}</span>
+                    {isRiskyStepLabel(s.label) && <span className="uwork-step-risky">⚠️ احتیاط والا مرحلہ</span>}
+                  </li>
+                ))}
+              </ol>
+              {currentStep && (
+                <p className="uwork-narration" data-testid="agent-work-narration">
+                  💬 {narrateLineFor(currentStep)}
+                </p>
+              )}
+            </div>
+          )}
           <form
             className="uwork-search"
             onSubmit={(e) => {

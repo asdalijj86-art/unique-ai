@@ -4034,3 +4034,186 @@ body {
 }
 .ufront-browser:hover { background: rgba(34, 211, 238, 0.22); }
 .ufront-power-row .ufront-browser { margin-top: 0; }
+
+/* ==========================================================================
+   PHASE 2 (2026-11-28, user order — all 19 Stonic gaps)
+   Visual memories, skills toggles, agent work steps, living wallpaper,
+   guided tour, changelog/plans/help/guide, characters, Face Lock,
+   phone remote, floating character, Your World briefing.
+   ========================================================================== */
+
+/* --- Visual memories (MemoryPanel) --- */
+.uvmem-preview { margin: 8px 0; }
+.uvmem-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 12px; border: 1px solid rgba(34, 211, 238, 0.35); display: block; }
+.uvmem-form { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.uvmem-form input[type="text"], .uvmem-form textarea {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  color: inherit; font-size: 13.5px; font-family: inherit;
+}
+.uvmem-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.uvmem-actions button {
+  padding: 7px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; font-family: inherit;
+  background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: inherit;
+}
+.uvmem-actions button:disabled { opacity: 0.45; cursor: default; }
+.uvmem-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.uvmem-item { display: flex; gap: 10px; align-items: flex-start; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 8px; }
+.uvmem-item .uvmem-thumb { width: 64px; height: 64px; flex: none; }
+.uvmem-body { flex: 1; font-size: 13.5px; line-height: 1.7; min-width: 0; }
+
+/* --- Skills toggles (SkillsPanel) --- */
+.uskills-wrap { display: flex; flex-direction: column; gap: 4px; }
+.uskills-wrap.off .uskills-card { opacity: 0.55; }
+.uskills-toggle {
+  padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 12px; font-family: inherit;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: inherit;
+}
+.uskills-toggle.on { background: rgba(52, 211, 153, 0.14); border-color: rgba(52, 211, 153, 0.45); }
+
+/* --- Agent work steps (AgentWorkView) --- */
+.uwork-stop {
+  padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 700; font-family: inherit;
+  background: rgba(244, 63, 94, 0.16); border: 1px solid rgba(244, 63, 94, 0.55); color: #fecdd3;
+}
+.uwork-steps { margin-top: 12px; }
+.uwork-steps-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.uwork-step { display: flex; gap: 8px; align-items: center; font-size: 13.5px; padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); }
+.uwork-step-active { border-color: rgba(56, 189, 248, 0.5); background: rgba(56, 189, 248, 0.09); }
+.uwork-step-done { opacity: 0.75; }
+.uwork-step-failed { border-color: rgba(244, 63, 94, 0.5); background: rgba(244, 63, 94, 0.08); }
+.uwork-step-label { flex: 1; }
+.uwork-step-risky { font-size: 11.5px; color: #fde68a; }
+.uwork-narration { margin: 10px 0 0; font-size: 13.5px; line-height: 1.7; color: #bae6fd; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 8px 10px; }
+
+/* --- Living wallpaper (in-app equivalent of Stonic's living
+   wallpaper: a slow, gentle glow behind the front — the front
+   itself is untouched). --- */
+.uliving-wallpaper {
+  background:
+    radial-gradient(600px 300px at 20% 10%, rgba(34, 211, 238, 0.12), transparent 70%),
+    radial-gradient(500px 300px at 85% 85%, rgba(168, 85, 247, 0.10), transparent 70%),
+    radial-gradient(400px 260px at 70% 15%, rgba(52, 211, 153, 0.08), transparent 70%);
+  animation: uliving-drift 24s ease-in-out infinite alternate;
+}
+@keyframes uliving-drift {
+  from { background-position: 0% 0%, 100% 100%, 80% 0%; }
+  to { background-position: 12% 8%, 88% 92%, 68% 12%; }
+}
+
+/* --- Guided tour + what's-new --- */
+.utour-overlay {
+  position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center;
+  background: rgba(2, 6, 23, 0.72); backdrop-filter: blur(2px);
+}
+.utour-card {
+  width: min(520px, 92vw); background: #0f172a; color: #e2e8f0; border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 18px; padding: 22px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.utour-progress { font-size: 12.5px; color: #7dd3fc; margin-bottom: 8px; }
+.utour-title { font-size: 18px; font-weight: 800; margin-bottom: 10px; }
+.utour-text { font-size: 14.5px; line-height: 1.9; margin: 0 0 18px; color: #cbd5e1; }
+.utour-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.utour-actions button {
+  padding: 8px 16px; border-radius: 999px; cursor: pointer; font-size: 13.5px; font-family: inherit;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: inherit;
+}
+.utour-actions .utour-next { background: rgba(56, 189, 248, 0.18); border-color: rgba(56, 189, 248, 0.5); font-weight: 700; }
+
+/* --- Changelog / plans / help / guide panels --- */
+.uchlog-entry { margin: 10px 0; padding: 10px 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
+.uchlog-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.uchlog-title { font-weight: 800; font-size: 14px; }
+.uchlog-date { font-size: 12px; color: #94a3b8; }
+.uchlog-notes, .uchlog-list { margin: 6px 0 0; padding-inline-start: 18px; font-size: 13.5px; line-height: 1.8; }
+.uplan-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+.uplan-card { padding: 12px; border-radius: 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); }
+.uplan-head { display: flex; justify-content: space-between; gap: 8px; }
+.uplan-name { font-weight: 800; font-size: 15px; }
+.uplan-price { font-weight: 800; color: #7dd3fc; }
+.uplan-tag { font-size: 12.5px; color: #a5b4fc; }
+.uplan-points { margin: 6px 0 0; padding-inline-start: 18px; font-size: 13.5px; line-height: 1.8; }
+.uhelp-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+.uhelp-item { padding: 10px 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
+.uhelp-q { font-weight: 800; font-size: 14px; margin-bottom: 4px; }
+.uhelp-a { font-size: 13.5px; line-height: 1.8; color: #cbd5e1; }
+.uguide-section { margin: 12px 0; }
+.uguide-list, .uguide-lines { margin: 6px 0 0; padding-inline-start: 18px; font-size: 13.5px; line-height: 1.9; }
+
+/* --- Characters panel --- */
+.uchar-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.uchar-base { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; cursor: pointer; font-family: inherit; font-size: 14px; text-align: start; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: inherit; }
+.uchar-base.active { border-color: rgba(34, 211, 238, 0.6); background: rgba(34, 211, 238, 0.1); }
+.uchar-icon { font-size: 20px; }
+.uchar-name { font-weight: 800; }
+.uchar-role { font-size: 12.5px; color: #94a3b8; }
+.uchar-voice { font-size: 12px; color: #7dd3fc; margin-top: 2px; }
+.uchar-actions { display: flex; gap: 6px; margin-inline-start: auto; }
+.uchar-actions button { background: transparent; border: none; cursor: pointer; font-size: 15px; padding: 4px; }
+.uchar-pick { padding: 8px 16px; border-radius: 999px; cursor: pointer; font-size: 13.5px; font-family: inherit; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: inherit; }
+.uchar-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.uchar-form input, .uchar-form select, .uchar-form textarea {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: inherit; font-size: 13.5px; font-family: inherit;
+}
+.uchar-roles { display: flex; gap: 6px; flex-wrap: wrap; }
+.uchar-role { padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-family: inherit; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: inherit; }
+.uchar-role.active { background: rgba(34, 211, 238, 0.16); border-color: rgba(34, 211, 238, 0.55); }
+.uchar-gender { display: flex; gap: 6px; }
+.uchar-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.uchar-form-actions { display: flex; gap: 8px; }
+.uchar-form-actions button { padding: 8px 16px; border-radius: 999px; cursor: pointer; font-size: 13.5px; font-family: inherit; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: inherit; }
+
+/* --- Face Lock --- */
+.uflock-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.uflock-row input {
+  padding: 8px 12px; border-radius: 10px; font-size: 16px; letter-spacing: 4px; text-align: center; width: 140px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: inherit; font-family: inherit;
+}
+.uflock-status { font-size: 13.5px; line-height: 1.8; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+.uflock-screen { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: #0b1220; color: #e2e8f0; }
+.uflock-screen-card { width: min(420px, 92vw); text-align: center; padding: 28px 22px; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 20px; background: rgba(255,255,255,0.03); }
+.uflock-screen-icon { font-size: 44px; }
+.uflock-screen-title { font-size: 20px; font-weight: 800; margin: 10px 0 6px; }
+.uflock-screen-text { font-size: 14px; line-height: 1.9; color: #cbd5e1; margin: 0 0 14px; }
+.uflock-screen-status { font-size: 13.5px; color: #7dd3fc; min-height: 20px; margin: 10px 0; }
+.uflock-screen-note { font-size: 12.5px; color: #94a3b8; line-height: 1.8; }
+.uflock-screen-or { font-size: 12.5px; color: #64748b; margin: 12px 0 4px; }
+
+/* --- Phone remote --- */
+.uremote-add { display: flex; gap: 8px; margin: 8px 0; }
+.uremote-add input {
+  flex: 1; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12); color: inherit; font-size: 13.5px; font-family: inherit;
+}
+.uremote-add button { padding: 8px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; font-family: inherit; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: inherit; }
+.uremote-status { font-size: 13px; color: #7dd3fc; min-height: 18px; }
+
+/* --- Floating character --- */
+.ufloat-char {
+  position: fixed; z-index: 110; width: 90px; cursor: grab; touch-action: none; user-select: none;
+  filter: drop-shadow(0 6px 18px rgba(34, 211, 238, 0.35));
+}
+.ufloat-char:active { cursor: grabbing; }
+.ufloat-char-face { animation: ufloat-breathe 6s ease-in-out infinite; }
+@keyframes ufloat-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+.ufloat-char-svg { width: 90px; height: 80px; display: block; }
+.ufloat-char-bar { display: flex; gap: 4px; justify-content: center; margin-top: 2px; }
+.ufloat-char-bar button {
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 13px;
+  background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(56, 189, 248, 0.45); color: #bae6fd;
+}
+.ufloat-char-name { font-size: 11px; text-align: center; color: #7dd3fc; margin-top: 2px; }
+.ufloat-char-hint { font-size: 10.5px; text-align: center; color: #64748b; }
+
+/* --- Your World briefing --- */
+.uworld-briefing { margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+.uworld-briefing-head { display: flex; align-items: center; gap: 8px; }
+.uworld-briefing-title { font-weight: 800; font-size: 14px; flex: 1; }
+.uworld-briefing-toggle { background: transparent; border: none; cursor: pointer; color: inherit; font-size: 13px; }
+.uworld-briefing-summary { font-size: 13px; line-height: 1.8; color: #cbd5e1; margin: 6px 0 0; }
+.uworld-briefing-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.uworld-briefing-item { font-size: 13.5px; line-height: 1.8; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; }
+.uworld-briefing-link { color: #7dd3fc; }
+.uworld-briefing-src { font-size: 12px; color: #64748b; margin: 8px 0 0; }
+.uworld-briefing-empty { font-size: 13px; color: #94a3b8; line-height: 1.8; margin: 6px 0 0; }
