@@ -38,6 +38,17 @@
  * stay soft. The image URL carries "?v=11" so his browser must
  * fetch the new image, never a stale cached one.
  *
+ * v12 (2026-11-28): the user approved v11's shape exactly
+ * ("bilkul bilkul bilkul theek bana hai") and asked only that the
+ * FACE show a little clearer, like in the screenshot. So the face
+ * oval alone gets a gentle lift toward white (18%, soft feathered
+ * ellipse over the detected face centre, rim untouched) — the face
+ * now reads as a soft oval instead of a dark hole, while the shape
+ * stays pixel-exact. The image URL carries "?v=12" so his browser
+ * must fetch the new image, never a stale cached one. The figure
+ * height stays 230px (the 768px page is not scrollable; the date
+ * bar is verified back in place).
+ *
  * She MOVES, gently and continuously (pure CSS animation, see .usil-*
  * in index.css): slow breathing glow (~7s) and one slow drift of the
  * whole mist (~11s). While she speaks the glow pulses a little faster.
@@ -61,7 +72,7 @@ export default function SilhouetteAvatar({
       <div className="usil-halo" aria-hidden="true" />
       <div className="usil-breathe">
         <div className="usil-drift">
-          <img src="/silhouette-mist.webp?v=11" className="usil-img" alt="" draggable={false} />
+          <img src="/silhouette-mist.webp?v=12" className="usil-img" alt="" draggable={false} />
         </div>
       </div>
     </div>
