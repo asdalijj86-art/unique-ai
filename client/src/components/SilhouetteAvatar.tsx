@@ -21,6 +21,19 @@
  * tests. So this version is fixed FIRST and verified against the
  * reference with my own eyes before he is asked to test it.)
  *
+ * v10 (2026-11-28): the user sent a CLEARER close-up reference
+ * (1000051941) and the careful re-look showed the real gaps in v9:
+ * v9's hair was swirly smoke curls, but the reference's hair is
+ * SMOOTH BROAD GENTLE WAVES; v9's face was front-facing, but the
+ * reference's face is THREE-QUARTER VIEW turned right, a soft
+ * shadowed oval with a bright rim on its right edge; v9's hair
+ * flowed far below the shoulders, but the reference is a COMPACT
+ * BUST — hair ending at the shoulders. The v10 image is a new
+ * generation matching exactly that, with its dark face oval gently
+ * lightened in post so it glows softly like the reference. The
+ * "?v=10" on the URL is a cache-buster: his browser must fetch the
+ * new image, never a stale cached one.
+ *
  * She MOVES, gently and continuously (pure CSS animation, see .usil-*
  * in index.css): slow breathing glow (~7s) and one slow drift of the
  * whole mist (~11s). While she speaks the glow pulses a little faster.
@@ -44,7 +57,7 @@ export default function SilhouetteAvatar({
       <div className="usil-halo" aria-hidden="true" />
       <div className="usil-breathe">
         <div className="usil-drift">
-          <img src="/silhouette-mist.webp" className="usil-img" alt="" draggable={false} />
+          <img src="/silhouette-mist.webp?v=10" className="usil-img" alt="" draggable={false} />
         </div>
       </div>
     </div>
