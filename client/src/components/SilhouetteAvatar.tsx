@@ -7,19 +7,25 @@
  * Stonic's assets (closed code), never a fetched image, never a face:
  * no eyes, no mouth, no features at all.
  *
- * The look (matching the reference EXACTLY — mist redraw 2026-11-28):
- * the figure is a LOW-OPACITY CLOUD, not a solid shape. Heavy blur
- * everywhere, no hard edge anywhere, no separate locks, no bright
- * core, no sparks, no shimmer. The head is a soft DARK patch inside
- * the mist, tilted slightly, rimmed by ONE faint arc of light on its
- * upper edge. The hair is ONE flowing mist mass sweeping down the
- * left side, with a softer fall on the right. The shoulders are wide
- * and soft and fade out at the bottom of the frame. Brightest wisp
- * is about 40% opacity. If it looks faint, THAT IS THE REFERENCE —
- * never sharpen it, never add definition to "help". (The 2026-11-28
- * locks redraw went the wrong way: five versions of ever clearer
- * separate locks, while the reference has no locks at all — only
- * mist. This version removes them entirely.)
+ * The look (matching the reference EXACTLY — mist redraws 2026-11-28):
+ * the figure is a LUMINOUS CLOUD sculpted from overlapping soft
+ * ellipses: crown, a LONG left fall in a clear vertical column, a
+ * shorter right fall, full back — the falls are denser columns
+ * INSIDE one cloud, no dark gaps between them, never separate
+ * locks. Thin light strands fan from the crown down both sides and
+ * show the direction of the flow. The face is SOFTLY LIT — a gentle
+ * glow, slightly brighter than the hair around it, tilted slightly,
+ * a touch higher so the hair has room to flow below it, rimmed by
+ * ONE faint arc of light on its upper edge and a soft dark rim under
+ * the chin. (v4's mistake, found in a side-by-side: the face was a
+ * DARK patch, a black hole in the mist, and the hair was too faint
+ * and too short — from the user's eyes it matched nothing at all.
+ * v5 removed the dark patch; v6 rebuilt the hair as overlapping
+ * ellipses; v7 narrowed the falls into vertical columns and lifted
+ * the face.) The shoulders are wide and soft and fade out at the
+ * bottom, with a brighter band along their top edge where the mist
+ * catches the light. If it looks faint, THAT IS THE REFERENCE —
+ * never sharpen it, never add definition to "help".
  *
  * She MOVES, gently and continuously (pure CSS animation, see
  * .usil-* in index.css): slow breathing glow (~7s) and one slow
@@ -51,13 +57,20 @@ export default function SilhouetteAvatar({
           <stop offset="100%" stopColor="#0e7490" stopOpacity="0" />
         </radialGradient>
         <linearGradient id="usil-mist-body" x1="0%" y1="0%" x2="30%" y2="100%">
-          <stop offset="0%" stopColor="#cffafe" stopOpacity="0.62" />
-          <stop offset="45%" stopColor="#67e8f9" stopOpacity="0.42" />
-          <stop offset="100%" stopColor="#155e75" stopOpacity="0.2" />
+          <stop offset="0%" stopColor="#cffafe" stopOpacity="0.75" />
+          <stop offset="45%" stopColor="#67e8f9" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="#155e75" stopOpacity="0.28" />
+        </linearGradient>
+        {/* The face is SOFTLY LIT in the reference — a gentle glow,
+            never a dark hole. Pale at the top, fading down. */}
+        <linearGradient id="usil-face-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#cffafe" stopOpacity="0.55" />
+          <stop offset="55%" stopColor="#67e8f9" stopOpacity="0.38" />
+          <stop offset="100%" stopColor="#155e75" stopOpacity="0.22" />
         </linearGradient>
         <linearGradient id="usil-mist-fade" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.48" />
-          <stop offset="70%" stopColor="#155e75" stopOpacity="0.24" />
+          <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.40" />
+          <stop offset="70%" stopColor="#155e75" stopOpacity="0.20" />
           <stop offset="100%" stopColor="#155e75" stopOpacity="0" />
         </linearGradient>
         <filter id="usil-mist" x="-40%" y="-40%" width="180%" height="180%">
@@ -80,31 +93,31 @@ export default function SilhouetteAvatar({
       <g className="usil-breathe">
         {/* The whole mist drifts as ONE cloud — never separate locks. */}
         <g className="usil-drift">
-          {/* Hair — ONE flowing mist mass, LEFT-HEAVY like the
-              reference: a long sweep down the left side past the
-              shoulder, a shorter fall on the right. No separate
-              locks, no gaps — one cloud. */}
-          <path
-            d="M200 34 C158 38 126 64 110 104 C98 138 84 184 70 224 C58 258 48 288 44 310 C66 304 88 290 100 264 C112 238 116 206 124 176 C132 146 142 118 162 96 C174 80 186 64 200 58 C220 62 238 78 250 100 C260 120 264 146 266 172 C268 196 264 214 256 228 C268 226 278 210 282 190 C288 164 284 134 272 108 C260 84 244 34 200 34 Z"
-            fill="url(#usil-mist-body)"
-            filter="url(#usil-mist)"
-            opacity="0.9"
-          />
-          {/* Smoke texture — a few lighter wisps inside the cloud,
-              following the left sweep, never gaps, never locks. */}
-          <ellipse cx="108" cy="172" rx="28" ry="70" fill="#a5f3fc" opacity="0.30" filter="url(#usil-mist-soft)" transform="rotate(16 108 172)" />
-          <ellipse cx="262" cy="140" rx="22" ry="48" fill="#a5f3fc" opacity="0.22" filter="url(#usil-mist-soft)" transform="rotate(-12 262 140)" />
-          <ellipse cx="196" cy="64" rx="46" ry="22" fill="#cffafe" opacity="0.30" filter="url(#usil-mist-soft)" />
-          <ellipse cx="72" cy="262" rx="24" ry="42" fill="#67e8f9" opacity="0.22" filter="url(#usil-mist-soft)" transform="rotate(16 72 262)" />
-
-          {/* Flow streaks — wide, soft, bright strands INSIDE the
-              mist that show the hair flowing down the left side,
-              like the reference. Same mist family, no dark gaps
-              between them, never separate locks. */}
+          {/* Hair — a flowing mist mass: crown, a LONG left fall in
+              a clear vertical column, a shorter right fall, full
+              back. The falls are denser columns INSIDE one cloud —
+              no dark gaps between them, never separate locks. */}
+          <g fill="url(#usil-mist-body)" filter="url(#usil-mist)" opacity="0.95">
+            <ellipse cx="200" cy="50" rx="70" ry="32" />
+            <ellipse cx="140" cy="98" rx="38" ry="54" transform="rotate(16 140 98)" />
+            <ellipse cx="104" cy="170" rx="30" ry="62" transform="rotate(12 104 170)" />
+            <ellipse cx="78" cy="248" rx="24" ry="56" transform="rotate(10 78 248)" />
+            <ellipse cx="260" cy="100" rx="34" ry="50" transform="rotate(-14 260 100)" />
+            <ellipse cx="280" cy="166" rx="26" ry="48" transform="rotate(-10 280 166)" />
+            <ellipse cx="288" cy="222" rx="22" ry="36" transform="rotate(-8 288 222)" />
+            <ellipse cx="200" cy="128" rx="66" ry="88" />
+          </g>
+          {/* Fine strands — thin light streaks fanning from the crown
+              down both sides, like the reference's flowing hair.
+              Same mist family, no dark gaps, never separate locks. */}
           <g fill="none" strokeLinecap="round" filter="url(#usil-mist)">
-            <path d="M192 52 C150 80 118 130 100 190 C86 236 74 262 66 284" stroke="#cffafe" strokeWidth="12" opacity="0.30" />
-            <path d="M214 62 C180 96 150 150 132 210 C122 240 112 258 104 272" stroke="#a5f3fc" strokeWidth="9" opacity="0.24" />
-            <path d="M232 72 C252 108 264 150 268 196" stroke="#a5f3fc" strokeWidth="8" opacity="0.20" />
+            <path d="M192 52 C150 80 118 130 100 190 C86 238 72 268 62 296" stroke="#cffafe" strokeWidth="10" opacity="0.40" />
+            <path d="M186 48 C140 90 104 150 84 220 C72 258 60 286 52 306" stroke="#cffafe" strokeWidth="7" opacity="0.30" />
+            <path d="M206 58 C170 100 140 160 122 224 C112 254 102 276 94 292" stroke="#67e8f9" strokeWidth="6" opacity="0.28" />
+            <path d="M214 62 C180 96 150 150 132 210 C122 240 112 260 104 276" stroke="#a5f3fc" strokeWidth="7" opacity="0.30" />
+            <path d="M232 72 C252 108 264 150 268 196" stroke="#a5f3fc" strokeWidth="6" opacity="0.26" />
+            <path d="M222 60 C246 92 262 130 270 172 C274 196 274 214 270 230" stroke="#cffafe" strokeWidth="5" opacity="0.24" />
+            <path d="M176 54 C140 84 116 126 102 176 C92 212 82 244 72 268" stroke="#a5f3fc" strokeWidth="4" opacity="0.26" />
           </g>
 
           {/* Shoulders — wide, soft, gently draped, fading out. */}
@@ -114,29 +127,44 @@ export default function SilhouetteAvatar({
             filter="url(#usil-mist)"
             opacity="0.95"
           />
+          {/* Brighter band along the top edge of the shoulders,
+              like the reference — the mist catches the light there. */}
+          <ellipse cx="200" cy="232" rx="130" ry="16" fill="#a5f3fc" opacity="0.30" filter="url(#usil-mist-soft)" />
 
-          {/* The head — a soft DARK patch inside the mist, tilted
-              slightly, FACELESS: no eyes, no mouth, no features. */}
+          {/* The face — SOFTLY LIT, like the reference: a gentle
+              glow, never a dark hole. FACELESS: no eyes, no mouth,
+              no features. Tilted slightly, a touch higher so the
+              hair has room to flow below it. A soft dark rim under
+              the chin keeps the oval nestled in the hair. */}
           <ellipse
             cx="204"
-            cy="108"
-            rx="38"
-            ry="50"
-            fill="#07222e"
-            opacity="0.38"
+            cy="100"
+            rx="34"
+            ry="46"
+            fill="url(#usil-face-glow)"
             filter="url(#usil-mist-head)"
-            transform="rotate(-8 204 108)"
+            transform="rotate(-8 204 100)"
+          />
+          <path
+            d="M172 130 C184 148 200 154 220 148 C234 142 242 130 244 118"
+            fill="none"
+            stroke="#06222e"
+            strokeWidth="6"
+            strokeLinecap="round"
+            opacity="0.35"
+            filter="url(#usil-mist-head)"
+            transform="rotate(-8 204 100)"
           />
           {/* One faint rim of light along the upper edge of the head. */}
           <path
-            d="M166 82 C176 60 192 50 208 50 C228 52 244 66 250 86"
+            d="M166 74 C176 52 192 42 208 42 C228 44 244 58 250 78"
             fill="none"
             stroke="#cffafe"
             strokeWidth="2.5"
             strokeLinecap="round"
             opacity="0.55"
             filter="url(#usil-rim)"
-            transform="rotate(-8 204 108)"
+            transform="rotate(-8 204 100)"
           />
         </g>
       </g>
