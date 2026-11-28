@@ -3775,41 +3775,31 @@ body {
   border: 1px solid rgba(239, 68, 68, 0.55); border-radius: 999px; cursor: pointer; font-family: inherit;
 }
 /* ---- The silhouette is ALIVE (pure CSS, gentle, continuous) ----
-   Breathing glow ~6s, hair swaying on three staggered rhythms,
-   a faint shimmer sweep, twinkling sparks. Speaking = faster
-   glow. Never fast, never distracting. */
-.usil-halo { animation: usil-halo 6s ease-in-out infinite; }
-@keyframes usil-halo { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
-.usil-svg.speaking .usil-halo { animation-duration: 2.2s; }
+   The mist breathes slowly (~7s) and drifts as ONE cloud (~11s).
+   No separate locks, no shimmer, no sparks — the reference is a
+   faint cloud, and the motion must keep it a cloud. Speaking =
+   faster glow. Never fast, never distracting. */
+.usil-halo { animation: usil-halo 8s ease-in-out infinite; }
+@keyframes usil-halo { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.9; } }
+.usil-svg.speaking .usil-halo { animation-duration: 2.6s; }
 .usil-breathe {
   transform-box: fill-box; transform-origin: 50% 62%;
-  animation: usil-breathe 6s ease-in-out infinite;
+  animation: usil-breathe 7s ease-in-out infinite;
 }
-@keyframes usil-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.018); } }
-.usil-sway-a, .usil-sway-b, .usil-sway-c { transform-box: fill-box; transform-origin: 50% 0%; }
-.usil-sway-a { animation: usil-sway 7s ease-in-out infinite; }
-.usil-sway-b { animation: usil-sway 8.5s ease-in-out infinite reverse; }
-.usil-sway-c { animation: usil-sway 9.5s ease-in-out infinite; }
-@keyframes usil-sway {
-  0%, 100% { transform: rotate(-1.1deg) translateX(0); }
-  50% { transform: rotate(1.1deg) translateX(2px); }
+@keyframes usil-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.012); } }
+.usil-drift {
+  transform-box: fill-box; transform-origin: 50% 0%;
+  animation: usil-drift 11s ease-in-out infinite alternate;
 }
-.usil-shimmer { animation: usil-shimmer-move 9s ease-in-out infinite; }
-@keyframes usil-shimmer-move {
-  0% { transform: translateX(0); opacity: 0; }
-  15% { opacity: 0.8; }
-  55% { transform: translateX(520px); opacity: 0; }
-  100% { transform: translateX(520px); opacity: 0; }
+@keyframes usil-drift {
+  0% { transform: translateX(-3px) rotate(-0.5deg); }
+  100% { transform: translateX(3px) rotate(0.5deg); }
 }
-.usil-twinkle { animation: usil-twinkle 3s ease-in-out infinite; }
-@keyframes usil-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 .usil-svg.terminated .usil-breathe, .usil-svg.terminated .usil-halo,
-.usil-svg.terminated .usil-sway-a, .usil-svg.terminated .usil-sway-b,
-.usil-svg.terminated .usil-sway-c, .usil-svg.terminated .usil-shimmer,
-.usil-svg.terminated .usil-twinkle { animation-play-state: paused; }
+.usil-svg.terminated .usil-drift { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  .usil-halo, .usil-breathe, .usil-sway-a, .usil-sway-b, .usil-sway-c,
-  .usil-shimmer, .usil-twinkle, .uwake-dot, .usil-mic.recording { animation: none; }
+  .usil-halo, .usil-breathe, .usil-drift,
+  .uwake-dot, .usil-mic.recording { animation: none; }
 }
 
 /* The camera LIVE pill on the face is a button now (tap to stop). */
