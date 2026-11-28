@@ -2,13 +2,13 @@
  * SilhouetteAvatar — Uniqa's new front avatar (user order 2026-11-28,
  * from his Stonic screenshot 1000051843_0_eumi.jpg).
  *
- * The face is OUR OWN generated mist image
- * (client/public/silhouette-mist.webp): a faint, luminous teal
- * silhouette — head + shoulders dissolving into soft smoke, long
- * flowing hair, FACELESS (no eyes, no mouth, no features). NEVER
- * Stonic's assets (closed code), never a fetched image. The image was
- * generated from a text description of the look, then cropped to the
- * head + shoulders + long falls, and converted so its black
+ * The face is an image (client/public/silhouette-mist.webp): a
+ * faint, luminous teal silhouette — head + shoulders dissolving
+ * into soft smoke, long flowing hair, FACELESS (no eyes, no mouth,
+ * no features). v8–v10 were generated from a text description of
+ * the look; v11 (below) is a crop of the figure from the user's own
+ * screenshot, by his explicit order. In every version the image is
+ * cropped to the head + shoulders and converted so its dark
  * background becomes transparency (luminance -> alpha) — it
  * composites straight onto the dark panel, no box, no blend hack.
  *
@@ -21,18 +21,22 @@
  * tests. So this version is fixed FIRST and verified against the
  * reference with my own eyes before he is asked to test it.)
  *
- * v10 (2026-11-28): the user sent a CLEARER close-up reference
- * (1000051941) and the careful re-look showed the real gaps in v9:
- * v9's hair was swirly smoke curls, but the reference's hair is
- * SMOOTH BROAD GENTLE WAVES; v9's face was front-facing, but the
- * reference's face is THREE-QUARTER VIEW turned right, a soft
- * shadowed oval with a bright rim on its right edge; v9's hair
- * flowed far below the shoulders, but the reference is a COMPACT
- * BUST — hair ending at the shoulders. The v10 image is a new
- * generation matching exactly that, with its dark face oval gently
- * lightened in post so it glows softly like the reference. The
- * "?v=10" on the URL is a cache-buster: his browser must fetch the
- * new image, never a stale cached one.
+ * v11 (2026-11-28): the user said v10 was "somewhat better" and
+ * ordered, twice over, the EXACT thing copied from his screenshot
+ * and pasted here ("bilkul same wahi cheez idhar se copy karo udhar
+ * laga do"). So this version IS his own screenshot's figure: the
+ * figure alone is cropped out of his clearer close-up reference
+ * (1000051941_0_z0h0.jpg) — no UI chrome, no text, no pills — and
+ * its dark background is converted to transparency (luminance ->
+ * alpha, with a black-point so the photo's dark panel stays fully
+ * transparent and no box shows). The crop is tight on the figure so
+ * it fills the panel like the reference, with a small transparent
+ * margin so the drift never clips the hair wisps. A gentle gamma
+ * lift (0.72) restores the reference's luminous read — the plain
+ * crop rendered too faint, a linear brighten blew the highlights
+ * out white — so the mid-tones rise while the bright wave edges
+ * stay soft. The image URL carries "?v=11" so his browser must
+ * fetch the new image, never a stale cached one.
  *
  * She MOVES, gently and continuously (pure CSS animation, see .usil-*
  * in index.css): slow breathing glow (~7s) and one slow drift of the
@@ -57,7 +61,7 @@ export default function SilhouetteAvatar({
       <div className="usil-halo" aria-hidden="true" />
       <div className="usil-breathe">
         <div className="usil-drift">
-          <img src="/silhouette-mist.webp?v=10" className="usil-img" alt="" draggable={false} />
+          <img src="/silhouette-mist.webp?v=11" className="usil-img" alt="" draggable={false} />
         </div>
       </div>
     </div>
